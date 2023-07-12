@@ -12,10 +12,10 @@ import spock.lang.Shared
 import static io.opentelemetry.api.trace.SpanKind.CONSUMER
 
 @Ignore("Does not work with localstack - X-Ray features needed")
-class S3CamelTest extends AgentInstrumentationSpecification {
+class S3CamelTest2 extends AgentInstrumentationSpecification {
 
   @Shared
-  AwsConnector awsConnector = AwsConnector.liveAws()
+  OldAwsConnector awsConnector = OldAwsConnector.liveAws()
 
   def "camel S3 producer - camel SQS consumer"() {
     setup:

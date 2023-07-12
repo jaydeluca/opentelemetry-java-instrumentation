@@ -19,20 +19,20 @@ class CamelSpringApplication {
   private ConfigurableApplicationContext context;
 
   CamelSpringApplication(
-      SqsConnector sqsConnector, Class<?> config, Map<String, Object> properties) {
+      AwsConnector awsConnector, Class<?> config, Map<String, Object> properties) {
     springApplication = new SpringApplication(config);
     springApplication.setDefaultProperties(properties);
-    injectClients(sqsConnector);
+    injectClients(awsConnector);
   }
 
-  private void injectClients(SqsConnector sqsConnector) {
+  private void injectClients(AwsConnector awsConnector) {
     springApplication.addInitializers(
         (ApplicationContextInitializer<AbstractApplicationContext>)
             applicationContext -> {
-              if (sqsConnector.getSqsClient() != null) {
+              if (awsConnector.getSqsClient() != null) {
                 applicationContext
                     .getBeanFactory()
-                    .registerSingleton("sqsClient", sqsConnector.getSqsClient());
+                    .registerSingleton("sqsClient", awsConnector.getSqsClient());
               }
             });
   }

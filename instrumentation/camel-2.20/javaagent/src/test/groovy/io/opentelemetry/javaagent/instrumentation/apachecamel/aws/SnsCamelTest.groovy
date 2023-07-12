@@ -15,7 +15,7 @@ import static io.opentelemetry.api.trace.SpanKind.CONSUMER
 class SnsCamelTest extends AgentInstrumentationSpecification {
 
   @Shared
-  AwsConnector awsConnector = AwsConnector.liveAws()
+  OldAwsConnector awsConnector = OldAwsConnector.liveAws()
 
   def "AWS SDK SNS producer - camel SQS consumer"() {
     setup:

@@ -17,13 +17,13 @@ class CamelSpringApp {
   private SpringApplication springApplication
   private ConfigurableApplicationContext context
 
-  CamelSpringApp(AwsConnector awsConnector, Class config, Map<String, String> properties) {
+  CamelSpringApp(OldAwsConnector awsConnector, Class config, Map<String, String> properties) {
     springApplication = new SpringApplication(config)
     springApplication.setDefaultProperties(properties)
     injectClients(awsConnector)
   }
 
-  private injectClients(AwsConnector awsConnector) {
+  private injectClients(OldAwsConnector awsConnector) {
     springApplication.addInitializers(new ApplicationContextInitializer<AbstractApplicationContext>() {
       @Override
       void initialize(AbstractApplicationContext applicationContext) {

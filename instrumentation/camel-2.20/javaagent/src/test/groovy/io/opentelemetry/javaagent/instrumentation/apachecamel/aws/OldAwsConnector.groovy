@@ -19,14 +19,14 @@ import com.amazonaws.services.sqs.model.GetQueueAttributesRequest
 import com.amazonaws.services.sqs.model.PurgeQueueRequest
 import com.amazonaws.services.sqs.model.ReceiveMessageRequest
 
-class AwsConnector {
+class OldAwsConnector {
 
   private AmazonSQSAsyncClient sqsClient
   private AmazonS3Client s3Client
   private AmazonSNSAsyncClient snsClient
 
   static liveAws() {
-    AwsConnector awsConnector = new AwsConnector()
+    OldAwsConnector awsConnector = new OldAwsConnector()
 
     awsConnector.sqsClient = AmazonSQSAsyncClient.asyncBuilder()
       .build()
