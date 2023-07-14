@@ -12,11 +12,13 @@ import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtens
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import java.util.HashMap;
 import java.util.Map;
+//import org.junit.Ignore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+//@Ignore("Does not work with localstack - X-Ray features needed")
 class SnsCamelTest {
 
   @RegisterExtension

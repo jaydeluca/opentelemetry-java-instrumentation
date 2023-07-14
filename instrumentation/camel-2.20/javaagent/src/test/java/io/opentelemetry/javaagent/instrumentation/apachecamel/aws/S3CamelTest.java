@@ -12,11 +12,13 @@ import com.amazonaws.services.sqs.model.PurgeQueueInProgressException;
 import com.google.common.collect.ImmutableMap;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
+//import org.junit.Ignore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+//@Ignore("Does not work with localstack - X-Ray features needed")
 public class S3CamelTest {
 
   @RegisterExtension

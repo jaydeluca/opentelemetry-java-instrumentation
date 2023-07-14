@@ -13,6 +13,8 @@ muzzle {
 
 val camelversion = "2.20.1" // first version that the tests pass on
 
+description = "camel-2-20"
+
 dependencies {
   library("org.apache.camel:camel-core:$camelversion")
   implementation("io.opentelemetry.contrib:opentelemetry-aws-xray-propagator")
