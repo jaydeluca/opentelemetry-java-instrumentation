@@ -28,6 +28,7 @@ class AwsSpan {
         "rpc.method" spanName.substring(3)
         "rpc.service" "Amazon S3"
         "aws.bucket.name" bucketName
+        "http.response_content_length" { it == null || it instanceof Long }
         "http.method" method
         "http.status_code" 200
         "http.url" String

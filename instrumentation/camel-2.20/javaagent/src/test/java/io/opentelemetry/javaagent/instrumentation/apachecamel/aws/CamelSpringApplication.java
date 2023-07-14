@@ -34,6 +34,16 @@ class CamelSpringApplication {
                     .getBeanFactory()
                     .registerSingleton("sqsClient", awsConnector.getSqsClient());
               }
+              if (awsConnector.getS3Client() != null) {
+                applicationContext
+                    .getBeanFactory()
+                    .registerSingleton("s3Client", awsConnector.getS3Client());
+              }
+              if (awsConnector.getSnsClient() != null) {
+                applicationContext
+                    .getBeanFactory()
+                    .registerSingleton("snsClient", awsConnector.getSnsClient());
+              }
             });
   }
 

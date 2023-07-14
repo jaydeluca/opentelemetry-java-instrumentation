@@ -11,12 +11,16 @@ import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.BucketNotificationConfiguration;
+import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.QueueConfiguration;
 import com.amazonaws.services.s3.model.S3Event;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.amazonaws.services.s3.model.SetBucketNotificationConfigurationRequest;
-import com.amazonaws.services.sqs.AmazonSQS;
+import com.amazonaws.services.sns.AmazonSNSAsyncClient;
+import com.amazonaws.services.sns.model.CreateTopicResult;
 import com.amazonaws.services.sqs.AmazonSQSAsyncClient;
 import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
+import com.amazonaws.services.sqs.model.PurgeQueueRequest;
 import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
 import com.amazonaws.services.sqs.model.SendMessageRequest;
 import io.opentelemetry.instrumentation.test.utils.PortUtils;
@@ -24,14 +28,6 @@ import org.elasticmq.rest.sqs.SQSRestServer;
 import org.elasticmq.rest.sqs.SQSRestServerBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.util.Collections;
 import java.util.EnumSet;
 
@@ -39,34 +35,11 @@ class AwsConnector {
 
   private AmazonSQSAsyncClient sqsClient;
   private AmazonS3Client s3Client;
-//  private AmazonSNSAsyncClient snsClient;
+  private AmazonSNSAsyncClient snsClient;
 
 
-  static AwsConnector allServices() throws NoSuchAlgorithmException, KeyManagementException {
-
-    TrustManager[] trustAllCerts = new TrustManager[] {
-        new X509TrustManager() {
-          @Override
-          public X509Certificate[] getAcceptedIssuers() {
-            return null;
-          }
-          @Override
-          public void checkClientTrusted(X509Certificate[] certs, String authType) {
-          }
-          @Override
-          public void checkServerTrusted(X509Certificate[] certs, String authType) {
-          }
-        }
-    };
-
+  static AwsConnector allServices() {
     AwsConnector awsConnector = new AwsConnector();
-
-    SSLContext sslContext = SSLContext.getInstance("TLS");
-    sslContext.init(null, trustAllCerts, new SecureRandom());
-
-    // Set the SSL context as the default SSL socket factory
-    HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory());
-
 
     awsConnector.sqsClient = (AmazonSQSAsyncClient) AmazonSQSAsyncClient.asyncBuilder()
         .withCredentials(new DefaultAWSCredentialsProviderChain())
@@ -76,23 +49,44 @@ class AwsConnector {
         .withCredentials(new DefaultAWSCredentialsProviderChain())
         .build();
 
-//    awsConnector.snsClient = (AmazonSNSAsyncClient) AmazonSNSAsyncClient.asyncBuilder()
-//        .build();
+    awsConnector.snsClient = (AmazonSNSAsyncClient) AmazonSNSAsyncClient.asyncBuilder()
+        .build();
 
     return awsConnector;
   }
 
   void createBucket(String bucketName) {
-    logger.info("Create bucket ${bucketName}");
+    logger.info("Create bucket  " + bucketName);
     s3Client.createBucket(bucketName);
   }
 
+  void deleteBucket(String bucketName) {
+    logger.info("Delete bucket " + bucketName);
+    ObjectListing objectListing = s3Client.listObjects(bucketName);
+    for (S3ObjectSummary s3ObjectSummary : objectListing.getObjectSummaries()) {
+      s3Client.deleteObject(bucketName, s3ObjectSummary.getKey());
+    }
+    s3Client.deleteBucket(bucketName);
+  }
+
   String getQueueArn(String queueUrl) {
-    logger.info("Get ARN for queue ${queueUrl}");
+    logger.info("Get ARN for queue " + queueUrl);
     return sqsClient.getQueueAttributes(
             new GetQueueAttributesRequest(queueUrl)
                 .withAttributeNames("QueueArn")).getAttributes()
         .get("QueueArn");
+  }
+
+  void purgeQueue(String queueUrl) {
+    logger.info("Purge queue " + queueUrl);
+    sqsClient.purgeQueue(new PurgeQueueRequest(queueUrl));
+  }
+
+  String createTopicAndSubscribeQueue(String topicName, String queueArn) {
+    logger.info("Create topic "+topicName+" and subscribe to queue "+queueArn);
+    CreateTopicResult ctr = snsClient.createTopic(topicName);
+    snsClient.subscribe(ctr.getTopicArn(), "sqs", queueArn);
+    return ctr.getTopicArn();
   }
 
   private static String getSqsPolicy(String resource) {
@@ -103,12 +97,12 @@ class AwsConnector {
   }
 
   void setQueuePublishingPolicy(String queueUrl, String queueArn) {
-    logger.info("Set policy for queue ${queueArn}");
+    logger.info("Set policy for queue " + queueArn);
     sqsClient.setQueueAttributes(queueUrl, Collections.singletonMap("Policy", getSqsPolicy(queueArn)));
   }
 
   void enableS3ToSqsNotifications(String bucketName, String sqsQueueArn) {
-    logger.info("Enable notification for bucket ${bucketName} to queue ${sqsQueueArn}");
+    logger.info("Enable notification for bucket " + bucketName + " to queue " + sqsQueueArn);
     BucketNotificationConfiguration notificationConfiguration = new BucketNotificationConfiguration();
     notificationConfiguration.addConfiguration("sqsQueueConfig",
         new QueueConfiguration(sqsQueueArn, EnumSet.of(S3Event.ObjectCreatedByPut)));
@@ -160,7 +154,15 @@ class AwsConnector {
     }
   }
 
-  AmazonSQS getSqsClient() {
+  AmazonSQSAsyncClient getSqsClient() {
     return sqsClient;
+  }
+
+  AmazonS3Client getS3Client() {
+    return s3Client;
+  }
+
+  AmazonSNSAsyncClient getSnsClient() {
+    return snsClient;
   }
 }

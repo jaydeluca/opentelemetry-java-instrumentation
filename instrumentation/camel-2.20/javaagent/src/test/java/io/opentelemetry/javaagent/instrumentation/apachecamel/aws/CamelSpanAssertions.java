@@ -57,4 +57,18 @@ class CamelSpanAssertions {
                 SemanticAttributes.MESSAGING_MESSAGE_ID,
                 stringAssert -> stringAssert.isInstanceOf(String.class)));
   }
+
+  static void s3(SpanDataAssert span, int index, SpanData parentSpan, String bucketName) {
+    if (index == 0) {
+      span.hasNoParent();
+    } else {
+      span.hasParentSpanId(parentSpan.getSpanId());
+    }
+    span.hasName("aws-s3")
+        .hasKind(SpanKind.INTERNAL)
+        .hasAttributesSatisfying(
+            equalTo(
+                stringKey("camel.uri"),
+                "aws-s3://" + bucketName + "?amazonS3Client=%23s3Client"));
+  }
 }

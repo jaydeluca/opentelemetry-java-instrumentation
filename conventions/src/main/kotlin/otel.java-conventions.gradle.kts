@@ -286,8 +286,8 @@ tasks.withType<Test>().configureEach {
 
   val trustStore = project(":testing-common").file("src/misc/testing-keystore.p12")
   // Work around payara not working when this is set for some reason.
-  if (project.name != "jaxrs-2.0-payara-testing") {
-    jvmArgumentProviders.add(KeystoreArgumentsProvider(trustStore))
+  if (project.name != "jaxrs-2.0-payara-testing" && project.name != "camel-2.20") {
+//    jvmArgumentProviders.add(KeystoreArgumentsProvider(trustStore))
   }
 
   // All tests must complete within 15 minutes.

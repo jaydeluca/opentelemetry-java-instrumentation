@@ -12,7 +12,7 @@ import spock.lang.Shared
 import static io.opentelemetry.api.trace.SpanKind.CONSUMER
 
 @Ignore("Does not work with localstack - X-Ray features needed")
-class SnsCamelTest extends AgentInstrumentationSpecification {
+class SnsCamelTest2 extends AgentInstrumentationSpecification {
 
   @Shared
   OldAwsConnector awsConnector = OldAwsConnector.liveAws()

@@ -52,7 +52,7 @@ class CamelSpan {
     }
   }
 
-  static s3(TraceAssert traceAssert, int index, parentSpan = null) {
+  static s3(TraceAssert traceAssert, int index, parentSpan = null, String bucketName) {
     return traceAssert.span(index) {
       name "aws-s3"
       kind INTERNAL
