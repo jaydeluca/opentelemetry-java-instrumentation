@@ -22,10 +22,10 @@ public class S3CamelTest {
   @RegisterExtension
   public static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
-  public static AwsConnector awsConnector = AwsConnector.allServices();
-
+  public static AwsConnector awsConnector = AwsConnector.liveAws();
   private static final Logger logger = LoggerFactory.getLogger(S3CamelTest.class);
 
+  // To account for any delay interacting with real AWS environment
   private static final int sqsDelay = 10000;
 
   private static void waitAndClearSetupTraces(
@@ -100,12 +100,6 @@ public class S3CamelTest {
             trace.hasSpansSatisfyingExactly(
                 span ->
                     AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl, null, CLIENT)),
-        //        // camel polling
-        //        trace ->
-        //            trace.hasSpansSatisfyingExactly(
-        //                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl,
-        // null, CLIENT)
-        //            ),
         // camel cleaning received msg
         trace ->
             trace.hasSpansSatisfyingExactly(

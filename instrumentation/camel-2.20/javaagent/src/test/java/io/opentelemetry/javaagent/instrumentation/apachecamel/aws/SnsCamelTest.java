@@ -24,7 +24,7 @@ class SnsCamelTest {
 
   private static final Logger logger = LoggerFactory.getLogger(SnsCamelTest.class);
 
-  private static final AwsConnector awsConnector = AwsConnector.allServices();
+  private static final AwsConnector awsConnector = AwsConnector.liveAws();
 
   @Test
   void awsSdkSnsProducerToCamelSqsConsumer() {

@@ -32,12 +32,33 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 class AwsConnector {
-
+  private static final Logger logger = LoggerFactory.getLogger(AwsConnector.class);
   private AmazonSQSAsyncClient sqsClient;
   private AmazonS3Client s3Client;
   private AmazonSNSAsyncClient snsClient;
+  private SQSRestServer sqsRestServer;
 
-  static AwsConnector allServices() {
+  static AwsConnector elasticMq() {
+    AwsConnector awsConnector = new AwsConnector();
+    int sqsPort = PortUtils.findOpenPort();
+    awsConnector.sqsRestServer =
+        SQSRestServerBuilder.withPort(sqsPort).withInterface("localhost").start();
+
+    AWSStaticCredentialsProvider credentials =
+        new AWSStaticCredentialsProvider(new BasicAWSCredentials("x", "x"));
+    AwsClientBuilder.EndpointConfiguration endpointConfiguration =
+        new AwsClientBuilder.EndpointConfiguration("http://localhost:" + sqsPort, "elasticmq");
+    awsConnector.sqsClient =
+        (AmazonSQSAsyncClient)
+            AmazonSQSAsyncClient.asyncBuilder()
+                .withCredentials(credentials)
+                .withEndpointConfiguration(endpointConfiguration)
+                .build();
+
+    return awsConnector;
+  }
+
+  static AwsConnector liveAws() {
     AwsConnector awsConnector = new AwsConnector();
 
     awsConnector.sqsClient =
@@ -71,42 +92,6 @@ class AwsConnector {
     s3Client.deleteBucket(bucketName);
   }
 
-  String getQueueArn(String queueUrl) {
-    logger.info("Get ARN for queue " + queueUrl);
-    return sqsClient
-        .getQueueAttributes(new GetQueueAttributesRequest(queueUrl).withAttributeNames("QueueArn"))
-        .getAttributes()
-        .get("QueueArn");
-  }
-
-  void publishSampleNotification(String topicArn) {
-    snsClient.publish(topicArn, "Hello There");
-  }
-
-  void purgeQueue(String queueUrl) {
-    logger.info("Purge queue " + queueUrl);
-    sqsClient.purgeQueue(new PurgeQueueRequest(queueUrl));
-  }
-
-  String createTopicAndSubscribeQueue(String topicName, String queueArn) {
-    logger.info("Create topic " + topicName + " and subscribe to queue " + queueArn);
-    CreateTopicResult ctr = snsClient.createTopic(topicName);
-    snsClient.subscribe(ctr.getTopicArn(), "sqs", queueArn);
-    return ctr.getTopicArn();
-  }
-
-  private static String getSqsPolicy(String resource) {
-    return String.format(
-        "{\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": \"*\", \"Action\": \"sqs:SendMessage\", \"Resource\": \"%s\"}]}",
-        resource);
-  }
-
-  void setQueuePublishingPolicy(String queueUrl, String queueArn) {
-    logger.info("Set policy for queue " + queueArn);
-    sqsClient.setQueueAttributes(
-        queueUrl, Collections.singletonMap("Policy", getSqsPolicy(queueArn)));
-  }
-
   void enableS3ToSqsNotifications(String bucketName, String sqsQueueArn) {
     logger.info("Enable notification for bucket " + bucketName + " to queue " + sqsQueueArn);
     BucketNotificationConfiguration notificationConfiguration =
@@ -118,28 +103,29 @@ class AwsConnector {
         new SetBucketNotificationConfigurationRequest(bucketName, notificationConfiguration));
   }
 
-  private static final Logger logger = LoggerFactory.getLogger(AwsConnector.class);
+  String getQueueArn(String queueUrl) {
+    logger.info("Get ARN for queue " + queueUrl);
+    return sqsClient
+        .getQueueAttributes(new GetQueueAttributesRequest(queueUrl).withAttributeNames("QueueArn"))
+        .getAttributes()
+        .get("QueueArn");
+  }
 
-  private SQSRestServer sqsRestServer;
+  private static String getSqsPolicy(String resource) {
+    return String.format(
+        "{\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": \"*\", \"Action\": \"sqs:SendMessage\", \"Resource\": \"%s\"}]}",
+        resource);
+  }
 
-  static AwsConnector elasticMq() {
-    AwsConnector awsConnector = new AwsConnector();
-    int sqsPort = PortUtils.findOpenPort();
-    awsConnector.sqsRestServer =
-        SQSRestServerBuilder.withPort(sqsPort).withInterface("localhost").start();
+  void purgeQueue(String queueUrl) {
+    logger.info("Purge queue " + queueUrl);
+    sqsClient.purgeQueue(new PurgeQueueRequest(queueUrl));
+  }
 
-    AWSStaticCredentialsProvider credentials =
-        new AWSStaticCredentialsProvider(new BasicAWSCredentials("x", "x"));
-    AwsClientBuilder.EndpointConfiguration endpointConfiguration =
-        new AwsClientBuilder.EndpointConfiguration("http://localhost:" + sqsPort, "elasticmq");
-    awsConnector.sqsClient =
-        (AmazonSQSAsyncClient)
-            AmazonSQSAsyncClient.asyncBuilder()
-                .withCredentials(credentials)
-                .withEndpointConfiguration(endpointConfiguration)
-                .build();
-
-    return awsConnector;
+  void setQueuePublishingPolicy(String queueUrl, String queueArn) {
+    logger.info("Set policy for queue " + queueArn);
+    sqsClient.setQueueAttributes(
+        queueUrl, Collections.singletonMap("Policy", getSqsPolicy(queueArn)));
   }
 
   String createQueue(String queueName) {
@@ -161,6 +147,17 @@ class AwsConnector {
     if (sqsRestServer != null) {
       sqsRestServer.stopAndWait();
     }
+  }
+
+  void publishSampleNotification(String topicArn) {
+    snsClient.publish(topicArn, "Hello There");
+  }
+
+  String createTopicAndSubscribeQueue(String topicName, String queueArn) {
+    logger.info("Create topic " + topicName + " and subscribe to queue " + queueArn);
+    CreateTopicResult ctr = snsClient.createTopic(topicName);
+    snsClient.subscribe(ctr.getTopicArn(), "sqs", queueArn);
+    return ctr.getTopicArn();
   }
 
   AmazonSQSAsyncClient getSqsClient() {
