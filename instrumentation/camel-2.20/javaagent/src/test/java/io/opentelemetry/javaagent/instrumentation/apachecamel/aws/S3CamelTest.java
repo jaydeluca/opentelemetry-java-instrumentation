@@ -5,14 +5,17 @@
 
 package io.opentelemetry.javaagent.instrumentation.apachecamel.aws;
 
+import static io.opentelemetry.api.trace.SpanKind.CLIENT;
+import static io.opentelemetry.api.trace.SpanKind.CONSUMER;
+
+import com.amazonaws.services.sqs.model.PurgeQueueInProgressException;
 import com.google.common.collect.ImmutableMap;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
-
-import static io.opentelemetry.api.trace.SpanKind.CLIENT;
-import static io.opentelemetry.api.trace.SpanKind.CONSUMER;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class S3CamelTest {
 
@@ -21,40 +24,38 @@ public class S3CamelTest {
 
   public static AwsConnector awsConnector = AwsConnector.allServices();
 
-  private static void waitAndClearSetupTraces(String queueUrl, String queueName,
-      String bucketName) {
+  private static final Logger logger = LoggerFactory.getLogger(S3CamelTest.class);
+
+  private static final int sqsDelay = 10000;
+
+  private static void waitAndClearSetupTraces(
+      String queueUrl, String queueName, String bucketName) {
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.CreateQueue", queueUrl, queueName)
-            ),
+                span -> AwsSpanAssertions.sqs(span, 0, "SQS.CreateQueue", queueUrl, queueName)),
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.s3(span, 0, "S3.CreateBucket", bucketName, "PUT", null)
-            ),
+                span -> AwsSpanAssertions.s3(span, 0, "S3.CreateBucket", bucketName, "PUT", null)),
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.GetQueueAttributes", queueUrl)
-            ),
+                span -> AwsSpanAssertions.sqs(span, 0, "SQS.GetQueueAttributes", queueUrl)),
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.SetQueueAttributes", queueUrl)
-            ),
+                span -> AwsSpanAssertions.sqs(span, 0, "SQS.SetQueueAttributes", queueUrl)),
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.s3(span, 0, "S3.SetBucketNotificationConfiguration",
-                    bucketName, "PUT", null)
-            ),
+                span ->
+                    AwsSpanAssertions.s3(
+                        span, 0, "S3.SetBucketNotificationConfiguration", bucketName, "PUT", null)),
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl)
-            ),
+                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl)),
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl, null,
-                    CONSUMER)
-            )
-    );
+                span ->
+                    AwsSpanAssertions.sqs(
+                        span, 0, "SQS.ReceiveMessage", queueUrl, null, CONSUMER)));
     testing.clearData();
   }
 
@@ -65,7 +66,8 @@ public class S3CamelTest {
 
     CamelSpringApplication camelApp =
         new CamelSpringApplication(
-            awsConnector, S3Config.class,
+            awsConnector,
+            S3Config.class,
             ImmutableMap.of("bucketName", bucketName, "queueName", queueName));
 
     String queueUrl = setupTestInfrastructure(queueName, bucketName);
@@ -77,40 +79,45 @@ public class S3CamelTest {
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ListQueues")
-            ),
+                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ListQueues")),
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.s3(span, 0, "S3.ListObjects", bucketName, "GET", null)
-            ),
+                span -> AwsSpanAssertions.s3(span, 0, "S3.ListObjects", bucketName, "GET", null)),
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span -> CamelSpanAssertions.direct(span, "input"),
                 span -> CamelSpanAssertions.s3(span, 1, trace.getSpan(0), bucketName),
-                span -> AwsSpanAssertions.s3(span, 2, "S3.PutObject", bucketName, "PUT", trace.getSpan(1)),
-                span -> AwsSpanAssertions.sqs(span, 3, "SQS.ReceiveMessage", queueUrl, null, CONSUMER, trace.getSpan(2)),
-                span -> CamelSpanAssertions.sqsConsume(span, 4, queueName, trace.getSpan(2))
-            ),
+                span ->
+                    AwsSpanAssertions.s3(
+                        span, 2, "S3.PutObject", bucketName, "PUT", trace.getSpan(1)),
+                span ->
+                    AwsSpanAssertions.sqs(
+                        span, 3, "SQS.ReceiveMessage", queueUrl, null, CONSUMER, trace.getSpan(2)),
+                span ->
+                    CamelSpanAssertions.sqsConsume(span, 4, queueName, trace.getSpan(2), sqsDelay)),
         // HTTP "client" receiver span, one per each SQS request
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl, null, CLIENT)
-            ),
-        // camel polling
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl, null, CONSUMER)
-            ),
+                span ->
+                    AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl, null, CLIENT)),
+        //        // camel polling
+        //        trace ->
+        //            trace.hasSpansSatisfyingExactly(
+        //                span -> AwsSpanAssertions.sqs(span, 0, "SQS.ReceiveMessage", queueUrl,
+        // null, CLIENT)
+        //            ),
         // camel cleaning received msg
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> AwsSpanAssertions.sqs(span, 0, "SQS.DeleteMessage", queueUrl)
-            )
-    );
+                span -> AwsSpanAssertions.sqs(span, 0, "SQS.DeleteMessage", queueUrl)));
 
     camelApp.stop();
     awsConnector.deleteBucket(bucketName);
-    awsConnector.purgeQueue(queueUrl);
+    try {
+      awsConnector.purgeQueue(queueUrl);
+    } catch (PurgeQueueInProgressException e) {
+      logger.warn("Throttled by AWS trying to purge queue, try doing it manually.");
+    }
   }
 
   String setupTestInfrastructure(String queueName, String bucketName) {

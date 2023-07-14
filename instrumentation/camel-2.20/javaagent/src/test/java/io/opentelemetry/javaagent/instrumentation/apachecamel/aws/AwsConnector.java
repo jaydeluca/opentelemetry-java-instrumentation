@@ -24,12 +24,12 @@ import com.amazonaws.services.sqs.model.PurgeQueueRequest;
 import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
 import com.amazonaws.services.sqs.model.SendMessageRequest;
 import io.opentelemetry.instrumentation.test.utils.PortUtils;
+import java.util.Collections;
+import java.util.EnumSet;
 import org.elasticmq.rest.sqs.SQSRestServer;
 import org.elasticmq.rest.sqs.SQSRestServerBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.util.Collections;
-import java.util.EnumSet;
 
 class AwsConnector {
 
@@ -37,20 +37,22 @@ class AwsConnector {
   private AmazonS3Client s3Client;
   private AmazonSNSAsyncClient snsClient;
 
-
   static AwsConnector allServices() {
     AwsConnector awsConnector = new AwsConnector();
 
-    awsConnector.sqsClient = (AmazonSQSAsyncClient) AmazonSQSAsyncClient.asyncBuilder()
-        .withCredentials(new DefaultAWSCredentialsProviderChain())
-        .build();
+    awsConnector.sqsClient =
+        (AmazonSQSAsyncClient)
+            AmazonSQSAsyncClient.asyncBuilder()
+                .withCredentials(new DefaultAWSCredentialsProviderChain())
+                .build();
 
-    awsConnector.s3Client = (AmazonS3Client) AmazonS3Client.builder()
-        .withCredentials(new DefaultAWSCredentialsProviderChain())
-        .build();
+    awsConnector.s3Client =
+        (AmazonS3Client)
+            AmazonS3Client.builder()
+                .withCredentials(new DefaultAWSCredentialsProviderChain())
+                .build();
 
-    awsConnector.snsClient = (AmazonSNSAsyncClient) AmazonSNSAsyncClient.asyncBuilder()
-        .build();
+    awsConnector.snsClient = (AmazonSNSAsyncClient) AmazonSNSAsyncClient.asyncBuilder().build();
 
     return awsConnector;
   }
@@ -71,10 +73,14 @@ class AwsConnector {
 
   String getQueueArn(String queueUrl) {
     logger.info("Get ARN for queue " + queueUrl);
-    return sqsClient.getQueueAttributes(
-            new GetQueueAttributesRequest(queueUrl)
-                .withAttributeNames("QueueArn")).getAttributes()
+    return sqsClient
+        .getQueueAttributes(new GetQueueAttributesRequest(queueUrl).withAttributeNames("QueueArn"))
+        .getAttributes()
         .get("QueueArn");
+  }
+
+  void publishSampleNotification(String topicArn) {
+    snsClient.publish(topicArn, "Hello There");
   }
 
   void purgeQueue(String queueUrl) {
@@ -83,7 +89,7 @@ class AwsConnector {
   }
 
   String createTopicAndSubscribeQueue(String topicName, String queueArn) {
-    logger.info("Create topic "+topicName+" and subscribe to queue "+queueArn);
+    logger.info("Create topic " + topicName + " and subscribe to queue " + queueArn);
     CreateTopicResult ctr = snsClient.createTopic(topicName);
     snsClient.subscribe(ctr.getTopicArn(), "sqs", queueArn);
     return ctr.getTopicArn();
@@ -92,22 +98,24 @@ class AwsConnector {
   private static String getSqsPolicy(String resource) {
     return String.format(
         "{\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": \"*\", \"Action\": \"sqs:SendMessage\", \"Resource\": \"%s\"}]}",
-        resource
-    );
+        resource);
   }
 
   void setQueuePublishingPolicy(String queueUrl, String queueArn) {
     logger.info("Set policy for queue " + queueArn);
-    sqsClient.setQueueAttributes(queueUrl, Collections.singletonMap("Policy", getSqsPolicy(queueArn)));
+    sqsClient.setQueueAttributes(
+        queueUrl, Collections.singletonMap("Policy", getSqsPolicy(queueArn)));
   }
 
   void enableS3ToSqsNotifications(String bucketName, String sqsQueueArn) {
     logger.info("Enable notification for bucket " + bucketName + " to queue " + sqsQueueArn);
-    BucketNotificationConfiguration notificationConfiguration = new BucketNotificationConfiguration();
-    notificationConfiguration.addConfiguration("sqsQueueConfig",
+    BucketNotificationConfiguration notificationConfiguration =
+        new BucketNotificationConfiguration();
+    notificationConfiguration.addConfiguration(
+        "sqsQueueConfig",
         new QueueConfiguration(sqsQueueArn, EnumSet.of(S3Event.ObjectCreatedByPut)));
-    s3Client.setBucketNotificationConfiguration(new SetBucketNotificationConfigurationRequest(
-        bucketName, notificationConfiguration));
+    s3Client.setBucketNotificationConfiguration(
+        new SetBucketNotificationConfigurationRequest(bucketName, notificationConfiguration));
   }
 
   private static final Logger logger = LoggerFactory.getLogger(AwsConnector.class);
@@ -125,10 +133,11 @@ class AwsConnector {
     AwsClientBuilder.EndpointConfiguration endpointConfiguration =
         new AwsClientBuilder.EndpointConfiguration("http://localhost:" + sqsPort, "elasticmq");
     awsConnector.sqsClient =
-        (AmazonSQSAsyncClient) AmazonSQSAsyncClient.asyncBuilder()
-            .withCredentials(credentials)
-            .withEndpointConfiguration(endpointConfiguration)
-            .build();
+        (AmazonSQSAsyncClient)
+            AmazonSQSAsyncClient.asyncBuilder()
+                .withCredentials(credentials)
+                .withEndpointConfiguration(endpointConfiguration)
+                .build();
 
     return awsConnector;
   }

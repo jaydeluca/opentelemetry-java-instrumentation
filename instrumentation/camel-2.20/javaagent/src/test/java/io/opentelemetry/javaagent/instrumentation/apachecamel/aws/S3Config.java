@@ -23,7 +23,7 @@ class S3Config {
 
       @Override
       public void configure() throws Exception {
-        from("aws-sqs://"+ queueName +"?amazonSQSClient=#sqsClient&delay=1000")
+        from("aws-sqs://" + queueName + "?amazonSQSClient=#sqsClient&delay=10000")
             .log(LoggingLevel.INFO, "test", "RECEIVER got body : ${body}")
             .log(LoggingLevel.INFO, "test", "RECEIVER got headers : ${headers}");
       }
@@ -41,7 +41,7 @@ class S3Config {
             .log(LoggingLevel.INFO, "test", "SENDING headers: ${headers}")
             .convertBodyTo(byte[].class)
             .setHeader(S3Constants.KEY, simple("test-data"))
-            .to("aws-s3://"+ bucketName + "?amazonS3Client=#s3Client");
+            .to("aws-s3://" + bucketName + "?amazonS3Client=#s3Client");
       }
     };
   }

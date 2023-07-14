@@ -22,9 +22,9 @@ class SnsConfig {
 
       @Override
       public void configure() throws Exception {
-        from("aws-sqs://"+queueName+"?amazonSQSClient=#sqsClient&delay=1000")
-            .log(LoggingLevel.INFO, "test", "RECEIVER got body : ${body}")
-            .log(LoggingLevel.INFO, "test", "RECEIVER got headers : ${headers}");
+        from("aws-sqs://" + queueName + "?amazonSQSClient=#sqsClient&delay=1000")
+            .log(LoggingLevel.INFO, "test-sqs", "RECEIVER got body : ${body}")
+            .log(LoggingLevel.INFO, "test-sqs", "RECEIVER got headers : ${headers}");
       }
     };
   }
@@ -36,9 +36,9 @@ class SnsConfig {
       @Override
       public void configure() throws Exception {
         from("direct:input")
-            .log(LoggingLevel.INFO, "test", "SENDING body: ${body}")
-            .log(LoggingLevel.INFO, "test", "SENDING headers: ${headers}")
-            .to("aws-sns://"+topicName+"?amazonSNSClient=#snsClient");
+            .log(LoggingLevel.INFO, "test-sns", "SENDING body: ${body}")
+            .log(LoggingLevel.INFO, "test-sns", "SENDING headers: ${headers}")
+            .to("aws-sns://" + topicName + "?amazonSNSClient=#snsClient");
       }
     };
   }

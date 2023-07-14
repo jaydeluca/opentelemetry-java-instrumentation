@@ -150,15 +150,10 @@ class AwsSpanAssertions {
                 stringKey("net.peer.port"),
                 val ->
                     val.satisfiesAnyOf(
-                        v -> val.isInstanceOf(Number.class), v -> assertThat(v).isNull()))
-        );
+                        v -> val.isInstanceOf(Number.class), v -> assertThat(v).isNull())));
   }
 
-  static void sns(
-      SpanDataAssert span,
-      int index,
-      String spanName,
-      SpanData parentSpan) {
+  static void sns(SpanDataAssert span, int index, String spanName, SpanData parentSpan) {
     if (index == 0) {
       span.hasNoParent();
     } else {
@@ -187,8 +182,6 @@ class AwsSpanAssertions {
                 SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH,
                 val ->
                     val.satisfiesAnyOf(
-                        v -> assertThat(v).isNull(), v -> assertThat(v).isInstanceOf(Long.class)))
-        );
+                        v -> assertThat(v).isNull(), v -> assertThat(v).isInstanceOf(Long.class))));
   }
-
 }
