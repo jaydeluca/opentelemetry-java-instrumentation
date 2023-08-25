@@ -126,7 +126,7 @@ abstract class AbstractDubboTest extends InstrumentationSpecification {
 
     cleanup:
     bootstrap.destroy()
-    consumerBootstrap.destroy()
+    consumerBootstrap.destroy()ri
     frameworkModel?.destroy()
   }
 
