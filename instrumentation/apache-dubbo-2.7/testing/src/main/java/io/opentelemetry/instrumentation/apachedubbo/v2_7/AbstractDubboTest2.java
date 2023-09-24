@@ -20,8 +20,8 @@ import org.apache.dubbo.rpc.service.GenericService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-import static io.opentelemetry.instrumentation.apachedubbo.v2_7.DubboTestUtil.newDubboBootstrap;
-import static io.opentelemetry.instrumentation.apachedubbo.v2_7.DubboTestUtil.newFrameworkModel;
+import static io.opentelemetry.instrumentation.apachedubbo.v2_7.DubboTestUtil2.newDubboBootstrap;
+import static io.opentelemetry.instrumentation.apachedubbo.v2_7.DubboTestUtil2.newFrameworkModel;
 import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 
 import org.junit.runners.model.FrameworkMember;
@@ -89,12 +89,5 @@ class AbstractDubboTest2 {
         () -> (String) genericService.$invoke("hello", new String[]{String.class.getName()}, o));
 
     assertThat(result).isEqualTo("hello");
-
-
   }
-
-
-
-
-
 }
