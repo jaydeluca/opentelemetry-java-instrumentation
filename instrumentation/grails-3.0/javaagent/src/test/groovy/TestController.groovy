@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package test
+
 
 import grails.artefact.Controller
 import grails.web.Action

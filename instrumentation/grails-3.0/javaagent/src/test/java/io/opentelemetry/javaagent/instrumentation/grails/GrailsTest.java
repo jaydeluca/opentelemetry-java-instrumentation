@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package test;
+package io.opentelemetry.javaagent.instrumentation.grails;
 
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.CAPTURE_HEADERS;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.ERROR;
@@ -97,7 +97,7 @@ public class GrailsTest extends AbstractHttpServerTest<ConfigurableApplicationCo
     public Collection<Class> classes() {
       // java compiler does not see groovy classes
       return Arrays.asList(
-          load("test.TestController"), load("test.ErrorController"), load("test.UrlMappings"));
+          load("io.opentelemetry.javaagent.instrumentation.grails.TestController"), load("io.opentelemetry.javaagent.instrumentation.grails.ErrorController"), load("io.opentelemetry.javaagent.instrumentation.grails.UrlMappings"));
     }
 
     private static Class<?> load(String name) {
