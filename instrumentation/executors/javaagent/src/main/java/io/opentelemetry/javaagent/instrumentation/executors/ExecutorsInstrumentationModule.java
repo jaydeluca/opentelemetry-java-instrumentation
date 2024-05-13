@@ -32,6 +32,8 @@ public class ExecutorsInstrumentationModule extends InstrumentationModule {
         new JavaExecutorInstrumentation(),
         new JavaForkJoinTaskInstrumentation(),
         new RunnableInstrumentation(),
-        new ThreadPoolExtendingExecutorInstrumentation());
+        new ThreadPoolExtendingExecutorInstrumentation(),
+        new VirtualThreadInstrumentation(),
+        new StructuredTaskScopeInstrumentation());
   }
 }

@@ -17,15 +17,17 @@ import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.util.ClassInfo;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.SpanKind;
-import io.opentelemetry.instrumentation.api.instrumenter.http.internal.HttpAttributes;
-import io.opentelemetry.instrumentation.api.internal.SemconvStability;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientTestOptions;
 import io.opentelemetry.sdk.testing.assertj.AttributeAssertion;
 import io.opentelemetry.sdk.trace.data.StatusData;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.ErrorAttributes;
+import io.opentelemetry.semconv.HttpAttributes;
+import io.opentelemetry.semconv.NetworkAttributes;
+import io.opentelemetry.semconv.ServerAttributes;
+import io.opentelemetry.semconv.UrlAttributes;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -88,7 +90,6 @@ public abstract class AbstractGoogleHttpClientTest extends AbstractHttpClientTes
   protected abstract HttpResponse sendRequest(HttpRequest request) throws Exception;
 
   @Test
-  @SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
   void errorTracesWhenExceptionIsNotThrown() throws Exception {
     URI uri = resolveAddress("/error");
 
@@ -100,19 +101,12 @@ public abstract class AbstractGoogleHttpClientTest extends AbstractHttpClientTes
     List<AttributeAssertion> attributes =
         new ArrayList<>(
             Arrays.asList(
-                equalTo(getAttributeKey(SemanticAttributes.NET_PEER_NAME), "localhost"),
-                satisfies(
-                    getAttributeKey(SemanticAttributes.NET_PEER_PORT),
-                    AbstractLongAssert::isPositive),
-                equalTo(getAttributeKey(SemanticAttributes.HTTP_URL), uri.toString()),
-                equalTo(getAttributeKey(SemanticAttributes.HTTP_METHOD), "GET"),
-                equalTo(getAttributeKey(SemanticAttributes.HTTP_STATUS_CODE), 500),
-                satisfies(
-                    getAttributeKey(SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH),
-                    AbstractLongAssert::isPositive)));
-    if (SemconvStability.emitStableHttpSemconv()) {
-      attributes.add(equalTo(HttpAttributes.ERROR_TYPE, "500"));
-    }
+                equalTo(ServerAttributes.SERVER_ADDRESS, "localhost"),
+                satisfies(ServerAttributes.SERVER_PORT, AbstractLongAssert::isPositive),
+                equalTo(UrlAttributes.URL_FULL, uri.toString()),
+                equalTo(HttpAttributes.HTTP_REQUEST_METHOD, "GET"),
+                equalTo(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, 500),
+                equalTo(ErrorAttributes.ERROR_TYPE, "500")));
 
     testing.waitAndAssertTraces(
         trace ->
@@ -125,7 +119,6 @@ public abstract class AbstractGoogleHttpClientTest extends AbstractHttpClientTes
   }
 
   @Override
-  @SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
   protected void configure(HttpClientTestOptions.Builder optionsBuilder) {
     // executeAsync does not actually allow asynchronous execution since it returns a standard
     // Future which cannot have callbacks attached. We instrument execute and executeAsync
@@ -139,15 +132,12 @@ public abstract class AbstractGoogleHttpClientTest extends AbstractHttpClientTes
     // can only use supported method
     optionsBuilder.disableTestNonStandardHttpMethod();
 
-    if (SemconvStability.emitOldHttpSemconv()) {
-      optionsBuilder.setHttpAttributes(
-          uri -> {
-            Set<AttributeKey<?>> attributes =
-                new HashSet<>(HttpClientTestOptions.DEFAULT_HTTP_ATTRIBUTES);
-            attributes.remove(SemanticAttributes.NET_PROTOCOL_NAME);
-            attributes.remove(SemanticAttributes.NET_PROTOCOL_VERSION);
-            return attributes;
-          });
-    }
+    optionsBuilder.setHttpAttributes(
+        uri -> {
+          Set<AttributeKey<?>> attributes =
+              new HashSet<>(HttpClientTestOptions.DEFAULT_HTTP_ATTRIBUTES);
+          attributes.remove(NetworkAttributes.NETWORK_PROTOCOL_VERSION);
+          return attributes;
+        });
   }
 }

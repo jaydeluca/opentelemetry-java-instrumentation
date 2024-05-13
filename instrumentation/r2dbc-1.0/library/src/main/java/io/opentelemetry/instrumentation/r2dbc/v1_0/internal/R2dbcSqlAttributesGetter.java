@@ -5,7 +5,7 @@
 
 package io.opentelemetry.instrumentation.r2dbc.v1_0.internal;
 
-import io.opentelemetry.instrumentation.api.instrumenter.db.SqlClientAttributesGetter;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlClientAttributesGetter;
 import javax.annotation.Nullable;
 
 /**
@@ -30,12 +30,6 @@ public enum R2dbcSqlAttributesGetter implements SqlClientAttributesGetter<DbExec
   @Nullable
   public String getName(DbExecution request) {
     return request.getName();
-  }
-
-  @Override
-  @Nullable
-  public String getConnectionString(DbExecution request) {
-    return request.getConnectionString();
   }
 
   @Override

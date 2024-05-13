@@ -8,9 +8,10 @@ package io.opentelemetry.instrumentation.netty.v4_1;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.netty.handler.codec.http.HttpResponse;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.incubator.semconv.net.PeerServiceResolver;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpClientAttributesExtractorBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpSpanNameExtractorBuilder;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesExtractorBuilder;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpSpanNameExtractorBuilder;
 import io.opentelemetry.instrumentation.netty.v4.common.HttpRequestAndChannel;
 import io.opentelemetry.instrumentation.netty.v4.common.internal.client.NettyClientInstrumenterFactory;
 import io.opentelemetry.instrumentation.netty.v4.common.internal.client.NettyConnectionInstrumentationFlag;
@@ -32,9 +33,17 @@ public final class NettyClientTelemetryBuilder {
   private Consumer<HttpSpanNameExtractorBuilder<HttpRequestAndChannel>>
       spanNameExtractorConfigurer = builder -> {};
   private boolean emitExperimentalHttpClientMetrics = false;
+  private boolean emitExperimentalHttpClientEvents = false;
 
   NettyClientTelemetryBuilder(OpenTelemetry openTelemetry) {
     this.openTelemetry = openTelemetry;
+  }
+
+  @CanIgnoreReturnValue
+  public NettyClientTelemetryBuilder setEmitExperimentalHttpClientEvents(
+      boolean emitExperimentalHttpClientEvents) {
+    this.emitExperimentalHttpClientEvents = emitExperimentalHttpClientEvents;
+    return this;
   }
 
   /**
@@ -119,9 +128,10 @@ public final class NettyClientTelemetryBuilder {
                 "io.opentelemetry.netty-4.1",
                 NettyConnectionInstrumentationFlag.DISABLED,
                 NettyConnectionInstrumentationFlag.DISABLED,
-                Collections.emptyMap(),
+                PeerServiceResolver.create(Collections.emptyMap()),
                 emitExperimentalHttpClientMetrics)
             .createHttpInstrumenter(
-                extractorConfigurer, spanNameExtractorConfigurer, additionalAttributesExtractors));
+                extractorConfigurer, spanNameExtractorConfigurer, additionalAttributesExtractors),
+        emitExperimentalHttpClientEvents);
   }
 }

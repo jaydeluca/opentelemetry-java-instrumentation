@@ -5,7 +5,7 @@
 
 package io.opentelemetry.javaagent.instrumentation.spymemcached;
 
-import io.opentelemetry.instrumentation.api.instrumenter.db.DbClientAttributesGetter;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesGetter;
 import javax.annotation.Nullable;
 
 public class SpymemcachedAttributesGetter implements DbClientAttributesGetter<SpymemcachedRequest> {
@@ -24,12 +24,6 @@ public class SpymemcachedAttributesGetter implements DbClientAttributesGetter<Sp
   @Override
   @Nullable
   public String getName(SpymemcachedRequest spymemcachedRequest) {
-    return null;
-  }
-
-  @Override
-  @Nullable
-  public String getConnectionString(SpymemcachedRequest spymemcachedRequest) {
     return null;
   }
 

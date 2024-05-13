@@ -9,7 +9,10 @@ import com.google.auto.value.AutoValue;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.instrumentation.api.internal.HttpConstants;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.HttpAttributes;
+import io.opentelemetry.semconv.NetworkAttributes;
+import io.opentelemetry.semconv.ServerAttributes;
+import io.opentelemetry.semconv.UrlAttributes;
 import io.opentelemetry.testing.internal.armeria.common.HttpStatus;
 import java.net.URI;
 import java.util.Arrays;
@@ -23,18 +26,15 @@ import javax.annotation.Nullable;
 @AutoValue
 public abstract class HttpClientTestOptions {
 
-  @SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
   public static final Set<AttributeKey<?>> DEFAULT_HTTP_ATTRIBUTES =
       Collections.unmodifiableSet(
           new HashSet<>(
               Arrays.asList(
-                  SemconvStabilityUtil.getAttributeKey(SemanticAttributes.NET_PROTOCOL_NAME),
-                  SemconvStabilityUtil.getAttributeKey(SemanticAttributes.NET_PROTOCOL_VERSION),
-                  SemconvStabilityUtil.getAttributeKey(SemanticAttributes.NET_PEER_NAME),
-                  SemconvStabilityUtil.getAttributeKey(SemanticAttributes.NET_PEER_PORT),
-                  SemconvStabilityUtil.getAttributeKey(SemanticAttributes.HTTP_URL),
-                  SemconvStabilityUtil.getAttributeKey(SemanticAttributes.HTTP_METHOD),
-                  SemconvStabilityUtil.getAttributeKey(SemanticAttributes.USER_AGENT_ORIGINAL))));
+                  NetworkAttributes.NETWORK_PROTOCOL_VERSION,
+                  ServerAttributes.SERVER_ADDRESS,
+                  ServerAttributes.SERVER_PORT,
+                  UrlAttributes.URL_FULL,
+                  HttpAttributes.HTTP_REQUEST_METHOD)));
 
   public static final BiFunction<URI, String, String> DEFAULT_EXPECTED_CLIENT_SPAN_NAME_MAPPER =
       (uri, method) -> HttpConstants._OTHER.equals(method) ? "HTTP" : method;
@@ -45,9 +45,6 @@ public abstract class HttpClientTestOptions {
 
   @Nullable
   public abstract Integer getResponseCodeOnRedirectError();
-
-  @Nullable
-  public abstract String getUserAgent();
 
   public abstract BiFunction<URI, Throwable, Throwable> getClientSpanErrorMapper();
 
@@ -88,11 +85,6 @@ public abstract class HttpClientTestOptions {
 
   public abstract boolean getTestCallbackWithParent();
 
-  // depending on async behavior callback can be executed within
-  // parent span scope or outside of the scope, e.g. in reactor-netty or spring
-  // callback is correlated.
-  public abstract boolean getTestCallbackWithImplicitParent();
-
   public abstract boolean getTestErrorWithCallback();
 
   public abstract boolean getTestNonStandardHttpMethod();
@@ -108,7 +100,6 @@ public abstract class HttpClientTestOptions {
     default Builder withDefaults() {
       return setHttpAttributes(x -> DEFAULT_HTTP_ATTRIBUTES)
           .setResponseCodeOnRedirectError(FOUND_STATUS_CODE)
-          .setUserAgent(null)
           .setClientSpanErrorMapper((uri, exception) -> exception)
           .setSingleConnectionFactory((host, port) -> null)
           .setExpectedClientSpanNameMapper(DEFAULT_EXPECTED_CLIENT_SPAN_NAME_MAPPER)
@@ -124,7 +115,6 @@ public abstract class HttpClientTestOptions {
           .setTestHttps(true)
           .setTestCallback(true)
           .setTestCallbackWithParent(true)
-          .setTestCallbackWithImplicitParent(false)
           .setTestErrorWithCallback(true)
           .setTestNonStandardHttpMethod(true);
     }
@@ -132,8 +122,6 @@ public abstract class HttpClientTestOptions {
     Builder setHttpAttributes(Function<URI, Set<AttributeKey<?>>> value);
 
     Builder setResponseCodeOnRedirectError(Integer value);
-
-    Builder setUserAgent(String value);
 
     Builder setClientSpanErrorMapper(BiFunction<URI, Throwable, Throwable> value);
 
@@ -164,8 +152,6 @@ public abstract class HttpClientTestOptions {
     Builder setTestCallback(boolean value);
 
     Builder setTestCallbackWithParent(boolean value);
-
-    Builder setTestCallbackWithImplicitParent(boolean value);
 
     Builder setTestErrorWithCallback(boolean value);
 
@@ -229,11 +215,6 @@ public abstract class HttpClientTestOptions {
     @CanIgnoreReturnValue
     default Builder disableTestNonStandardHttpMethod() {
       return setTestNonStandardHttpMethod(false);
-    }
-
-    @CanIgnoreReturnValue
-    default Builder enableTestCallbackWithImplicitParent() {
-      return setTestCallbackWithImplicitParent(true);
     }
 
     @CanIgnoreReturnValue

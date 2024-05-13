@@ -341,23 +341,22 @@ limited: the `VirtualField#get()` method must receive class references as its pa
 work with variables, method params, etc. Both the owner class and the field class must be known at
 compile time for it to work.
 
-### Why we don't use ByteBuddy @Advice.Origin Method
+Use of `VirtualField` requires the `muzzle-generation` gradle plugin. Failing to use the plugin will result in
+ClassNotFoundException when trying to access the field.
 
-Instead of
+### Avoid using @Advice.Origin Method
 
-```
-@Advice.Origin Method method
-```
+You shouldn't use ByteBuddy's @Advice.Origin Method method, as it
+inserts a call to `Class.getMethod(...)` in a transformed method.
 
-we prefer to use
+Instead, get the declaring class and method name, as loading
+constants from a constant pool is a much simpler operation.
+
+For example:
 
 ```
 @Advice.Origin("#t") Class<?> declaringClass,
 @Advice.Origin("#m") String methodName
 ```
-
-because the former inserts a call to `Class.getMethod(...)` in transformed method. In contrast,
-getting the declaring class and method name is just loading constants from constant pool, which is
-a much simpler operation.
 
 [suppress]: https://opentelemetry.io/docs/instrumentation/java/automatic/agent-config/#suppressing-specific-auto-instrumentation

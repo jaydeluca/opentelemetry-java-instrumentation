@@ -11,7 +11,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.HttpAttributes;
+import io.opentelemetry.semconv.NetworkAttributes;
+import io.opentelemetry.semconv.ServerAttributes;
+import io.opentelemetry.semconv.UrlAttributes;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -26,7 +30,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 
-@SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
 class ElasticsearchRest5Test {
 
   @RegisterExtension
@@ -93,28 +96,23 @@ class ElasticsearchRest5Test {
                     .hasKind(SpanKind.CLIENT)
                     .hasNoParent()
                     .hasAttributesSatisfyingExactly(
-                        equalTo(SemanticAttributes.DB_SYSTEM, "elasticsearch"),
-                        equalTo(SemanticAttributes.HTTP_METHOD, "GET"),
-                        equalTo(SemanticAttributes.NET_PEER_NAME, httpHost.getHostName()),
-                        equalTo(SemanticAttributes.NET_PEER_PORT, httpHost.getPort()),
-                        equalTo(
-                            SemanticAttributes.HTTP_URL, httpHost.toURI() + "/_cluster/health"));
+                        equalTo(DbIncubatingAttributes.DB_SYSTEM, "elasticsearch"),
+                        equalTo(HttpAttributes.HTTP_REQUEST_METHOD, "GET"),
+                        equalTo(ServerAttributes.SERVER_ADDRESS, httpHost.getHostName()),
+                        equalTo(ServerAttributes.SERVER_PORT, httpHost.getPort()),
+                        equalTo(UrlAttributes.URL_FULL, httpHost.toURI() + "/_cluster/health"));
               },
               span -> {
                 span.hasName("GET")
                     .hasKind(SpanKind.CLIENT)
                     .hasParent(trace.getSpan(0))
                     .hasAttributesSatisfyingExactly(
-                        equalTo(SemanticAttributes.NET_PEER_NAME, httpHost.getHostName()),
-                        equalTo(SemanticAttributes.NET_PEER_PORT, httpHost.getPort()),
-                        equalTo(SemanticAttributes.HTTP_METHOD, "GET"),
-                        equalTo(SemanticAttributes.NET_PROTOCOL_NAME, "http"),
-                        equalTo(SemanticAttributes.NET_PROTOCOL_VERSION, "1.1"),
-                        equalTo(SemanticAttributes.HTTP_URL, httpHost.toURI() + "/_cluster/health"),
-                        equalTo(SemanticAttributes.HTTP_STATUS_CODE, 200),
-                        equalTo(
-                            SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH,
-                            response.getEntity().getContentLength()));
+                        equalTo(ServerAttributes.SERVER_ADDRESS, httpHost.getHostName()),
+                        equalTo(ServerAttributes.SERVER_PORT, httpHost.getPort()),
+                        equalTo(HttpAttributes.HTTP_REQUEST_METHOD, "GET"),
+                        equalTo(NetworkAttributes.NETWORK_PROTOCOL_VERSION, "1.1"),
+                        equalTo(UrlAttributes.URL_FULL, httpHost.toURI() + "/_cluster/health"),
+                        equalTo(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, 200));
               });
         });
   }
@@ -174,28 +172,23 @@ class ElasticsearchRest5Test {
                     .hasKind(SpanKind.CLIENT)
                     .hasParent(trace.getSpan(0))
                     .hasAttributesSatisfyingExactly(
-                        equalTo(SemanticAttributes.DB_SYSTEM, "elasticsearch"),
-                        equalTo(SemanticAttributes.HTTP_METHOD, "GET"),
-                        equalTo(SemanticAttributes.NET_PEER_NAME, httpHost.getHostName()),
-                        equalTo(SemanticAttributes.NET_PEER_PORT, httpHost.getPort()),
-                        equalTo(
-                            SemanticAttributes.HTTP_URL, httpHost.toURI() + "/_cluster/health"));
+                        equalTo(DbIncubatingAttributes.DB_SYSTEM, "elasticsearch"),
+                        equalTo(HttpAttributes.HTTP_REQUEST_METHOD, "GET"),
+                        equalTo(ServerAttributes.SERVER_ADDRESS, httpHost.getHostName()),
+                        equalTo(ServerAttributes.SERVER_PORT, httpHost.getPort()),
+                        equalTo(UrlAttributes.URL_FULL, httpHost.toURI() + "/_cluster/health"));
               },
               span -> {
                 span.hasName("GET")
                     .hasKind(SpanKind.CLIENT)
                     .hasParent(trace.getSpan(1))
                     .hasAttributesSatisfyingExactly(
-                        equalTo(SemanticAttributes.NET_PEER_NAME, httpHost.getHostName()),
-                        equalTo(SemanticAttributes.NET_PEER_PORT, httpHost.getPort()),
-                        equalTo(SemanticAttributes.HTTP_METHOD, "GET"),
-                        equalTo(SemanticAttributes.NET_PROTOCOL_NAME, "http"),
-                        equalTo(SemanticAttributes.NET_PROTOCOL_VERSION, "1.1"),
-                        equalTo(SemanticAttributes.HTTP_URL, httpHost.toURI() + "/_cluster/health"),
-                        equalTo(SemanticAttributes.HTTP_STATUS_CODE, 200),
-                        equalTo(
-                            SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH,
-                            requestResponse[0].getEntity().getContentLength()));
+                        equalTo(ServerAttributes.SERVER_ADDRESS, httpHost.getHostName()),
+                        equalTo(ServerAttributes.SERVER_PORT, httpHost.getPort()),
+                        equalTo(HttpAttributes.HTTP_REQUEST_METHOD, "GET"),
+                        equalTo(NetworkAttributes.NETWORK_PROTOCOL_VERSION, "1.1"),
+                        equalTo(UrlAttributes.URL_FULL, httpHost.toURI() + "/_cluster/health"),
+                        equalTo(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, 200));
               },
               span -> {
                 span.hasName("callback").hasKind(SpanKind.INTERNAL).hasParent(trace.getSpan(0));

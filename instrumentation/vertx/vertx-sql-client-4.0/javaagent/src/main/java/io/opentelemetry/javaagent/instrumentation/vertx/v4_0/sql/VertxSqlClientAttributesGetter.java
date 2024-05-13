@@ -5,7 +5,7 @@
 
 package io.opentelemetry.javaagent.instrumentation.vertx.v4_0.sql;
 
-import io.opentelemetry.instrumentation.api.instrumenter.db.SqlClientAttributesGetter;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlClientAttributesGetter;
 import javax.annotation.Nullable;
 
 public enum VertxSqlClientAttributesGetter
@@ -27,12 +27,6 @@ public enum VertxSqlClientAttributesGetter
   @Nullable
   public String getName(VertxSqlClientRequest request) {
     return request.getDatabase();
-  }
-
-  @Override
-  @Nullable
-  public String getConnectionString(VertxSqlClientRequest request) {
-    return null;
   }
 
   @Override

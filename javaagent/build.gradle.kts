@@ -34,10 +34,10 @@ val javaagentLibs by configurations.creating {
 listOf(baseJavaagentLibs, javaagentLibs).forEach {
   it.run {
     exclude("io.opentelemetry", "opentelemetry-api")
-    exclude("io.opentelemetry", "opentelemetry-api-events")
     exclude("io.opentelemetry.semconv", "opentelemetry-semconv")
-    // metrics advice API
-    exclude("io.opentelemetry", "opentelemetry-extension-incubator")
+    exclude("io.opentelemetry.semconv", "opentelemetry-semconv-incubating")
+    // events API and metrics advice API
+    exclude("io.opentelemetry", "opentelemetry-api-incubator")
   }
 }
 
@@ -48,9 +48,9 @@ val licenseReportDependencies by configurations.creating {
 
 dependencies {
   bootstrapLibs(project(":instrumentation-api"))
-  // opentelemetry-api is an api dependency of :instrumentation-api, but opentelemetry-api-events is not
-  bootstrapLibs("io.opentelemetry:opentelemetry-api-events")
-  bootstrapLibs(project(":instrumentation-api-semconv"))
+  // opentelemetry-api is an api dependency of :instrumentation-api, but opentelemetry-api-incubator is not
+  bootstrapLibs("io.opentelemetry:opentelemetry-api-incubator")
+  bootstrapLibs(project(":instrumentation-api-incubator"))
   bootstrapLibs(project(":instrumentation-annotations-support"))
   bootstrapLibs(project(":javaagent-bootstrap"))
 
@@ -89,8 +89,7 @@ dependencies {
   testCompileOnly(project(":javaagent-bootstrap"))
   testCompileOnly(project(":javaagent-extension-api"))
 
-  testImplementation("com.google.guava:guava")
-  testImplementation("io.opentelemetry:opentelemetry-sdk")
+  testImplementation(project(":testing-common"))
   testImplementation("io.opentracing.contrib.dropwizard:dropwizard-opentracing:0.2.2")
 }
 
@@ -312,7 +311,7 @@ fun CopySpec.isolateClasses(jar: Provider<RegularFile>) {
 fun ShadowJar.excludeBootstrapClasses() {
   dependencies {
     exclude(project(":instrumentation-api"))
-    exclude(project(":instrumentation-api-semconv"))
+    exclude(project(":instrumentation-api-incubator"))
     exclude(project(":instrumentation-annotations-support"))
     exclude(project(":javaagent-bootstrap"))
   }

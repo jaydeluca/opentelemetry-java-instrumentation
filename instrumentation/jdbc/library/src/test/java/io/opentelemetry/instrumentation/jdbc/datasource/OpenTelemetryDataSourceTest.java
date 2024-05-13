@@ -15,7 +15,8 @@ import io.opentelemetry.instrumentation.jdbc.internal.OpenTelemetryConnection;
 import io.opentelemetry.instrumentation.jdbc.internal.dbinfo.DbInfo;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.LibraryInstrumentationExtension;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.incubating.CodeIncubatingAttributes;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.stream.Stream;
@@ -35,8 +36,8 @@ class OpenTelemetryDataSourceTest {
   @ParameterizedTest
   @ArgumentsSource(GetConnectionMethods.class)
   void shouldEmitGetConnectionSpans(GetConnectionFunction getConnection) throws SQLException {
-    OpenTelemetryDataSource dataSource =
-        new OpenTelemetryDataSource(new TestDataSource(), testing.getOpenTelemetry());
+    JdbcTelemetry telemetry = JdbcTelemetry.create(testing.getOpenTelemetry());
+    DataSource dataSource = telemetry.wrap(new TestDataSource());
 
     Connection connection = testing.runWithSpan("parent", () -> getConnection.call(dataSource));
 
@@ -50,13 +51,11 @@ class OpenTelemetryDataSourceTest {
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
                             equalTo(
-                                SemanticAttributes.CODE_NAMESPACE, TestDataSource.class.getName()),
-                            equalTo(SemanticAttributes.CODE_FUNCTION, "getConnection"),
-                            equalTo(SemanticAttributes.DB_SYSTEM, "postgresql"),
-                            equalTo(SemanticAttributes.DB_NAME, "dbname"),
-                            equalTo(
-                                SemanticAttributes.DB_CONNECTION_STRING,
-                                "postgresql://127.0.0.1:5432"))));
+                                CodeIncubatingAttributes.CODE_NAMESPACE,
+                                TestDataSource.class.getName()),
+                            equalTo(CodeIncubatingAttributes.CODE_FUNCTION, "getConnection"),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "postgresql"),
+                            equalTo(DbIncubatingAttributes.DB_NAME, "dbname"))));
 
     assertThat(connection).isExactlyInstanceOf(OpenTelemetryConnection.class);
     DbInfo dbInfo = ((OpenTelemetryConnection) connection).getDbInfo();
@@ -67,8 +66,8 @@ class OpenTelemetryDataSourceTest {
   @ArgumentsSource(GetConnectionMethods.class)
   void shouldNotEmitGetConnectionSpansWithoutParentSpan(GetConnectionFunction getConnection)
       throws SQLException {
-    OpenTelemetryDataSource dataSource =
-        new OpenTelemetryDataSource(new TestDataSource(), testing.getOpenTelemetry());
+    JdbcTelemetry telemetry = JdbcTelemetry.create(testing.getOpenTelemetry());
+    DataSource dataSource = telemetry.wrap(new TestDataSource());
 
     Connection connection = getConnection.call(dataSource);
 
@@ -98,7 +97,6 @@ class OpenTelemetryDataSourceTest {
   private static void assertDbInfo(DbInfo dbInfo) {
     assertThat(dbInfo.getSystem()).isEqualTo("postgresql");
     assertNull(dbInfo.getSubtype());
-    assertThat(dbInfo.getShortUrl()).isEqualTo("postgresql://127.0.0.1:5432");
     assertNull(dbInfo.getUser());
     assertNull(dbInfo.getName());
     assertThat(dbInfo.getDb()).isEqualTo("dbname");

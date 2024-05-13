@@ -6,11 +6,11 @@
 package io.opentelemetry.javaagent.instrumentation.lettuce.v5_0;
 
 import io.lettuce.core.protocol.RedisCommand;
-import io.opentelemetry.instrumentation.api.db.RedisCommandSanitizer;
-import io.opentelemetry.instrumentation.api.instrumenter.db.DbClientAttributesGetter;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesGetter;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.RedisCommandSanitizer;
 import io.opentelemetry.instrumentation.lettuce.common.LettuceArgSplitter;
 import io.opentelemetry.javaagent.bootstrap.internal.CommonConfig;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -22,7 +22,7 @@ final class LettuceDbAttributesGetter implements DbClientAttributesGetter<RedisC
 
   @Override
   public String getSystem(RedisCommand<?, ?, ?> request) {
-    return SemanticAttributes.DbSystemValues.REDIS;
+    return DbIncubatingAttributes.DbSystemValues.REDIS;
   }
 
   @Override
@@ -34,12 +34,6 @@ final class LettuceDbAttributesGetter implements DbClientAttributesGetter<RedisC
   @Override
   @Nullable
   public String getName(RedisCommand<?, ?, ?> request) {
-    return null;
-  }
-
-  @Override
-  @Nullable
-  public String getConnectionString(RedisCommand<?, ?, ?> request) {
     return null;
   }
 

@@ -8,12 +8,11 @@ package io.opentelemetry.instrumentation.awssdk.v2_2;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpClientAttributesExtractor;
 import io.opentelemetry.instrumentation.api.internal.SpanKey;
 import io.opentelemetry.instrumentation.api.internal.SpanKeyProvider;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesExtractor;
 import javax.annotation.Nullable;
 import software.amazon.awssdk.core.interceptor.ExecutionAttributes;
-import software.amazon.awssdk.http.SdkHttpResponse;
 
 /**
  * An attribute extractor that reports implementing HTTP client semantic conventions. Adding this
@@ -21,7 +20,7 @@ import software.amazon.awssdk.http.SdkHttpResponse;
  * HttpClientAttributesExtractor} would.
  */
 class AwsSdkHttpClientSuppressionAttributesExtractor
-    implements AttributesExtractor<ExecutionAttributes, SdkHttpResponse>, SpanKeyProvider {
+    implements AttributesExtractor<ExecutionAttributes, Response>, SpanKeyProvider {
 
   @Override
   public void onStart(
@@ -34,7 +33,7 @@ class AwsSdkHttpClientSuppressionAttributesExtractor
       AttributesBuilder attributes,
       Context context,
       ExecutionAttributes executionAttributes,
-      @Nullable SdkHttpResponse sdkHttpResponse,
+      @Nullable Response response,
       @Nullable Throwable error) {}
 
   @Nullable

@@ -4,7 +4,8 @@
  */
 
 import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
-import io.opentelemetry.semconv.SemanticAttributes
+import io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes
+import io.opentelemetry.semconv.NetworkAttributes
 
 import static io.opentelemetry.api.trace.SpanKind.CLIENT
 import static io.opentelemetry.api.trace.SpanKind.CONSUMER
@@ -43,10 +44,10 @@ class SpringIntegrationAndRabbitTest extends AgentInstrumentationSpecification i
           childOf span(1)
           kind CLIENT
           attributes {
-            "$SemanticAttributes.NET_SOCK_PEER_ADDR" { it == "127.0.0.1" || it == "0:0:0:0:0:0:0:1" || it == null }
-            "$SemanticAttributes.NET_SOCK_PEER_PORT" Long
-            "$SemanticAttributes.NET_SOCK_FAMILY" { it == SemanticAttributes.NetSockFamilyValues.INET6 || it == null }
-            "$SemanticAttributes.MESSAGING_SYSTEM" "rabbitmq"
+            "$NetworkAttributes.NETWORK_PEER_ADDRESS" { it == "127.0.0.1" || it == "0:0:0:0:0:0:0:1" || it == null }
+            "$NetworkAttributes.NETWORK_PEER_PORT" Long
+            "$NetworkAttributes.NETWORK_TYPE" { it == "ipv4" || it == "ipv6" || it == null }
+            "$MessagingIncubatingAttributes.MESSAGING_SYSTEM" "rabbitmq"
           }
         }
         span(3) {
@@ -55,13 +56,14 @@ class SpringIntegrationAndRabbitTest extends AgentInstrumentationSpecification i
           childOf span(1)
           kind PRODUCER
           attributes {
-            "$SemanticAttributes.NET_SOCK_PEER_ADDR" { it == "127.0.0.1" || it == "0:0:0:0:0:0:0:1" || it == null }
-            "$SemanticAttributes.NET_SOCK_PEER_PORT" Long
-            "$SemanticAttributes.NET_SOCK_FAMILY" { it == SemanticAttributes.NetSockFamilyValues.INET6 || it == null }
-            "$SemanticAttributes.MESSAGING_SYSTEM" "rabbitmq"
-            "$SemanticAttributes.MESSAGING_DESTINATION_NAME" "testTopic"
-            "$SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES" Long
-            "$SemanticAttributes.MESSAGING_RABBITMQ_DESTINATION_ROUTING_KEY" String
+            "$NetworkAttributes.NETWORK_PEER_ADDRESS" { it == "127.0.0.1" || it == "0:0:0:0:0:0:0:1" || it == null }
+            "$NetworkAttributes.NETWORK_PEER_PORT" Long
+            "$NetworkAttributes.NETWORK_TYPE" { it == "ipv4" || it == "ipv6" || it == null }
+            "$MessagingIncubatingAttributes.MESSAGING_SYSTEM" "rabbitmq"
+            "$MessagingIncubatingAttributes.MESSAGING_DESTINATION_NAME" "testTopic"
+            "$MessagingIncubatingAttributes.MESSAGING_OPERATION" "publish"
+            "$MessagingIncubatingAttributes.MESSAGING_MESSAGE_BODY_SIZE" Long
+            "$MessagingIncubatingAttributes.MESSAGING_RABBITMQ_DESTINATION_ROUTING_KEY" String
           }
         }
         // spring-cloud-stream-binder-rabbit listener puts all messages into a BlockingQueue immediately after receiving
@@ -72,11 +74,14 @@ class SpringIntegrationAndRabbitTest extends AgentInstrumentationSpecification i
           childOf span(3)
           kind CONSUMER
           attributes {
-            "$SemanticAttributes.MESSAGING_SYSTEM" "rabbitmq"
-            "$SemanticAttributes.MESSAGING_DESTINATION_NAME" "testTopic"
-            "$SemanticAttributes.MESSAGING_OPERATION" "process"
-            "$SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES" Long
-            "$SemanticAttributes.MESSAGING_RABBITMQ_DESTINATION_ROUTING_KEY" String
+            "$NetworkAttributes.NETWORK_PEER_ADDRESS" { it == "127.0.0.1" || it == "0:0:0:0:0:0:0:1" || it == null }
+            "$NetworkAttributes.NETWORK_PEER_PORT" Long
+            "$NetworkAttributes.NETWORK_TYPE" { it == "ipv4" || it == "ipv6" || it == null }
+            "$MessagingIncubatingAttributes.MESSAGING_SYSTEM" "rabbitmq"
+            "$MessagingIncubatingAttributes.MESSAGING_DESTINATION_NAME" "testTopic"
+            "$MessagingIncubatingAttributes.MESSAGING_OPERATION" "process"
+            "$MessagingIncubatingAttributes.MESSAGING_MESSAGE_BODY_SIZE" Long
+            "$MessagingIncubatingAttributes.MESSAGING_RABBITMQ_DESTINATION_ROUTING_KEY" String
           }
         }
         // spring-integration will detect that spring-rabbit has already created a consumer span and back off
@@ -86,11 +91,11 @@ class SpringIntegrationAndRabbitTest extends AgentInstrumentationSpecification i
           childOf span(3)
           kind CONSUMER
           attributes {
-            "$SemanticAttributes.MESSAGING_SYSTEM" "rabbitmq"
-            "$SemanticAttributes.MESSAGING_DESTINATION_NAME" "testTopic"
-            "$SemanticAttributes.MESSAGING_OPERATION" "process"
-            "$SemanticAttributes.MESSAGING_MESSAGE_ID" String
-            "$SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES" Long
+            "$MessagingIncubatingAttributes.MESSAGING_SYSTEM" "rabbitmq"
+            "$MessagingIncubatingAttributes.MESSAGING_DESTINATION_NAME" "testTopic"
+            "$MessagingIncubatingAttributes.MESSAGING_OPERATION" "process"
+            "$MessagingIncubatingAttributes.MESSAGING_MESSAGE_ID" String
+            "$MessagingIncubatingAttributes.MESSAGING_MESSAGE_BODY_SIZE" Long
           }
         }
         span(6) {
@@ -106,10 +111,10 @@ class SpringIntegrationAndRabbitTest extends AgentInstrumentationSpecification i
           name "basic.ack"
           kind CLIENT
           attributes {
-            "$SemanticAttributes.NET_SOCK_PEER_ADDR" { it == "127.0.0.1" || it == "0:0:0:0:0:0:0:1" || it == null }
-            "$SemanticAttributes.NET_SOCK_PEER_PORT" Long
-            "$SemanticAttributes.NET_SOCK_FAMILY" { it == SemanticAttributes.NetSockFamilyValues.INET6 || it == null }
-            "$SemanticAttributes.MESSAGING_SYSTEM" "rabbitmq"
+            "$NetworkAttributes.NETWORK_PEER_ADDRESS" { it == "127.0.0.1" || it == "0:0:0:0:0:0:0:1" || it == null }
+            "$NetworkAttributes.NETWORK_PEER_PORT" Long
+            "$NetworkAttributes.NETWORK_TYPE" { it == "ipv4" || it == "ipv6" || it == null }
+            "$MessagingIncubatingAttributes.MESSAGING_SYSTEM" "rabbitmq"
           }
         }
       }

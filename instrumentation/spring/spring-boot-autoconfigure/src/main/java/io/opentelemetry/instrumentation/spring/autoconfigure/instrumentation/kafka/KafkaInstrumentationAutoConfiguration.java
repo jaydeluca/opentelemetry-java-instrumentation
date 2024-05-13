@@ -7,18 +7,17 @@ package io.opentelemetry.instrumentation.spring.autoconfigure.instrumentation.ka
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import io.opentelemetry.instrumentation.spring.autoconfigure.internal.ConditionalOnEnabledInstrumentation;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.kafka.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 
-@ConditionalOnBean(OpenTelemetry.class)
+@ConditionalOnEnabledInstrumentation(module = "kafka")
 @ConditionalOnClass({KafkaTemplate.class, ConcurrentKafkaListenerContainerFactory.class})
-@ConditionalOnProperty(name = "otel.instrumentation.kafka.enabled", matchIfMissing = true)
 @Configuration
 public class KafkaInstrumentationAutoConfiguration {
 
@@ -29,9 +28,11 @@ public class KafkaInstrumentationAutoConfiguration {
     return producerFactory -> producerFactory.addPostProcessor(kafkaTelemetry::wrap);
   }
 
+  // static to avoid "is not eligible for getting processed by all BeanPostProcessors" warning
   @Bean
-  ConcurrentKafkaListenerContainerFactoryPostProcessor
-      otelKafkaListenerContainerFactoryBeanPostProcessor(OpenTelemetry openTelemetry) {
-    return new ConcurrentKafkaListenerContainerFactoryPostProcessor(openTelemetry);
+  static ConcurrentKafkaListenerContainerFactoryPostProcessor
+      otelKafkaListenerContainerFactoryBeanPostProcessor(
+          ObjectProvider<OpenTelemetry> openTelemetryProvider) {
+    return new ConcurrentKafkaListenerContainerFactoryPostProcessor(openTelemetryProvider);
   }
 }

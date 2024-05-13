@@ -5,7 +5,7 @@
 
 package io.opentelemetry.instrumentation.jdbc.internal;
 
-import io.opentelemetry.instrumentation.api.instrumenter.db.SqlClientAttributesGetter;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlClientAttributesGetter;
 import io.opentelemetry.instrumentation.jdbc.internal.dbinfo.DbInfo;
 import javax.annotation.Nullable;
 
@@ -32,12 +32,6 @@ public final class JdbcAttributesGetter implements SqlClientAttributesGetter<DbR
   public String getName(DbRequest request) {
     DbInfo dbInfo = request.getDbInfo();
     return dbInfo.getName() == null ? dbInfo.getDb() : dbInfo.getName();
-  }
-
-  @Nullable
-  @Override
-  public String getConnectionString(DbRequest request) {
-    return request.getDbInfo().getShortUrl();
   }
 
   @Nullable

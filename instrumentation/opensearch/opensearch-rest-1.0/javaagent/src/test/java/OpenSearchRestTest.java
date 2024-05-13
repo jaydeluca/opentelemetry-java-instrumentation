@@ -7,7 +7,11 @@ import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equal
 
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.HttpAttributes;
+import io.opentelemetry.semconv.NetworkAttributes;
+import io.opentelemetry.semconv.ServerAttributes;
+import io.opentelemetry.semconv.UrlAttributes;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
 import java.io.IOException;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
@@ -19,6 +23,7 @@ import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.TrustAllStrategy;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.ssl.SSLContextBuilder;
@@ -33,7 +38,6 @@ import org.opensearch.client.RestClient;
 import org.opensearch.testcontainers.OpensearchContainer;
 import org.testcontainers.utility.DockerImageName;
 
-@SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
 public class OpenSearchRestTest {
   @RegisterExtension
   static final AgentInstrumentationExtension testing = AgentInstrumentationExtension.create();
@@ -69,6 +73,9 @@ public class OpenSearchRestTest {
                 httpClientBuilder ->
                     httpClientBuilder
                         .setSSLContext(sslContext)
+                        // Required for non-localhost Docker runtimes, the SSL cert in the
+                        // OpenSearch image is registered to "localhost"
+                        .setSSLHostnameVerifier(new NoopHostnameVerifier())
                         .setDefaultCredentialsProvider(credentialsProvider))
             .build();
   }
@@ -90,23 +97,20 @@ public class OpenSearchRestTest {
                     span.hasName("GET")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "opensearch"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "GET"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "GET _cluster/health")),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "opensearch"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "GET"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "GET _cluster/health")),
                 span ->
                     span.hasName("GET")
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.NET_PROTOCOL_NAME, "http"),
-                            equalTo(SemanticAttributes.NET_PROTOCOL_VERSION, "1.1"),
-                            equalTo(SemanticAttributes.NET_PEER_NAME, httpHost.getHostName()),
-                            equalTo(SemanticAttributes.NET_PEER_PORT, httpHost.getPort()),
-                            equalTo(SemanticAttributes.HTTP_METHOD, "GET"),
-                            equalTo(
-                                SemanticAttributes.HTTP_URL, httpHost.toURI() + "/_cluster/health"),
-                            equalTo(SemanticAttributes.HTTP_STATUS_CODE, 200L),
-                            equalTo(SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH, 415L))));
+                            equalTo(NetworkAttributes.NETWORK_PROTOCOL_VERSION, "1.1"),
+                            equalTo(ServerAttributes.SERVER_ADDRESS, httpHost.getHostName()),
+                            equalTo(ServerAttributes.SERVER_PORT, httpHost.getPort()),
+                            equalTo(HttpAttributes.HTTP_REQUEST_METHOD, "GET"),
+                            equalTo(UrlAttributes.URL_FULL, httpHost.toURI() + "/_cluster/health"),
+                            equalTo(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, 200L))));
   }
 
   @Test
@@ -158,23 +162,20 @@ public class OpenSearchRestTest {
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "opensearch"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "GET"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "GET _cluster/health")),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "opensearch"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "GET"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "GET _cluster/health")),
                 span ->
                     span.hasName("GET")
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.NET_PROTOCOL_NAME, "http"),
-                            equalTo(SemanticAttributes.NET_PROTOCOL_VERSION, "1.1"),
-                            equalTo(SemanticAttributes.NET_PEER_NAME, httpHost.getHostName()),
-                            equalTo(SemanticAttributes.NET_PEER_PORT, httpHost.getPort()),
-                            equalTo(SemanticAttributes.HTTP_METHOD, "GET"),
-                            equalTo(
-                                SemanticAttributes.HTTP_URL, httpHost.toURI() + "/_cluster/health"),
-                            equalTo(SemanticAttributes.HTTP_STATUS_CODE, 200L),
-                            equalTo(SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH, 415L)),
+                            equalTo(NetworkAttributes.NETWORK_PROTOCOL_VERSION, "1.1"),
+                            equalTo(ServerAttributes.SERVER_ADDRESS, httpHost.getHostName()),
+                            equalTo(ServerAttributes.SERVER_PORT, httpHost.getPort()),
+                            equalTo(HttpAttributes.HTTP_REQUEST_METHOD, "GET"),
+                            equalTo(UrlAttributes.URL_FULL, httpHost.toURI() + "/_cluster/health"),
+                            equalTo(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, 200L)),
                 span ->
                     span.hasName("callback")
                         .hasKind(SpanKind.INTERNAL)

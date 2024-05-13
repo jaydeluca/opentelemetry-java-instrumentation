@@ -56,7 +56,7 @@ This repository also publishes standalone instrumentation for several libraries 
 that can be used if you prefer that over using the Java agent.
 Please see the standalone library instrumentation column
 on [Supported Libraries](docs/supported-libraries.md#libraries--frameworks).
-if you are looking for documentation on using those.
+If you are looking for documentation on using those.
 
 ## Getting Started
 
@@ -151,23 +151,25 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Triagers ([@open-telemetry/java-instrumentation-triagers](https://github.com/orgs/open-telemetry/teams/java-instrumentation-triagers)):
 
-- [Gregor Zeitlinger](https://github.com/zeitlinger), Grafana Labs
+- [Steve Rao](https://github.com/steverao), Alibaba
 
 Approvers ([@open-telemetry/java-instrumentation-approvers](https://github.com/orgs/open-telemetry/teams/java-instrumentation-approvers)):
 
+- [Gregor Zietlinger](https://github.com/zeitlinger), Grafana
 - [Jack Berg](https://github.com/jack-berg), New Relic
 - [Jason Plumb](https://github.com/breedx-splk), Splunk
+- [Jean Bisutti](https://github.com/jeanbisutti), Microsoft
 - [John Watson](https://github.com/jkwatson), Verta.ai
 
 Maintainers ([@open-telemetry/java-instrumentation-maintainers](https://github.com/orgs/open-telemetry/teams/java-instrumentation-maintainers)):
 
 - [Lauri Tulmin](https://github.com/laurit), Splunk
-- [Mateusz Rzeszutek](https://github.com/mateuszrzeszutek), Splunk
 - [Trask Stalnaker](https://github.com/trask), Microsoft
 
 Emeritus maintainers:
 
-- [Nikita Salnikov-Tarnovski](https://github.com/iNikem), Splunk
+- [Mateusz Rzeszutek](https://github.com/mateuszrzeszutek)
+- [Nikita Salnikov-Tarnovski](https://github.com/iNikem)
 - [Tyler Benson](https://github.com/tylerbenson)
 
 Learn more about roles in

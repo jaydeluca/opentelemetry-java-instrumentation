@@ -20,7 +20,8 @@ import io.opentelemetry.instrumentation.test.utils.PortUtils;
 import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.ServerAttributes;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
 import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,7 +34,6 @@ import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
-@SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
 class LettuceSyncClientTest {
   private static final Logger logger = LoggerFactory.getLogger(LettuceSyncClientTest.class);
 
@@ -120,9 +120,9 @@ class LettuceSyncClientTest {
                     span.hasName("CONNECT")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.NET_PEER_NAME, host),
-                            equalTo(SemanticAttributes.NET_PEER_PORT, port),
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"))));
+                            equalTo(ServerAttributes.SERVER_ADDRESS, host),
+                            equalTo(ServerAttributes.SERVER_PORT, port),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"))));
   }
 
   @Test
@@ -143,9 +143,9 @@ class LettuceSyncClientTest {
                         .hasKind(SpanKind.CLIENT)
                         .hasException(exception)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.NET_PEER_NAME, host),
-                            equalTo(SemanticAttributes.NET_PEER_PORT, incorrectPort),
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"))));
+                            equalTo(ServerAttributes.SERVER_ADDRESS, host),
+                            equalTo(ServerAttributes.SERVER_PORT, incorrectPort),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"))));
   }
 
   @Test
@@ -160,8 +160,8 @@ class LettuceSyncClientTest {
                     span.hasName("SET")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "SET"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "SET"))));
   }
 
   @Test
@@ -176,8 +176,8 @@ class LettuceSyncClientTest {
                     span.hasName("GET")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "GET"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "GET"))));
   }
 
   @Test
@@ -192,8 +192,8 @@ class LettuceSyncClientTest {
                     span.hasName("GET")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "GET"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "GET"))));
   }
 
   @Test
@@ -208,8 +208,8 @@ class LettuceSyncClientTest {
                     span.hasName("RANDOMKEY")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "RANDOMKEY"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "RANDOMKEY"))));
   }
 
   @Test
@@ -224,8 +224,8 @@ class LettuceSyncClientTest {
                     span.hasName("LPUSH")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "LPUSH"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "LPUSH"))));
   }
 
   @Test
@@ -240,8 +240,8 @@ class LettuceSyncClientTest {
                     span.hasName("HMSET")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "HMSET"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "HMSET"))));
   }
 
   @Test
@@ -256,8 +256,8 @@ class LettuceSyncClientTest {
                     span.hasName("HGETALL")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "HGETALL"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "HGETALL"))));
   }
 
   @Test
@@ -288,8 +288,8 @@ class LettuceSyncClientTest {
                     span.hasName("DEBUG")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "DEBUG"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "DEBUG"))));
   }
 
   @Test
@@ -322,7 +322,7 @@ class LettuceSyncClientTest {
                     span.hasName("SHUTDOWN")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "SHUTDOWN"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "SHUTDOWN"))));
   }
 }

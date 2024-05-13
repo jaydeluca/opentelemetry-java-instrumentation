@@ -46,6 +46,7 @@ dependencies {
   api("org.slf4j:slf4j-api")
 
   compileOnly(project(":testing:armeria-shaded-for-testing", configuration = "shadow"))
+  compileOnly(project(":javaagent-bootstrap"))
 
   compileOnly("com.google.auto.value:auto-value-annotations")
   annotationProcessor("com.google.auto.value:auto-value")
@@ -58,7 +59,7 @@ dependencies {
   implementation("org.slf4j:jcl-over-slf4j")
   implementation("org.slf4j:jul-to-slf4j")
   implementation("io.opentelemetry:opentelemetry-exporter-logging")
-  api(project(":instrumentation-api-semconv"))
+  api(project(":instrumentation-api-incubator"))
 
   annotationProcessor("com.google.auto.service:auto-service")
   compileOnly("com.google.auto.service:auto-service")

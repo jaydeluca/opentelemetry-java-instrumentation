@@ -1,4 +1,3 @@
-import com.gradle.enterprise.gradleplugin.testretry.retry
 import io.opentelemetry.instrumentation.gradle.OtelJavaExtension
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import java.time.Duration
@@ -27,12 +26,15 @@ afterEvaluate {
 }
 
 // Version to use to compile code and run tests.
-val DEFAULT_JAVA_VERSION = JavaVersion.VERSION_17
+val DEFAULT_JAVA_VERSION = JavaVersion.VERSION_21
 
 java {
   toolchain {
     languageVersion.set(
-      otelJava.minJavaVersionSupported.map { JavaLanguageVersion.of(Math.max(it.majorVersion.toInt(), DEFAULT_JAVA_VERSION.majorVersion.toInt())) }
+      otelJava.minJavaVersionSupported.map {
+        val defaultJavaVersion = otelJava.maxJavaVersionSupported.getOrElse(DEFAULT_JAVA_VERSION).majorVersion.toInt()
+        JavaLanguageVersion.of(Math.max(it.majorVersion.toInt(), defaultJavaVersion))
+      }
     )
   }
 
@@ -69,6 +71,8 @@ tasks.withType<JavaCompile>().configureEach {
           "-Xlint:-processing",
           // We suppress the "options" warning because it prevents compilation on modern JDKs
           "-Xlint:-options",
+          // jdk21 generates more serial warnings than previous versions
+          "-Xlint:-serial",
 
           // Fail build on any warning
           "-Werror"
@@ -81,6 +85,11 @@ tasks.withType<JavaCompile>().configureEach {
     if (name.contains("Test")) {
       // serialVersionUID is basically guaranteed to be useless in tests
       compilerArgs.add("-Xlint:-serial")
+      // when code is compiled with jdk 21 and executed with jdk 8, the -parameters flag is needed to avoid
+      // java.lang.reflect.MalformedParametersException: Invalid parameter name ""
+      // when junit calls java.lang.reflect.Executable.getParameters() on the constructor of a
+      // non-static nested test class
+      compilerArgs.add("-parameters")
     }
   }
 }
@@ -98,6 +107,17 @@ afterEvaluate {
   tasks.withType<ScalaCompile>().configureEach {
     sourceCompatibility = otelJava.minJavaVersionSupported.get().majorVersion
     targetCompatibility = otelJava.minJavaVersionSupported.get().majorVersion
+  }
+  tasks.withType<Javadoc>().configureEach {
+    with(options) {
+      source = otelJava.minJavaVersionSupported.get().majorVersion
+    }
+  }
+  tasks.withType<JavaCompile>().configureEach {
+    if (javaCompiler.isPresent && javaCompiler.get().metadata.languageVersion.canCompileOrRun(21)) {
+      // new warning in jdk21
+      options.compilerArgs.add("-Xlint:-this-escape")
+    }
   }
 }
 
@@ -122,7 +142,7 @@ abstract class NettyAlignmentRule : ComponentMetadataRule {
     with(ctx.details) {
       if (id.group == "io.netty" && id.name != "netty") {
         if (id.version.startsWith("4.1.")) {
-          belongsTo("io.netty:netty-bom:4.1.100.Final", false)
+          belongsTo("io.netty:netty-bom:4.1.109.Final", false)
         } else if (id.version.startsWith("4.0.")) {
           belongsTo("io.netty:netty-bom:4.0.56.Final", false)
         }
@@ -139,8 +159,8 @@ dependencies {
   compileOnly("com.google.code.findbugs:jsr305")
   compileOnly("com.google.errorprone:error_prone_annotations")
 
-  codenarc("org.codenarc:CodeNarc:3.3.0")
-  codenarc(platform("org.codehaus.groovy:groovy-bom:3.0.19"))
+  codenarc("org.codenarc:CodeNarc:3.4.0")
+  codenarc(platform("org.codehaus.groovy:groovy-bom:3.0.21"))
 
   modules {
     // checkstyle uses the very old google-collections which causes Java 9 module conflict with
@@ -194,6 +214,41 @@ testing {
   }
 }
 
+var path = project.path
+if (path.startsWith(":instrumentation:")) {
+  // remove segments that are a prefix of the next segment
+  // for example :instrumentation:log4j:log4j-context-data:log4j-context-data-2.17 is transformed to log4j-context-data-2.17
+  var tmpPath = path
+  val suffix = tmpPath.substringAfterLast(':')
+  var prefix = ":instrumentation:"
+  if (suffix == "library") {
+    // strip ":library" suffix
+    tmpPath = tmpPath.substringBeforeLast(':')
+  } else if (suffix == "library-autoconfigure") {
+    // replace ":library-autoconfigure" with "-autoconfigure"
+    tmpPath = tmpPath.substringBeforeLast(':') + "-autoconfigure"
+  } else if (suffix == "javaagent") {
+    // strip ":javaagent" suffix and add it to prefix
+    prefix += "javaagent:"
+    tmpPath = tmpPath.substringBeforeLast(':')
+  }
+  val segments = tmpPath.substring(":instrumentation:".length).split(':')
+  var newPath = ""
+  var done = false
+  for (s in segments) {
+    if (!done && (newPath.isEmpty() || s.startsWith(newPath))) {
+      newPath = s
+    } else {
+      newPath += ":$s"
+      done = true
+    }
+  }
+  if (newPath.isNotEmpty()) {
+    path = prefix + newPath
+  }
+}
+var javaModuleName = "io.opentelemetry" + path.replace(".", "_").replace("-", "_").replace(":", ".")
+
 tasks {
   named<Jar>("jar") {
     // By default Gradle Jar task can put multiple files with the same name
@@ -210,7 +265,8 @@ tasks {
         "Implementation-Title" to project.name,
         "Implementation-Version" to project.version,
         "Implementation-Vendor" to "OpenTelemetry",
-        "Implementation-URL" to "https://github.com/open-telemetry/opentelemetry-java-instrumentation"
+        "Implementation-URL" to "https://github.com/open-telemetry/opentelemetry-java-instrumentation",
+        "Automatic-Module-Name" to javaModuleName
       )
     }
   }
@@ -287,7 +343,12 @@ tasks.withType<Test>().configureEach {
   // propagation.
   jvmArgs("-Dio.opentelemetry.context.enableStrictContext=${rootProject.findProperty("enableStrictContext") ?: true}")
   // TODO(anuraaga): Have agent map unshaded to shaded.
-  jvmArgs("-Dio.opentelemetry.javaagent.shaded.io.opentelemetry.context.enableStrictContext=${rootProject.findProperty("enableStrictContext") ?: true}")
+  if (project.findProperty("disableShadowRelocate") != "true") {
+    jvmArgs("-Dio.opentelemetry.javaagent.shaded.io.opentelemetry.context.enableStrictContext=${rootProject.findProperty("enableStrictContext") ?: true}")
+  } else {
+    jvmArgs("-Dotel.instrumentation.opentelemetry-api.enabled=false")
+    jvmArgs("-Dotel.instrumentation.opentelemetry-instrumentation-api.enabled=false")
+  }
 
   // Disable default resource providers since they cause lots of output we don't need.
   jvmArgs("-Dotel.java.disabled.resource.providers=$resourceClassesCsv")
@@ -303,7 +364,7 @@ tasks.withType<Test>().configureEach {
   // This value is quite big because with lower values (3 mins) we were experiencing large number of false positives
   timeout.set(Duration.ofMinutes(15))
 
-  retry {
+  develocity.testRetry {
     // You can see tests that were retried by this mechanism in the collected test reports and build scans.
     if (System.getenv().containsKey("CI") || rootProject.hasProperty("retryTests")) {
       maxRetries.set(5)
@@ -366,7 +427,7 @@ codenarc {
 checkstyle {
   configFile = rootProject.file("buildscripts/checkstyle.xml")
   // this version should match the version of google_checks.xml used as basis for above configuration
-  toolVersion = "10.12.4"
+  toolVersion = "10.16.0"
   maxWarnings = 0
 }
 
@@ -374,6 +435,8 @@ dependencyCheck {
   skipConfigurations = listOf("errorprone", "checkstyle", "annotationProcessor")
   suppressionFile = "buildscripts/dependency-check-suppressions.xml"
   failBuildOnCVSS = 7.0f // fail on high or critical CVE
+  nvd.apiKey = System.getenv("NVD_API_KEY")
+  nvd.delay = 3500 // until next dependency check release (https://github.com/jeremylong/DependencyCheck/pull/6333)
 }
 
 idea {
@@ -401,7 +464,7 @@ configurations.configureEach {
     // what modules they add to reference generically.
     dependencySubstitution {
       substitute(module("io.opentelemetry.instrumentation:opentelemetry-instrumentation-api")).using(project(":instrumentation-api"))
-      substitute(module("io.opentelemetry.instrumentation:opentelemetry-instrumentation-api-semconv")).using(project(":instrumentation-api-semconv"))
+      substitute(module("io.opentelemetry.instrumentation:opentelemetry-instrumentation-api-incubator")).using(project(":instrumentation-api-incubator"))
       substitute(module("io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations")).using(project(":instrumentation-annotations"))
       substitute(module("io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations-support")).using(
         project(":instrumentation-annotations-support")

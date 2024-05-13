@@ -6,15 +6,14 @@
 package io.opentelemetry.instrumentation.r2dbc.v1_0;
 
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
-import static io.opentelemetry.semconv.SemanticAttributes.DB_CONNECTION_STRING;
-import static io.opentelemetry.semconv.SemanticAttributes.DB_NAME;
-import static io.opentelemetry.semconv.SemanticAttributes.DB_OPERATION;
-import static io.opentelemetry.semconv.SemanticAttributes.DB_SQL_TABLE;
-import static io.opentelemetry.semconv.SemanticAttributes.DB_STATEMENT;
-import static io.opentelemetry.semconv.SemanticAttributes.DB_SYSTEM;
-import static io.opentelemetry.semconv.SemanticAttributes.DB_USER;
-import static io.opentelemetry.semconv.SemanticAttributes.NET_PEER_NAME;
-import static io.opentelemetry.semconv.SemanticAttributes.NET_PEER_PORT;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SQL_TABLE;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_USER;
 import static io.r2dbc.spi.ConnectionFactoryOptions.DATABASE;
 import static io.r2dbc.spi.ConnectionFactoryOptions.DRIVER;
 import static io.r2dbc.spi.ConnectionFactoryOptions.HOST;
@@ -126,7 +125,6 @@ public abstract class AbstractR2dbcStatementTest {
 
   @ParameterizedTest(name = "{index}: {0}")
   @MethodSource("provideParameters")
-  @SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
   void testQueries(Parameter parameter) {
     DbSystemProps props = SYSTEMS.get(parameter.system);
     startContainer(props);
@@ -134,7 +132,7 @@ public abstract class AbstractR2dbcStatementTest {
         createProxyConnectionFactory(
             ConnectionFactoryOptions.builder()
                 .option(DRIVER, props.system)
-                .option(HOST, "localhost")
+                .option(HOST, container.getHost())
                 .option(PORT, port)
                 .option(USER, USER_DB)
                 .option(PASSWORD, PW_DB)
@@ -166,17 +164,14 @@ public abstract class AbstractR2dbcStatementTest {
                             .hasKind(SpanKind.CLIENT)
                             .hasParent(trace.getSpan(0))
                             .hasAttributesSatisfyingExactly(
-                                equalTo(
-                                    DB_CONNECTION_STRING,
-                                    parameter.system + "://localhost:" + port),
                                 equalTo(DB_SYSTEM, parameter.system),
                                 equalTo(DB_NAME, DB),
                                 equalTo(DB_USER, USER_DB),
                                 equalTo(DB_STATEMENT, parameter.expectedStatement),
                                 equalTo(DB_OPERATION, parameter.operation),
                                 equalTo(DB_SQL_TABLE, parameter.table),
-                                equalTo(NET_PEER_NAME, "localhost"),
-                                equalTo(NET_PEER_PORT, port)),
+                                equalTo(SERVER_ADDRESS, container.getHost()),
+                                equalTo(SERVER_PORT, port)),
                     span ->
                         span.hasName("child")
                             .hasKind(SpanKind.INTERNAL)
@@ -205,9 +200,9 @@ public abstract class AbstractR2dbcStatementTest {
                                 system.system,
                                 "CREATE TABLE person (id SERIAL PRIMARY KEY, first_name VARCHAR(255), last_name VARCHAR(255))",
                                 "CREATE TABLE person (id SERIAL PRIMARY KEY, first_name VARCHAR(?), last_name VARCHAR(?))",
-                                DB,
-                                null,
-                                null))),
+                                "CREATE TABLE " + DB + ".person",
+                                "person",
+                                "CREATE TABLE"))),
                     Arguments.of(
                         named(
                             system.system + " Insert",

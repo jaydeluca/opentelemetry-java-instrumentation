@@ -7,22 +7,23 @@ package io.opentelemetry.instrumentation.ratpack.v1_7;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpClientExperimentalMetrics;
+import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpExperimentalAttributesExtractor;
+import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpServerExperimentalMetrics;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpClientAttributesExtractor;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpClientAttributesExtractorBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpClientExperimentalMetrics;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpClientMetrics;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpServerAttributesExtractor;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpServerAttributesExtractorBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpServerExperimentalMetrics;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpServerMetrics;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpServerRoute;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpServerRouteBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpSpanNameExtractor;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpSpanNameExtractorBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.http.HttpSpanStatusExtractor;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesExtractor;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesExtractorBuilder;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpClientMetrics;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpServerAttributesExtractor;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpServerAttributesExtractorBuilder;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpServerMetrics;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpServerRoute;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpServerRouteBuilder;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpSpanNameExtractor;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpSpanNameExtractorBuilder;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpSpanStatusExtractor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -194,7 +195,9 @@ public final class RatpackTelemetryBuilder {
             .addOperationMetrics(HttpServerMetrics.get())
             .addContextCustomizer(httpServerRouteBuilder.build());
     if (emitExperimentalHttpServerMetrics) {
-      builder.addOperationMetrics(HttpServerExperimentalMetrics.get());
+      builder
+          .addAttributesExtractor(HttpExperimentalAttributesExtractor.create(httpAttributes))
+          .addOperationMetrics(HttpServerExperimentalMetrics.get());
     }
     return builder.buildServerInstrumenter(RatpackGetter.INSTANCE);
   }
@@ -210,7 +213,9 @@ public final class RatpackTelemetryBuilder {
             .addAttributesExtractors(additionalHttpClientExtractors)
             .addOperationMetrics(HttpClientMetrics.get());
     if (emitExperimentalHttpClientMetrics) {
-      builder.addOperationMetrics(HttpClientExperimentalMetrics.get());
+      builder
+          .addAttributesExtractor(HttpExperimentalAttributesExtractor.create(httpAttributes))
+          .addOperationMetrics(HttpClientExperimentalMetrics.get());
     }
     return builder.buildClientInstrumenter(RequestHeaderSetter.INSTANCE);
   }

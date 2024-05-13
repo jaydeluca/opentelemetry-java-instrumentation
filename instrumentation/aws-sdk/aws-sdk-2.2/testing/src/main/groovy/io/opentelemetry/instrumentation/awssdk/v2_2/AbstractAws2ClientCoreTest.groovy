@@ -7,7 +7,11 @@ package io.opentelemetry.instrumentation.awssdk.v2_2
 
 import io.opentelemetry.instrumentation.api.internal.ConfigPropertiesUtil
 import io.opentelemetry.instrumentation.test.InstrumentationSpecification
-import io.opentelemetry.semconv.SemanticAttributes
+import io.opentelemetry.semconv.incubating.RpcIncubatingAttributes
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes
+import io.opentelemetry.semconv.ServerAttributes
+import io.opentelemetry.semconv.HttpAttributes
+import io.opentelemetry.semconv.UrlAttributes
 import io.opentelemetry.testing.internal.armeria.common.HttpResponse
 import io.opentelemetry.testing.internal.armeria.common.HttpStatus
 import io.opentelemetry.testing.internal.armeria.common.MediaType
@@ -133,22 +137,19 @@ abstract class AbstractAws2ClientCoreTest extends InstrumentationSpecification {
           kind CLIENT
           hasNoParent()
           attributes {
-            "$SemanticAttributes.NET_PEER_NAME" "127.0.0.1"
-            "$SemanticAttributes.NET_PEER_PORT" server.httpPort()
-            "$SemanticAttributes.HTTP_URL" { it.startsWith("${server.httpUri()}${path}") }
-            "$SemanticAttributes.HTTP_METHOD" "$method"
-            "$SemanticAttributes.HTTP_STATUS_CODE" 200
-            "$SemanticAttributes.USER_AGENT_ORIGINAL" { it.startsWith("aws-sdk-java/") }
-            "$SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH" { it == null || it instanceof Long }
-            "$SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH" { it == null || it instanceof Long }
-            "$SemanticAttributes.RPC_SYSTEM" "aws-api"
-            "$SemanticAttributes.RPC_SERVICE" "DynamoDb"
-            "$SemanticAttributes.RPC_METHOD" "CreateTable"
+            "$ServerAttributes.SERVER_ADDRESS" "127.0.0.1"
+            "$ServerAttributes.SERVER_PORT" server.httpPort()
+            "$UrlAttributes.URL_FULL" { it.startsWith("${server.httpUri()}${path}") }
+            "$HttpAttributes.HTTP_REQUEST_METHOD" "$method"
+            "$HttpAttributes.HTTP_RESPONSE_STATUS_CODE" 200
+            "$RpcIncubatingAttributes.RPC_SYSTEM" "aws-api"
+            "$RpcIncubatingAttributes.RPC_SERVICE" "DynamoDb"
+            "$RpcIncubatingAttributes.RPC_METHOD" "CreateTable"
             "aws.agent" "java-aws-sdk"
             "aws.requestId" "$requestId"
             "aws.table.name" "sometable"
-            "$SemanticAttributes.DB_SYSTEM" "dynamodb"
-            "$SemanticAttributes.DB_OPERATION" "CreateTable"
+            "$DbIncubatingAttributes.DB_SYSTEM" "dynamodb"
+            "$DbIncubatingAttributes.DB_OPERATION" "CreateTable"
             "aws.dynamodb.global_secondary_indexes" "[{\"IndexName\":\"globalIndex\",\"KeySchema\":[{\"AttributeName\":\"attribute\"}],\"ProvisionedThroughput\":{\"ReadCapacityUnits\":10,\"WriteCapacityUnits\":12}},{\"IndexName\":\"globalIndexSecondary\",\"KeySchema\":[{\"AttributeName\":\"attributeSecondary\"}],\"ProvisionedThroughput\":{\"ReadCapacityUnits\":7,\"WriteCapacityUnits\":8}}]"
             "aws.dynamodb.provisioned_throughput.read_capacity_units" "1"
             "aws.dynamodb.provisioned_throughput.write_capacity_units" "1"
@@ -169,22 +170,19 @@ abstract class AbstractAws2ClientCoreTest extends InstrumentationSpecification {
           kind CLIENT
           hasNoParent()
           attributes {
-            "$SemanticAttributes.NET_PEER_NAME" "127.0.0.1"
-            "$SemanticAttributes.NET_PEER_PORT" server.httpPort()
-            "$SemanticAttributes.HTTP_URL" { it.startsWith("${server.httpUri()}${path}") }
-            "$SemanticAttributes.HTTP_METHOD" "$method"
-            "$SemanticAttributes.HTTP_STATUS_CODE" 200
-            "$SemanticAttributes.USER_AGENT_ORIGINAL" { it.startsWith("aws-sdk-java/") }
-            "$SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH" { it == null || it instanceof Long }
-            "$SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH" { it == null || it instanceof Long }
-            "$SemanticAttributes.RPC_SYSTEM" "aws-api"
-            "$SemanticAttributes.RPC_SERVICE" "DynamoDb"
-            "$SemanticAttributes.RPC_METHOD" "Query"
+            "$ServerAttributes.SERVER_ADDRESS" "127.0.0.1"
+            "$ServerAttributes.SERVER_PORT" server.httpPort()
+            "$UrlAttributes.URL_FULL" { it.startsWith("${server.httpUri()}${path}") }
+            "$HttpAttributes.HTTP_REQUEST_METHOD" "$method"
+            "$HttpAttributes.HTTP_RESPONSE_STATUS_CODE" 200
+            "$RpcIncubatingAttributes.RPC_SYSTEM" "aws-api"
+            "$RpcIncubatingAttributes.RPC_SERVICE" "DynamoDb"
+            "$RpcIncubatingAttributes.RPC_METHOD" "Query"
             "aws.agent" "java-aws-sdk"
             "aws.requestId" "$requestId"
             "aws.table.name" "sometable"
-            "$SemanticAttributes.DB_SYSTEM" "dynamodb"
-            "$SemanticAttributes.DB_OPERATION" "Query"
+            "$DbIncubatingAttributes.DB_SYSTEM" "dynamodb"
+            "$DbIncubatingAttributes.DB_OPERATION" "Query"
             "aws.dynamodb.limit" "10"
             "aws.dynamodb.select" "ALL_ATTRIBUTES"
           }
@@ -204,22 +202,19 @@ abstract class AbstractAws2ClientCoreTest extends InstrumentationSpecification {
           kind CLIENT
           hasNoParent()
           attributes {
-            "$SemanticAttributes.NET_PEER_NAME" "127.0.0.1"
-            "$SemanticAttributes.NET_PEER_PORT" server.httpPort()
-            "$SemanticAttributes.HTTP_URL" { it.startsWith("${server.httpUri()}${path}") }
-            "$SemanticAttributes.HTTP_METHOD" "$method"
-            "$SemanticAttributes.HTTP_STATUS_CODE" 200
-            "$SemanticAttributes.USER_AGENT_ORIGINAL" { it.startsWith("aws-sdk-java/") }
-            "$SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH" { it == null || it instanceof Long }
-            "$SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH" { it == null || it instanceof Long }
-            "$SemanticAttributes.RPC_SYSTEM" "aws-api"
-            "$SemanticAttributes.RPC_SERVICE" "$service"
-            "$SemanticAttributes.RPC_METHOD" "${operation}"
+            "$ServerAttributes.SERVER_ADDRESS" "127.0.0.1"
+            "$ServerAttributes.SERVER_PORT" server.httpPort()
+            "$UrlAttributes.URL_FULL" { it.startsWith("${server.httpUri()}${path}") }
+            "$HttpAttributes.HTTP_REQUEST_METHOD" "$method"
+            "$HttpAttributes.HTTP_RESPONSE_STATUS_CODE" 200
+            "$RpcIncubatingAttributes.RPC_SYSTEM" "aws-api"
+            "$RpcIncubatingAttributes.RPC_SERVICE" "$service"
+            "$RpcIncubatingAttributes.RPC_METHOD" "${operation}"
             "aws.agent" "java-aws-sdk"
             "aws.requestId" "$requestId"
             "aws.table.name" "sometable"
-            "$SemanticAttributes.DB_SYSTEM" "dynamodb"
-            "$SemanticAttributes.DB_OPERATION" "${operation}"
+            "$DbIncubatingAttributes.DB_SYSTEM" "dynamodb"
+            "$DbIncubatingAttributes.DB_OPERATION" "${operation}"
           }
         }
       }

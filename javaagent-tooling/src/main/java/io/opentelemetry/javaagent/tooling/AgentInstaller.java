@@ -26,13 +26,13 @@ import io.opentelemetry.javaagent.bootstrap.InstrumentedTaskClasses;
 import io.opentelemetry.javaagent.bootstrap.http.HttpServerResponseCustomizer;
 import io.opentelemetry.javaagent.bootstrap.http.HttpServerResponseCustomizerHolder;
 import io.opentelemetry.javaagent.bootstrap.http.HttpServerResponseMutator;
+import io.opentelemetry.javaagent.bootstrap.internal.ConfiguredResourceAttributesHolder;
 import io.opentelemetry.javaagent.bootstrap.internal.InstrumentationConfig;
 import io.opentelemetry.javaagent.extension.AgentListener;
 import io.opentelemetry.javaagent.extension.ignore.IgnoredTypesConfigurer;
 import io.opentelemetry.javaagent.tooling.asyncannotationsupport.WeakRefAsyncOperationEndStrategies;
 import io.opentelemetry.javaagent.tooling.bootstrap.BootstrapPackagesBuilderImpl;
 import io.opentelemetry.javaagent.tooling.bootstrap.BootstrapPackagesConfigurer;
-import io.opentelemetry.javaagent.tooling.config.AgentConfig;
 import io.opentelemetry.javaagent.tooling.config.ConfigPropertiesBridge;
 import io.opentelemetry.javaagent.tooling.config.EarlyInitAgentConfig;
 import io.opentelemetry.javaagent.tooling.ignore.IgnoredClassLoadersMatcher;
@@ -41,6 +41,7 @@ import io.opentelemetry.javaagent.tooling.ignore.IgnoredTypesMatcher;
 import io.opentelemetry.javaagent.tooling.muzzle.AgentTooling;
 import io.opentelemetry.javaagent.tooling.util.Trie;
 import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk;
+import io.opentelemetry.sdk.autoconfigure.SdkAutoconfigureAccess;
 import io.opentelemetry.sdk.autoconfigure.internal.AutoConfigureUtil;
 import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import java.lang.instrument.Instrumentation;
@@ -125,6 +126,8 @@ public class AgentInstaller {
     copyNecessaryConfigToSystemProperties(sdkConfig);
 
     setBootstrapPackages(sdkConfig, extensionClassLoader);
+    ConfiguredResourceAttributesHolder.initialize(
+        SdkAutoconfigureAccess.getResourceAttributes(autoConfiguredSdk));
 
     for (BeforeAgentListener agentListener :
         loadOrdered(BeforeAgentListener.class, extensionClassLoader)) {
@@ -154,7 +157,7 @@ public class AgentInstaller {
 
     agentBuilder = configureIgnoredTypes(sdkConfig, extensionClassLoader, agentBuilder);
 
-    if (AgentConfig.isDebugModeEnabled(sdkConfig)) {
+    if (logger.isLoggable(FINE)) {
       agentBuilder =
           agentBuilder
               .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
@@ -197,11 +200,7 @@ public class AgentInstaller {
   }
 
   private static void copyNecessaryConfigToSystemProperties(ConfigProperties config) {
-    for (String property :
-        asList(
-            "otel.instrumentation.experimental.span-suppression-strategy",
-            "otel.instrumentation.http.prefer-forwarded-url-scheme",
-            "otel.semconv-stability.opt-in")) {
+    for (String property : asList("otel.instrumentation.experimental.span-suppression-strategy")) {
       String value = config.getString(property);
       if (value != null) {
         System.setProperty(property, value);

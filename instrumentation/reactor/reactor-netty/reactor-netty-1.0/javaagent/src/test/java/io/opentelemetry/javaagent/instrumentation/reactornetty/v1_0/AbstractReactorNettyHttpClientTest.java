@@ -26,7 +26,11 @@ import io.opentelemetry.instrumentation.testing.junit.http.HttpClientResult;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientTestOptions;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.data.StatusData;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.ErrorAttributes;
+import io.opentelemetry.semconv.HttpAttributes;
+import io.opentelemetry.semconv.NetworkAttributes;
+import io.opentelemetry.semconv.ServerAttributes;
+import io.opentelemetry.semconv.UrlAttributes;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.time.Duration;
@@ -106,7 +110,6 @@ abstract class AbstractReactorNettyHttpClientTest
     optionsBuilder.markAsLowLevelInstrumentation();
     optionsBuilder.setMaxRedirects(52);
 
-    optionsBuilder.setUserAgent(USER_AGENT);
     // TODO: remove this test altogether? this scenario is (was) only implemented in reactor-netty,
     // all other HTTP clients worked in a different way
     //    optionsBuilder.enableTestCallbackWithImplicitParent();
@@ -126,22 +129,19 @@ abstract class AbstractReactorNettyHttpClientTest
     optionsBuilder.setHttpAttributes(this::getHttpAttributes);
   }
 
-  @SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
   protected Set<AttributeKey<?>> getHttpAttributes(URI uri) {
     Set<AttributeKey<?>> attributes = new HashSet<>(HttpClientTestOptions.DEFAULT_HTTP_ATTRIBUTES);
 
     // unopened port or non routable address
     if ("http://localhost:61/".equals(uri.toString())
         || "https://192.0.2.1/".equals(uri.toString())) {
-      attributes.remove(SemanticAttributes.NET_PROTOCOL_NAME);
-      attributes.remove(SemanticAttributes.NET_PROTOCOL_VERSION);
+      attributes.remove(NetworkAttributes.NETWORK_PROTOCOL_VERSION);
     }
 
     if (uri.toString().contains("/read-timeout")) {
-      attributes.remove(SemanticAttributes.NET_PROTOCOL_NAME);
-      attributes.remove(SemanticAttributes.NET_PROTOCOL_VERSION);
-      attributes.remove(SemanticAttributes.NET_PEER_NAME);
-      attributes.remove(SemanticAttributes.NET_PEER_PORT);
+      attributes.remove(NetworkAttributes.NETWORK_PROTOCOL_VERSION);
+      attributes.remove(ServerAttributes.SERVER_ADDRESS);
+      attributes.remove(ServerAttributes.SERVER_PORT);
     }
     return attributes;
   }
@@ -272,7 +272,6 @@ abstract class AbstractReactorNettyHttpClientTest
   }
 
   @Test
-  @SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
   void shouldEndSpanOnMonoTimeout() {
     HttpClient httpClient = createHttpClient();
 
@@ -310,12 +309,11 @@ abstract class AbstractReactorNettyHttpClientTest
                         .hasKind(CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.HTTP_METHOD, "GET"),
-                            equalTo(SemanticAttributes.HTTP_URL, uri.toString()),
-                            equalTo(SemanticAttributes.USER_AGENT_ORIGINAL, USER_AGENT),
-                            equalTo(SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH, 0),
-                            equalTo(SemanticAttributes.NET_PEER_NAME, "localhost"),
-                            equalTo(SemanticAttributes.NET_PEER_PORT, uri.getPort())),
+                            equalTo(HttpAttributes.HTTP_REQUEST_METHOD, "GET"),
+                            equalTo(UrlAttributes.URL_FULL, uri.toString()),
+                            equalTo(ServerAttributes.SERVER_ADDRESS, "localhost"),
+                            equalTo(ServerAttributes.SERVER_PORT, uri.getPort()),
+                            equalTo(ErrorAttributes.ERROR_TYPE, "cancelled")),
                 span ->
                     span.hasName("test-http-server")
                         .hasKind(SpanKind.SERVER)

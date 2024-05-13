@@ -28,7 +28,10 @@ import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.test.utils.PortUtils;
 import io.opentelemetry.sdk.trace.data.StatusData;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.ServerAttributes;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -44,7 +47,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-@SuppressWarnings("deprecation") // until old http semconv are dropped in 2.0
 class LettuceAsyncClientTest extends AbstractLettuceClientTest {
   private static int incorrectPort;
   private static String dbUriNonExistent;
@@ -58,9 +60,11 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
   private static RedisAsyncCommands<String, String> asyncCommands;
 
   @BeforeAll
-  static void setUp() {
+  static void setUp() throws UnknownHostException {
     redisServer.start();
+
     host = redisServer.getHost();
+    ip = InetAddress.getByName(host).getHostAddress();
     port = redisServer.getMappedPort(6379);
     embeddedDbUri = "redis://" + host + ":" + port + "/" + DB_INDEX;
 
@@ -88,6 +92,7 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
     redisServer.stop();
   }
 
+  @SuppressWarnings("deprecation") // RedisURI constructor
   @Test
   void testConnectUsingGetOnConnectionFuture() throws ExecutionException, InterruptedException {
     RedisClient testConnectionClient = RedisClient.create(embeddedDbUri);
@@ -109,11 +114,12 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                     span.hasName("CONNECT")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.NET_PEER_NAME, host),
-                            equalTo(SemanticAttributes.NET_PEER_PORT, port),
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"))));
+                            equalTo(ServerAttributes.SERVER_ADDRESS, host),
+                            equalTo(ServerAttributes.SERVER_PORT, port),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"))));
   }
 
+  @SuppressWarnings("deprecation") // RedisURI constructor
   @Test
   void testConnectExceptionInsideTheConnectionFuture() {
     RedisClient testConnectionClient = RedisClient.create(dbUriNonExistent);
@@ -139,9 +145,9 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                         .hasKind(SpanKind.CLIENT)
                         .hasStatus(StatusData.error())
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.NET_PEER_NAME, host),
-                            equalTo(SemanticAttributes.NET_PEER_PORT, incorrectPort),
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"))
+                            equalTo(ServerAttributes.SERVER_ADDRESS, host),
+                            equalTo(ServerAttributes.SERVER_PORT, incorrectPort),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"))
                         .hasEventsSatisfyingExactly(
                             event ->
                                 event
@@ -152,7 +158,11 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                                             "io.netty.channel.AbstractChannel.AnnotatedConnectException"),
                                         equalTo(
                                             AttributeKey.stringKey("exception.message"),
-                                            "Connection refused: localhost/127.0.0.1:"
+                                            "Connection refused: "
+                                                + host
+                                                + "/"
+                                                + ip
+                                                + ":"
                                                 + incorrectPort),
                                         satisfies(
                                             AttributeKey.stringKey("exception.stacktrace"),
@@ -174,9 +184,9 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                     span.hasName("SET")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "SET TESTSETKEY ?"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "SET"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "SET TESTSETKEY ?"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "SET"))));
   }
 
   @Test
@@ -206,9 +216,9 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "GET TESTKEY"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "GET")),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "GET TESTKEY"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "GET")),
                 span ->
                     span.hasName("callback")
                         .hasKind(SpanKind.INTERNAL)
@@ -263,9 +273,9 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "GET NON_EXISTENT_KEY"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "GET")),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "GET NON_EXISTENT_KEY"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "GET")),
                 span ->
                     span.hasName("callback1")
                         .hasKind(SpanKind.INTERNAL)
@@ -306,9 +316,9 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "RANDOMKEY"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "RANDOMKEY")),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "RANDOMKEY"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "RANDOMKEY")),
                 span ->
                     span.hasName("callback")
                         .hasKind(SpanKind.INTERNAL)
@@ -352,20 +362,20 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                     span.hasName("HMSET")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
                             equalTo(
-                                SemanticAttributes.DB_STATEMENT,
+                                DbIncubatingAttributes.DB_STATEMENT,
                                 "HMSET TESTHM firstname ? lastname ? age ?"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "HMSET"))),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "HMSET"))),
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
                     span.hasName("HGETALL")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "HGETALL TESTHM"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "HGETALL"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "HGETALL TESTHM"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "HGETALL"))));
   }
 
   @Test
@@ -406,9 +416,9 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                         .hasStatus(StatusData.error())
                         .hasException(new IllegalStateException("TestException"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "DEL key1 key2"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "DEL"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "DEL key1 key2"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "DEL"))));
   }
 
   @Test
@@ -444,9 +454,9 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "SADD SKEY ? ?"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "SADD"),
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "SADD SKEY ? ?"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "SADD"),
                             equalTo(booleanKey("lettuce.command.cancelled"), true)),
                 span ->
                     span.hasName("callback")
@@ -469,9 +479,9 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                     span.hasName("DEBUG")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "DEBUG SEGFAULT"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "DEBUG"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "DEBUG SEGFAULT"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "DEBUG"))));
   }
 
   @Test
@@ -489,8 +499,8 @@ class LettuceAsyncClientTest extends AbstractLettuceClientTest {
                     span.hasName("SHUTDOWN")
                         .hasKind(SpanKind.CLIENT)
                         .hasAttributesSatisfyingExactly(
-                            equalTo(SemanticAttributes.DB_SYSTEM, "redis"),
-                            equalTo(SemanticAttributes.DB_STATEMENT, "SHUTDOWN NOSAVE"),
-                            equalTo(SemanticAttributes.DB_OPERATION, "SHUTDOWN"))));
+                            equalTo(DbIncubatingAttributes.DB_SYSTEM, "redis"),
+                            equalTo(DbIncubatingAttributes.DB_STATEMENT, "SHUTDOWN NOSAVE"),
+                            equalTo(DbIncubatingAttributes.DB_OPERATION, "SHUTDOWN"))));
   }
 }

@@ -19,7 +19,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
-import io.opentelemetry.semconv.SemanticAttributes;
+import io.opentelemetry.semconv.incubating.MessageIncubatingAttributes;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
 final class TracingServerInterceptor implements ServerInterceptor {
@@ -67,6 +67,7 @@ final class TracingServerInterceptor implements ServerInterceptor {
       extends ForwardingServerCall.SimpleForwardingServerCall<REQUEST, RESPONSE> {
     private final Context context;
     private final GrpcRequest request;
+    private Status status;
 
     // Used by MESSAGE_ID_UPDATER
     @SuppressWarnings("UnusedVariable")
@@ -92,22 +93,22 @@ final class TracingServerInterceptor implements ServerInterceptor {
       Span span = Span.fromContext(context);
       Attributes attributes =
           Attributes.of(
-              SemanticAttributes.MESSAGE_TYPE,
-              SemanticAttributes.MessageTypeValues.SENT,
-              SemanticAttributes.MESSAGE_ID,
+              MessageIncubatingAttributes.MESSAGE_TYPE,
+              MessageIncubatingAttributes.MessageTypeValues.SENT,
+              MessageIncubatingAttributes.MESSAGE_ID,
               MESSAGE_ID_UPDATER.incrementAndGet(this));
       span.addEvent("message", attributes);
     }
 
     @Override
     public void close(Status status, Metadata trailers) {
+      this.status = status;
       try {
         delegate().close(status, trailers);
       } catch (Throwable e) {
         instrumenter.end(context, request, status, e);
         throw e;
       }
-      instrumenter.end(context, request, status, status.getCause());
     }
 
     final class TracingServerCallListener
@@ -125,9 +126,9 @@ final class TracingServerInterceptor implements ServerInterceptor {
       public void onMessage(REQUEST message) {
         Attributes attributes =
             Attributes.of(
-                SemanticAttributes.MESSAGE_TYPE,
-                SemanticAttributes.MessageTypeValues.RECEIVED,
-                SemanticAttributes.MESSAGE_ID,
+                MessageIncubatingAttributes.MESSAGE_TYPE,
+                MessageIncubatingAttributes.MessageTypeValues.RECEIVED,
+                MessageIncubatingAttributes.MESSAGE_ID,
                 MESSAGE_ID_UPDATER.incrementAndGet(TracingServerCall.this));
         Span.fromContext(context).addEvent("message", attributes);
         delegate().onMessage(message);
@@ -165,6 +166,10 @@ final class TracingServerInterceptor implements ServerInterceptor {
           instrumenter.end(context, request, Status.UNKNOWN, e);
           throw e;
         }
+        if (status == null) {
+          status = Status.UNKNOWN;
+        }
+        instrumenter.end(context, request, status, status.getCause());
       }
 
       @Override

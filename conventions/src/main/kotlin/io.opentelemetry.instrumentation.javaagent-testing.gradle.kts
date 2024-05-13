@@ -19,7 +19,7 @@ dependencies {
   // Integration tests may need to define custom instrumentation modules so we include the standard
   // instrumentation infrastructure for testing too.
   compileOnly("io.opentelemetry.instrumentation:opentelemetry-instrumentation-api")
-  compileOnly("io.opentelemetry.instrumentation:opentelemetry-instrumentation-api-semconv")
+  compileOnly("io.opentelemetry.instrumentation:opentelemetry-instrumentation-api-incubator")
   compileOnly("io.opentelemetry.javaagent:opentelemetry-javaagent-bootstrap")
   // Apply common dependencies for instrumentation.
   compileOnly("io.opentelemetry.javaagent:opentelemetry-javaagent-extension-api") {
@@ -85,7 +85,6 @@ class JavaagentTestArgumentsProvider(
     // Reduce noise in assertion messages since we don't need to verify this in most tests. We check
     // in smoke tests instead.
     "-Dotel.javaagent.add-thread-details=false",
-    "-Dotel.metrics.exporter=otlp",
     "-Dotel.javaagent.experimental.indy=${findProperty("testIndy") == "true"}",
     // suppress repeated logging of "No metric data to export - skipping export."
     // since PeriodicMetricReader is configured with a short interval
