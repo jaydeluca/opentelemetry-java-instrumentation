@@ -831,6 +831,73 @@ public enum JdbcConnectionUrlParser {
 
       return MODIFIED_URL_LIKE.doParse(jdbcUrl, builder);
     }
+  },
+
+  INFORMIX_SQLI("informix-sqli") {
+
+    @Override
+    DbInfo.Builder doParse(String jdbcUrl, DbInfo.Builder builder) {
+      builder.system(DbSystemValues.INFORMIX_SQLI);
+
+      String informixUrl = jdbcUrl.substring("infxhost:".length());
+      String[] split = informixUrl.split("//");
+
+      String details = split[1];
+
+      int hostEndIdx = details.indexOf("//") + 2;
+      int portStartIdx = details.indexOf(':', hostEndIdx);
+      int dbNameStartIdx = details.indexOf('/', portStartIdx) + 1;
+
+      String host = details.substring(hostEndIdx, portStartIdx);
+      if (host != null) {
+        builder.host(host);
+      }
+
+      String port = details.substring(portStartIdx + 1, dbNameStartIdx - 1);
+      if (port != null) {
+        builder.port(Integer.parseInt(port));
+      }
+
+      return INFORMIX.doParse(jdbcUrl, builder);
+    }
+  },
+
+  INFORMIX_DIRECT("informix-direct") {
+
+    @Override
+    DbInfo.Builder doParse(String jdbcUrl, DbInfo.Builder builder) {
+      builder.system(DbSystemValues.INFORMIX_DIRECT);
+
+      String regex = "jdbc:informix-direct://([^:]+):(\\d+)/([^:]+):INFORMIXSERVER=([^;]+)(;.*)?";
+      Pattern pattern = Pattern.compile(regex);
+      Matcher matcher = pattern.matcher(connectionString);
+
+      if (!matcher.matches()) {
+        return null;
+      }
+
+      builder.host(matcher.group(1));
+      builder.port(Integer.parseInt(matcher.group(2)));
+      builder.name(matcher.group(3));
+      parsedData.put("database", matcher.group(3));
+      parsedData.put("server_name", matcher.group(4));
+
+      return INFORMIX.doParse(jdbcUrl, builder);
+    }
+  },
+
+  INFORMIX {
+    private static final int DEFAULT_PORT = 9088;
+
+    @Override
+    DbInfo.Builder doParse(String jdbcUrl, DbInfo.Builder builder) {
+      DbInfo dbInfo = builder.build();
+      if (dbInfo.getPort() == null) {
+        builder.port(DEFAULT_PORT);
+      }
+
+      return MODIFIED_URL_LIKE.doParse(jdbcUrl, builder);
+    }
   };
 
   private static final Logger logger = Logger.getLogger(JdbcConnectionUrlParser.class.getName());
@@ -977,6 +1044,10 @@ public enum JdbcConnectionUrlParser {
         return DbSystemValues.H2;
       case "hsqldb": // Hyper SQL Database
         return "hsqldb";
+      case "informix-sqli": // IBM Informix
+        return DbSystemValues.INFORMIX_SQLI;
+      case "informix-direct":
+        return DbSystemValues.INFORMIX_DIRECT;
       case "mariadb": // MariaDB
         return DbSystemValues.MARIADB;
       case "mysql": // MySQL
@@ -1003,6 +1074,8 @@ public enum JdbcConnectionUrlParser {
     static final String MYSQL = "mysql";
     static final String ORACLE = "oracle";
     static final String DB2 = "db2";
+    static final String INFORMIX_SQLI = "informix-sqli";
+    static final String INFORMIX_DIRECT = "informix-direct";
     static final String POSTGRESQL = "postgresql";
     static final String HANADB = "hanadb";
     static final String DERBY = "derby";

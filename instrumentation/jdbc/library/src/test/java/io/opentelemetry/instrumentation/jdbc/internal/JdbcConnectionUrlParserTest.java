@@ -550,6 +550,22 @@ class JdbcConnectionUrlParserTest {
               .setDb("sapdb")
               .build(),
 
+          // https://www.ibm.com/support/pages/how-configure-informix-jdbc-connection-string-connect-group
+          arg("jdbc:informix-sqli://infxhost:99/infxdb:INFORMIXSERVER=infxsn;user=infxuser;password=PW")
+              .setSystem("informix-sqli")
+              .setUser("infxuser")
+              .setHost("infxhost")
+              .setPort(99)
+              .setName("infxdb")
+              .build(),
+          arg("jdbc:informix-direct://infxdb:999;user=infxuser;password=PW")
+              .setSystem("informix-direct")
+              .setUser("infxuser")
+              .setHost("infxhost")
+              .setPort(999)
+              .setName("infxdb")
+              .build(),
+
           // http://www.h2database.com/html/features.html#database_url
           arg("jdbc:h2:mem:").setSystem("h2").setSubtype("mem").build(),
           arg("jdbc:h2:mem:")
