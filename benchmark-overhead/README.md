@@ -14,7 +14,7 @@ the agent and to measure how this overhead changes over time.
 
 The overhead tests here should be considered a "macro" benchmark. They serve to measure high-level
 overhead as perceived by the operator of a "typical" application. Tests are performed on a Java 11
-distribution from [Eclipse Temurin](https://projects.eclipse.org/projects/adoptium.temurin).
+distribution from [Eclipse Temurin](https://adoptium.net/temurin/releases/).
 
 ## Process
 
