@@ -33,11 +33,11 @@ runtimeOnly("io.opentelemetry.instrumentation:opentelemetry-log4j-appender-2.17:
 
 ### Usage
 
-The following demonstrates how you might configure the appender in your `log4j.xml` configuration:
+The following demonstrates how you might configure the appender in your `log4j2.xml` configuration:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<Configuration status="WARN" packages="io.opentelemetry.instrumentation.log4j.appender.v2_17">
+<Configuration status="WARN">
   <Appenders>
     <Console name="Console" target="SYSTEM_OUT">
       <PatternLayout
@@ -46,9 +46,9 @@ The following demonstrates how you might configure the appender in your `log4j.x
     <OpenTelemetry name="OpenTelemetryAppender"/>
   </Appenders>
   <Loggers>
-    <Root>
-      <AppenderRef ref="OpenTelemetryAppender" level="All"/>
-      <AppenderRef ref="Console" level="All"/>
+    <Root level="All">
+      <AppenderRef ref="OpenTelemetryAppender"/>
+      <AppenderRef ref="Console"/>
     </Root>
   </Loggers>
 </Configuration>
@@ -97,8 +97,6 @@ The available settings are:
 |------------------------------------|---------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `captureExperimentalAttributes`    | Boolean | `false` | Enable the capture of experimental log attributes `thread.name` and `thread.id`.                                                                                                                           |
 | `captureMapMessageAttributes`      | Boolean | `false` | Enable the capture of `MapMessage` attributes.                                                                                                                                                             |
-| `captureMarkerAttribute;`          | Boolean | `false` | Enable the capture of Log4j markers as attributes.                                                                                                                                                         |
+| `captureMarkerAttribute`           | Boolean | `false` | Enable the capture of Log4j markers as attributes.                                                                                                                                                         |
 | `captureContextDataAttributes`     | String  |         | Comma separated list of context data attributes to capture. Use the wildcard character `*` to capture all attributes.                                                                                      |
 | `numLogsCapturedBeforeOtelInstall` | Integer | 1000    | Log telemetry is emitted after the initialization of the OpenTelemetry Log4j appender with an OpenTelemetry object. This setting allows you to modify the size of the cache used to replay the first logs. |
-
-[source code attributes]: https://github.com/open-telemetry/semantic-conventions/blob/main/docs/general/attributes.md#source-code-attributes

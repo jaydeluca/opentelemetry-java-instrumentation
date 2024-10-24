@@ -19,7 +19,6 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 public final class HttpServerTestOptions {
@@ -42,7 +41,6 @@ public final class HttpServerTestOptions {
   Function<ServerEndpoint, String> sockPeerAddr = unused -> "127.0.0.1";
   String contextPath = "";
   Throwable expectedException = new Exception(EXCEPTION.body);
-  Supplier<String> metricsInstrumentationName = () -> null;
   // we're calling /success in the test, and most servers respond with 200 anyway
   int responseCodeOnNonStandardHttpMethod = ServerEndpoint.SUCCESS.status;
 
@@ -65,6 +63,7 @@ public final class HttpServerTestOptions {
   boolean testHttpPipelining = true;
   boolean testNonStandardHttpMethod = true;
   boolean verifyServerSpanEndTime = true;
+  boolean useHttp2 = false;
 
   HttpServerTestOptions() {}
 
@@ -104,13 +103,6 @@ public final class HttpServerTestOptions {
   @CanIgnoreReturnValue
   public HttpServerTestOptions setExpectedException(Throwable expectedException) {
     this.expectedException = expectedException;
-    return this;
-  }
-
-  @CanIgnoreReturnValue
-  public HttpServerTestOptions setMetricsInstrumentationName(
-      Supplier<String> metricsInstrumentationName) {
-    this.metricsInstrumentationName = metricsInstrumentationName;
     return this;
   }
 
@@ -225,6 +217,17 @@ public final class HttpServerTestOptions {
   public HttpServerTestOptions setVerifyServerSpanEndTime(boolean verifyServerSpanEndTime) {
     this.verifyServerSpanEndTime = verifyServerSpanEndTime;
     return this;
+  }
+
+  @CanIgnoreReturnValue
+  public HttpServerTestOptions setUseHttp2(boolean useHttp2) {
+    this.useHttp2 = useHttp2;
+    return this;
+  }
+
+  @CanIgnoreReturnValue
+  public HttpServerTestOptions useHttp2() {
+    return setUseHttp2(true);
   }
 
   @FunctionalInterface

@@ -16,6 +16,7 @@ import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.SUCCESS;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
@@ -28,6 +29,8 @@ import io.opentelemetry.context.propagation.TextMapPropagator;
 import io.opentelemetry.context.propagation.TextMapSetter;
 import io.opentelemetry.instrumentation.api.internal.HttpConstants;
 import io.opentelemetry.instrumentation.testing.GlobalTraceUtil;
+import io.opentelemetry.instrumentation.testing.util.ThrowingRunnable;
+import io.opentelemetry.instrumentation.testing.util.ThrowingSupplier;
 import io.opentelemetry.sdk.testing.assertj.SpanDataAssert;
 import io.opentelemetry.sdk.testing.assertj.TraceAssert;
 import io.opentelemetry.sdk.trace.data.SpanData;
@@ -74,7 +77,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.assertj.core.api.AssertAccess;
@@ -114,16 +116,32 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
 
   protected void configure(HttpServerTestOptions options) {}
 
-  public static <T> T controller(ServerEndpoint endpoint, Supplier<T> closure) {
+  public static <T, E extends Throwable> T controller(
+      ServerEndpoint endpoint, ThrowingSupplier<T, E> closure) throws E {
     assert Span.current().getSpanContext().isValid() : "Controller should have a parent span.";
     if (endpoint == NOT_FOUND) {
       return closure.get();
     }
-    return GlobalTraceUtil.runWithSpan("controller", () -> closure.get());
+    return GlobalTraceUtil.runWithSpan("controller", closure);
+  }
+
+  public static <E extends Throwable> void controller(
+      ServerEndpoint endpoint, ThrowingRunnable<E> closure) throws E {
+    controller(
+        endpoint,
+        () -> {
+          closure.run();
+          return null;
+        });
   }
 
   protected AggregatedHttpRequest request(ServerEndpoint uri, String method) {
-    return AggregatedHttpRequest.of(HttpMethod.valueOf(method), resolveAddress(uri));
+    return AggregatedHttpRequest.of(
+        HttpMethod.valueOf(method), resolveAddress(uri, getProtocolPrefix()));
+  }
+
+  private String getProtocolPrefix() {
+    return options.useHttp2 ? "h2c://" : "h1c://";
   }
 
   @ParameterizedTest
@@ -316,7 +334,8 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
     QueryParams formBody = QueryParams.builder().add("test-parameter", "test value õäöü").build();
     AggregatedHttpRequest request =
         AggregatedHttpRequest.of(
-            RequestHeaders.builder(HttpMethod.POST, resolveAddress(CAPTURE_PARAMETERS))
+            RequestHeaders.builder(
+                    HttpMethod.POST, resolveAddress(CAPTURE_PARAMETERS, getProtocolPrefix()))
                 .contentType(MediaType.FORM_DATA)
                 .build(),
             HttpData.ofUtf8(formBody.toQueryString()));
@@ -346,12 +365,8 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
               spanData -> assertServerSpan(assertThat(spanData), method, SUCCESS, SUCCESS.status));
         });
 
-    String metricsInstrumentationName = options.metricsInstrumentationName.get();
-    if (metricsInstrumentationName == null) {
-      metricsInstrumentationName = instrumentationName.get();
-    }
     testing.waitAndAssertMetrics(
-        metricsInstrumentationName,
+        instrumentationName.get(),
         "http.server.request.duration",
         metrics ->
             metrics.anySatisfy(
@@ -393,7 +408,7 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
       HttpRequestBuilder request =
           HttpRequest.builder()
               // Force HTTP/1 via h1c so upgrade requests don't show up as traces
-              .get(endpoint.resolvePath(address).toString().replace("http://", "h1c://"))
+              .get(endpoint.resolvePath(address).toString().replace("http://", getProtocolPrefix()))
               .queryParam(ServerEndpoint.ID_PARAMETER_NAME, index);
 
       testing.runWithSpan(
@@ -415,6 +430,8 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
   @Test
   void httpPipelining() throws InterruptedException {
     assumeTrue(options.testHttpPipelining);
+    // test uses http 1.1
+    assumeFalse(options.useHttp2);
 
     int count = 10;
     CountDownLatch countDownLatch = new CountDownLatch(count);
@@ -480,6 +497,8 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
   @Test
   void requestWithNonStandardHttpMethod() throws InterruptedException {
     assumeTrue(options.testNonStandardHttpMethod);
+    // test uses http 1.1
+    assumeFalse(options.useHttp2);
 
     EventLoopGroup eventLoopGroup = new NioEventLoopGroup();
     try {
@@ -658,7 +677,9 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
             if (options.hasResponseSpan.test(endpoint)) {
               int parentIndex = spanAssertions.size() - 1;
               spanAssertions.add(
-                  span -> assertResponseSpan(span, trace.getSpan(parentIndex), method, endpoint));
+                  span ->
+                      assertResponseSpan(
+                          span, trace.getSpan(parentIndex), trace.getSpan(0), method, endpoint));
             }
 
             if (options.hasErrorPageSpans.test(endpoint)) {
@@ -697,6 +718,16 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
       SpanDataAssert span, String method, ServerEndpoint endpoint) {
     throw new UnsupportedOperationException(
         "assertHandlerSpan not implemented in " + getClass().getName());
+  }
+
+  @CanIgnoreReturnValue
+  protected SpanDataAssert assertResponseSpan(
+      SpanDataAssert span,
+      SpanData controllerSpan,
+      SpanData handlerSpan,
+      String method,
+      ServerEndpoint endpoint) {
+    return assertResponseSpan(span, controllerSpan, method, endpoint);
   }
 
   @CanIgnoreReturnValue
@@ -751,9 +782,8 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
 
           if (attrs.get(NetworkAttributes.NETWORK_PROTOCOL_VERSION) != null) {
             assertThat(attrs)
-                .hasEntrySatisfying(
-                    NetworkAttributes.NETWORK_PROTOCOL_VERSION,
-                    entry -> assertThat(entry).isIn("1.1", "2.0"));
+                .containsEntry(
+                    NetworkAttributes.NETWORK_PROTOCOL_VERSION, options.useHttp2 ? "2" : "1.1");
           }
 
           assertThat(attrs).containsEntry(ServerAttributes.SERVER_ADDRESS, "localhost");
@@ -845,9 +875,13 @@ public abstract class AbstractHttpServerTest<SERVER> extends AbstractHttpServerU
         endpoint, method, route);
   }
 
+  public final boolean hasHttpRouteAttribute(ServerEndpoint endpoint) {
+    return options.httpAttributes.apply(endpoint).contains(HttpAttributes.HTTP_ROUTE);
+  }
+
   public String expectedHttpRoute(ServerEndpoint endpoint, String method) {
     // no need to compute route if we're not expecting it
-    if (!options.httpAttributes.apply(endpoint).contains(HttpAttributes.HTTP_ROUTE)) {
+    if (!hasHttpRouteAttribute(endpoint)) {
       return null;
     }
 

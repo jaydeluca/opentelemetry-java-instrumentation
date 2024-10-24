@@ -34,15 +34,14 @@ class RmiTest {
   public static final AgentInstrumentationExtension testing =
       AgentInstrumentationExtension.create();
 
-  private static int registryPort;
   private static Registry serverRegistry;
   private static Registry clientRegistry;
 
-  @RegisterExtension final AutoCleanupExtension autoCleanup = AutoCleanupExtension.create();
+  @RegisterExtension static final AutoCleanupExtension autoCleanup = AutoCleanupExtension.create();
 
   @BeforeAll
   static void setUp() throws Exception {
-    registryPort = PortUtils.findOpenPort();
+    int registryPort = PortUtils.findOpenPort();
     serverRegistry = LocateRegistry.createRegistry(registryPort);
     clientRegistry = LocateRegistry.getRegistry("localhost", registryPort);
   }
@@ -120,14 +119,14 @@ class RmiTest {
 
     Throwable thrown =
         catchThrowableOfType(
+            IllegalStateException.class,
             () ->
                 testing.runWithSpan(
                     "parent",
                     () -> {
                       Greeter client = (Greeter) clientRegistry.lookup(Server.RMI_ID);
                       client.exceptional();
-                    }),
-            IllegalStateException.class);
+                    }));
 
     assertThat(testing.waitForTraces(1))
         .satisfiesExactly(

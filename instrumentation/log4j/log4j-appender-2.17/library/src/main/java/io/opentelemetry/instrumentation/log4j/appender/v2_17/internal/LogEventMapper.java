@@ -13,7 +13,6 @@ import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.instrumentation.api.internal.cache.Cache;
 import io.opentelemetry.semconv.ExceptionAttributes;
-import io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.List;
@@ -29,6 +28,10 @@ import org.apache.logging.log4j.message.Message;
  * any time.
  */
 public final class LogEventMapper<T> {
+
+  // copied from ThreadIncubatingAttributes
+  private static final AttributeKey<Long> THREAD_ID = AttributeKey.longKey("thread.id");
+  private static final AttributeKey<String> THREAD_NAME = AttributeKey.stringKey("thread.name");
 
   private static final String SPECIAL_MAP_MESSAGE_ATTRIBUTE = "message";
 
@@ -83,7 +86,8 @@ public final class LogEventMapper<T> {
       @Nullable Throwable throwable,
       T contextData,
       String threadName,
-      long threadId) {
+      long threadId,
+      Context context) {
 
     AttributesBuilder attributes = Attributes.builder();
 
@@ -108,13 +112,12 @@ public final class LogEventMapper<T> {
     captureContextDataAttributes(attributes, contextData);
 
     if (captureExperimentalAttributes) {
-      attributes.put(ThreadIncubatingAttributes.THREAD_NAME, threadName);
-      attributes.put(ThreadIncubatingAttributes.THREAD_ID, threadId);
+      attributes.put(THREAD_NAME, threadName);
+      attributes.put(THREAD_ID, threadId);
     }
 
     builder.setAllAttributes(attributes.build());
-
-    builder.setContext(Context.current());
+    builder.setContext(context);
   }
 
   // visible for testing
@@ -162,16 +165,16 @@ public final class LogEventMapper<T> {
           contextData,
           (key, value) -> {
             if (value != null) {
-              attributes.put(getContextDataAttributeKey(key), value.toString());
+              attributes.put(getContextDataAttributeKey(key), value);
             }
           });
       return;
     }
 
     for (String key : captureContextDataAttributes) {
-      Object value = contextDataAccessor.getValue(contextData, key);
+      String value = contextDataAccessor.getValue(contextData, key);
       if (value != null) {
-        attributes.put(getContextDataAttributeKey(key), value.toString());
+        attributes.put(getContextDataAttributeKey(key), value);
       }
     }
   }
