@@ -21,6 +21,10 @@ public class ClickHouseInstrumentationModule extends InstrumentationModule {
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return asList(new ClickHouseClientV1Instrumentation(), new ClickHouseClientV2Instrumentation());
+    return asList(
+        new ClickHouseClientV1Instrumentation(),
+        new ClickHouseClientV2Instrumentation(),
+        new HttpApiClientHelperInstrumentation()
+    );
   }
 }

@@ -32,6 +32,10 @@ public class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
     transformer.applyAdviceToMethod(
         isMethod().and(named("query")).and(takesArgument(0, named(String.class.getName()))),
         this.getClass().getName() + "$ClientQueryAdvice");
+
+//    transformer.applyAdviceToMethod(
+//        isMethod().and(named("insert")).and(takesArgument(0, named(String.class.getName()))),
+//        this.getClass().getName() + "$ClientInsertAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -45,13 +49,9 @@ public class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
         return null;
       }
 
-      Context parentContext = currentContext();
+      System.out.println("got to query advice");
 
-      //      String host =
-      // clickhouseClient.getEndpoints().stream().findFirst().orElse("localhost");
-      //      String serverAddress = host + ":" + clickhouseClient.getConfiguration();
-      //      System.out.println("endpoints: " + clickhouseClient.getEndpoints());
-      //      System.out.println("first:" + clickhouseClient.getEndpoints().stream().findFirst());
+      Context parentContext = currentContext();
 
       String regex = "http://([^:]+):(\\d+)";
 
@@ -68,10 +68,6 @@ public class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
       if (matcher.find()) {
         host = matcher.group(1);
         port = Integer.parseInt(matcher.group(2));
-        System.out.println("Host: " + host);
-        System.out.println("Port: " + port);
-      } else {
-        System.out.println("No match found");
       }
 
       ClickHouseDbRequest request =
@@ -92,4 +88,57 @@ public class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
       scope.end(throwable);
     }
   }
+
+//  @SuppressWarnings("unused")
+//  public static class ClientInsertAdvice {
+//    @Advice.OnMethodEnter(suppress = Throwable.class)
+//    public static ClickHouseScope onEnter(
+//        @Advice.This Client clickhouseClient, @Advice.Argument(0) String query) {
+//
+//      CallDepth callDepth = CallDepth.forClass(Client.class);
+//      if (callDepth.getAndIncrement() > 0 || query == null) {
+//        return null;
+//      }
+//
+//      System.out.println("got to insert advice");
+//
+//      Context parentContext = currentContext();
+//
+//      String endpoint = clickhouseClient.getEndpoints().stream().findFirst().orElse(null);
+//      if (endpoint == null) {
+//        return null;
+//      }
+//      String regex = "http://([^:]+):(\\d+)";
+//      Pattern pattern = Pattern.compile(regex);
+//      Matcher matcher = pattern.matcher(endpoint);
+//
+//      String host = "";
+//      int port = 8123;
+//
+//      if (matcher.find()) {
+//        host = matcher.group(1);
+//        port = Integer.parseInt(matcher.group(2));
+//      }
+//
+//      ClickHouseDbRequest request =
+//          ClickHouseDbRequest.create(host, port, clickhouseClient.getDefaultDatabase(), query);
+//
+//      return ClickHouseScope.start(parentContext, request);
+//    }
+//
+//
+//    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+//    public static void onExit(
+//        @Advice.Thrown Throwable throwable,
+//        @Advice.Enter ClickHouseScope scope) {
+//
+//      CallDepth callDepth = CallDepth.forClass(Client.class);
+//      if (callDepth.decrementAndGet() > 0 || scope == null) {
+//        return;
+//      }
+//
+//      scope.end(throwable);
+//    }
+//  }
+
 }
