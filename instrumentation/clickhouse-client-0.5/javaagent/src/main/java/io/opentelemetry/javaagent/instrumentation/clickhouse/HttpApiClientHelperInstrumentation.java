@@ -31,6 +31,7 @@ public class HttpApiClientHelperInstrumentation implements TypeInstrumentation {
     @Advice.OnMethodEnter
     public static void onEnter(@Advice.Argument(value = 2, readOnly = false) IOCallback<OutputStream> writeCallback,
         @Advice.Local("capturingStream") OutputStreamWrapper capturingStream) {
+
 //      capturingStream = new OutputStreamWrapper(writeCallback.execute());
 //      IOCallback<OutputStream> finalCapturingStream = capturingStream::execute;
 //      writeCallback = finalCapturingStream;
@@ -43,12 +44,12 @@ public class HttpApiClientHelperInstrumentation implements TypeInstrumentation {
         @Advice.Local("capturingStream") OutputStreamWrapper capturingStream) {
 
       System.out.println("made it to exit");
-//      if (capturingStream != null) {
+      if (capturingStream != null) {
         String capturedSql = capturingStream.getCapturedData();
         // Add the captured SQL to your trace
         System.out.println("Captured SQL: " + capturedSql);
         // Add logic to attach captured SQL to OpenTelemetry trace
-//      }
+      }
 
     }
   }
