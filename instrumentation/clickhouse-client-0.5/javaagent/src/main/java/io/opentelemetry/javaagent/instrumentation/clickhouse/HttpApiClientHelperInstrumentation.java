@@ -1,16 +1,20 @@
+/*
+ * Copyright The OpenTelemetry Authors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.opentelemetry.javaagent.instrumentation.clickhouse;
+
+import static net.bytebuddy.matcher.ElementMatchers.isMethod;
+import static net.bytebuddy.matcher.ElementMatchers.named;
 
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
+import java.io.OutputStream;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 import org.apache.hc.core5.io.IOCallback;
-
-import java.io.OutputStream;
-
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
-import static net.bytebuddy.matcher.ElementMatchers.named;
 
 public class HttpApiClientHelperInstrumentation implements TypeInstrumentation {
   @Override
@@ -29,12 +33,13 @@ public class HttpApiClientHelperInstrumentation implements TypeInstrumentation {
   public static class ExecuteRequestAdvice {
 
     @Advice.OnMethodEnter
-    public static void onEnter(@Advice.Argument(value = 2, readOnly = false) IOCallback<OutputStream> writeCallback,
+    public static void onEnter(
+        @Advice.Argument(value = 2, readOnly = false) IOCallback<OutputStream> writeCallback,
         @Advice.Local("capturingStream") OutputStreamWrapper capturingStream) {
 
-//      capturingStream = new OutputStreamWrapper(writeCallback.execute());
-//      IOCallback<OutputStream> finalCapturingStream = capturingStream::execute;
-//      writeCallback = finalCapturingStream;
+      //      capturingStream = new OutputStreamWrapper(writeCallback.execute());
+      //      IOCallback<OutputStream> finalCapturingStream = capturingStream::execute;
+      //      writeCallback = finalCapturingStream;
     }
 
     @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
@@ -50,8 +55,6 @@ public class HttpApiClientHelperInstrumentation implements TypeInstrumentation {
         System.out.println("Captured SQL: " + capturedSql);
         // Add logic to attach captured SQL to OpenTelemetry trace
       }
-
     }
   }
-
 }

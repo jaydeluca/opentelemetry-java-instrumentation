@@ -126,11 +126,9 @@ public class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
       return ClickHouseScope.start(parentContext, request);
     }
 
-
     @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
     public static void onExit(
-        @Advice.Thrown Throwable throwable,
-        @Advice.Enter ClickHouseScope scope) {
+        @Advice.Thrown Throwable throwable, @Advice.Enter ClickHouseScope scope) {
 
       CallDepth callDepth = CallDepth.forClass(Client.class);
       if (callDepth.decrementAndGet() > 0 || scope == null) {
@@ -140,5 +138,4 @@ public class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
       scope.end(throwable);
     }
   }
-
 }

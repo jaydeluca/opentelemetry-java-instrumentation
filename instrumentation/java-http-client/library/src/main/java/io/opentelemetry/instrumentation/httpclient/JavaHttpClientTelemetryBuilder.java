@@ -25,27 +25,13 @@ public final class JavaHttpClientTelemetryBuilder {
   private final OpenTelemetry openTelemetry;
 
   static {
-    Experimental.setSetEmitExperimentalTelemetry(
+    Experimental.internalSetEmitExperimentalTelemetry(
         (builder, emit) -> builder.builder.setEmitExperimentalHttpClientMetrics(emit));
   }
 
   JavaHttpClientTelemetryBuilder(OpenTelemetry openTelemetry) {
     builder = JavaHttpClientInstrumenterBuilderFactory.create(openTelemetry);
     this.openTelemetry = openTelemetry;
-  }
-
-  /**
-   * Adds an additional {@link AttributesExtractor} to invoke to set attributes to instrumented
-   * items. The {@link AttributesExtractor} will be executed after all default extractors.
-   *
-   * @deprecated Use {@link #addAttributesExtractor(AttributesExtractor)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public JavaHttpClientTelemetryBuilder addAttributeExtractor(
-      AttributesExtractor<? super HttpRequest, ? super HttpResponse<?>> attributesExtractor) {
-    builder.addAttributesExtractor(attributesExtractor);
-    return this;
   }
 
   /**
@@ -99,23 +85,6 @@ public final class JavaHttpClientTelemetryBuilder {
   @CanIgnoreReturnValue
   public JavaHttpClientTelemetryBuilder setKnownMethods(Collection<String> knownMethods) {
     builder.setKnownMethods(knownMethods);
-    return this;
-  }
-
-  /**
-   * Configures the instrumentation to emit experimental HTTP client metrics.
-   *
-   * @param emitExperimentalHttpClientMetrics {@code true} if the experimental HTTP client metrics
-   *     are to be emitted.
-   * @deprecated Use {@link
-   *     Experimental#setEmitExperimentalTelemetry(JavaHttpClientTelemetryBuilder, boolean)}
-   *     instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public JavaHttpClientTelemetryBuilder setEmitExperimentalHttpClientMetrics(
-      boolean emitExperimentalHttpClientMetrics) {
-    builder.setEmitExperimentalHttpClientMetrics(emitExperimentalHttpClientMetrics);
     return this;
   }
 

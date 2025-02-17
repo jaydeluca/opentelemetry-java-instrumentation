@@ -25,27 +25,13 @@ public final class OkHttpTelemetryBuilder {
   private final OpenTelemetry openTelemetry;
 
   static {
-    Experimental.setSetEmitExperimentalTelemetry(
+    Experimental.internalSetEmitExperimentalTelemetry(
         (builder, emit) -> builder.builder.setEmitExperimentalHttpClientMetrics(emit));
   }
 
   OkHttpTelemetryBuilder(OpenTelemetry openTelemetry) {
     builder = OkHttpClientInstrumenterBuilderFactory.create(openTelemetry);
     this.openTelemetry = openTelemetry;
-  }
-
-  /**
-   * Adds an additional {@link AttributesExtractor} to invoke to set attributes to instrumented
-   * items.
-   *
-   * @deprecated Use {@link #addAttributesExtractor(AttributesExtractor)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public OkHttpTelemetryBuilder addAttributeExtractor(
-      AttributesExtractor<? super Interceptor.Chain, ? super Response> attributesExtractor) {
-    builder.addAttributesExtractor(attributesExtractor);
-    return this;
   }
 
   /**
@@ -97,22 +83,6 @@ public final class OkHttpTelemetryBuilder {
   @CanIgnoreReturnValue
   public OkHttpTelemetryBuilder setKnownMethods(Collection<String> knownMethods) {
     builder.setKnownMethods(knownMethods);
-    return this;
-  }
-
-  /**
-   * Configures the instrumentation to emit experimental HTTP client metrics.
-   *
-   * @param emitExperimentalHttpClientMetrics {@code true} if the experimental HTTP client metrics
-   *     are to be emitted.
-   * @deprecated Use {@link Experimental#setEmitExperimentalTelemetry(OkHttpTelemetryBuilder,
-   *     boolean)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public OkHttpTelemetryBuilder setEmitExperimentalHttpClientMetrics(
-      boolean emitExperimentalHttpClientMetrics) {
-    builder.setEmitExperimentalHttpClientMetrics(emitExperimentalHttpClientMetrics);
     return this;
   }
 

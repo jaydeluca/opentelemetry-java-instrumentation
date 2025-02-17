@@ -24,7 +24,7 @@ public final class ApacheHttpClientTelemetryBuilder {
   private final OpenTelemetry openTelemetry;
 
   static {
-    Experimental.setSetEmitExperimentalTelemetry(
+    Experimental.internalSetEmitExperimentalTelemetry(
         (builder, emit) -> builder.builder.setEmitExperimentalHttpClientMetrics(emit));
   }
 
@@ -33,21 +33,6 @@ public final class ApacheHttpClientTelemetryBuilder {
         DefaultHttpClientInstrumenterBuilder.create(
             INSTRUMENTATION_NAME, openTelemetry, ApacheHttpClientHttpAttributesGetter.INSTANCE);
     this.openTelemetry = openTelemetry;
-  }
-
-  /**
-   * Adds an additional {@link AttributesExtractor} to invoke to set attributes to instrumented
-   * items. The {@link AttributesExtractor} will be executed after all default extractors.
-   *
-   * @deprecated Use {@link #addAttributesExtractor(AttributesExtractor)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public ApacheHttpClientTelemetryBuilder addAttributeExtractor(
-      AttributesExtractor<? super ApacheHttpClientRequest, ? super HttpResponse>
-          attributesExtractor) {
-    builder.addAttributesExtractor(attributesExtractor);
-    return this;
   }
 
   /**
@@ -102,23 +87,6 @@ public final class ApacheHttpClientTelemetryBuilder {
   @CanIgnoreReturnValue
   public ApacheHttpClientTelemetryBuilder setKnownMethods(Collection<String> knownMethods) {
     builder.setKnownMethods(knownMethods);
-    return this;
-  }
-
-  /**
-   * Configures the instrumentation to emit experimental HTTP client metrics.
-   *
-   * @param emitExperimentalHttpClientMetrics {@code true} if the experimental HTTP client metrics
-   *     are to be emitted.
-   * @deprecated Use {@link
-   *     Experimental#setEmitExperimentalTelemetry(ApacheHttpClientTelemetryBuilder, boolean)}
-   *     instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public ApacheHttpClientTelemetryBuilder setEmitExperimentalHttpClientMetrics(
-      boolean emitExperimentalHttpClientMetrics) {
-    builder.setEmitExperimentalHttpClientMetrics(emitExperimentalHttpClientMetrics);
     return this;
   }
 

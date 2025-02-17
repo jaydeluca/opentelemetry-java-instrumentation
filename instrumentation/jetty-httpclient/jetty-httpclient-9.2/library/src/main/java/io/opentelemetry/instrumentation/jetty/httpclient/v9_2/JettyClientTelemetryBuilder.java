@@ -28,7 +28,7 @@ public final class JettyClientTelemetryBuilder {
   private SslContextFactory sslContextFactory;
 
   static {
-    Experimental.setSetEmitExperimentalTelemetry(
+    Experimental.internalSetEmitExperimentalTelemetry(
         (builder, emit) -> builder.builder.setEmitExperimentalHttpClientMetrics(emit));
   }
 
@@ -46,20 +46,6 @@ public final class JettyClientTelemetryBuilder {
   @CanIgnoreReturnValue
   public JettyClientTelemetryBuilder setSslContextFactory(SslContextFactory sslContextFactory) {
     this.sslContextFactory = sslContextFactory;
-    return this;
-  }
-
-  /**
-   * Adds an additional {@link AttributesExtractor} to invoke to set attributes to instrumented
-   * items.
-   *
-   * @deprecated Use {@link #addAttributesExtractor(AttributesExtractor)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public JettyClientTelemetryBuilder addAttributeExtractor(
-      AttributesExtractor<? super Request, ? super Response> attributesExtractor) {
-    builder.addAttributesExtractor(attributesExtractor);
     return this;
   }
 
@@ -113,22 +99,6 @@ public final class JettyClientTelemetryBuilder {
   @CanIgnoreReturnValue
   public JettyClientTelemetryBuilder setKnownMethods(Collection<String> knownMethods) {
     builder.setKnownMethods(knownMethods);
-    return this;
-  }
-
-  /**
-   * Configures the instrumentation to emit experimental HTTP client metrics.
-   *
-   * @param emitExperimentalHttpClientMetrics {@code true} if the experimental HTTP client metrics
-   *     are to be emitted.
-   * @deprecated Use {@link Experimental#setEmitExperimentalTelemetry(JettyClientTelemetryBuilder,
-   *     boolean)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public JettyClientTelemetryBuilder setEmitExperimentalHttpClientMetrics(
-      boolean emitExperimentalHttpClientMetrics) {
-    builder.setEmitExperimentalHttpClientMetrics(emitExperimentalHttpClientMetrics);
     return this;
   }
 

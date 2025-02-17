@@ -1,35 +1,8 @@
----
+# OpenTelemetry Instrumentation for Java
 
-<p align="center">
-  <strong>
-    <a href="https://github.com/open-telemetry/opentelemetry-java-instrumentation#getting-started">Getting Started</a>
-    &nbsp;&nbsp;&bull;&nbsp;&nbsp;
-    <a href="https://github.com/open-telemetry/community#special-interest-groups">Getting Involved</a>
-    &nbsp;&nbsp;&bull;&nbsp;&nbsp;
-    <a href="https://github.com/open-telemetry/opentelemetry-java-instrumentation/discussions">Getting In Touch</a>
-  </strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/open-telemetry/opentelemetry-java-instrumentation/actions/workflows/build.yml">
-    <img alt="Build Status" src="https://img.shields.io/github/actions/workflow/status/open-telemetry/opentelemetry-java-instrumentation/build.yml?branch=main&style=for-the-badge">
-  </a>
-  <a href="https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases">
-    <img alt="GitHub release (latest by date)" src="https://img.shields.io/github/v/release/open-telemetry/opentelemetry-java-instrumentation?style=for-the-badge">
-  </a>
-</p>
-
-<p align="center">
-  <strong>
-    <a href="CONTRIBUTING.md">Contributing</a>
-    &nbsp;&nbsp;&bull;&nbsp;&nbsp;
-    <a href="docs/scope.md">Scope</a>
-  </strong>
-</p>
-
----
-
-# <img src="https://opentelemetry.io/img/logos/opentelemetry-logo-nav.png" alt="OpenTelemetry Icon" width="45" height=""> OpenTelemetry Instrumentation for Java
+[![Release](https://img.shields.io/github/v/release/open-telemetry/opentelemetry-java-instrumentation?include_prereleases&style=)](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/open-telemetry/opentelemetry-java-instrumentation/badge)](https://scorecard.dev/viewer/?uri=github.com/open-telemetry/opentelemetry-java-instrumentation)
+[![Slack](https://img.shields.io/badge/slack-@cncf/otel--java-blue.svg?logo=slack)](https://cloud-native.slack.com/archives/C014L2KCTE3)
 
 * [About](#about)
 * [Getting Started](#getting-started)
@@ -161,7 +134,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 Triagers ([@open-telemetry/java-instrumentation-triagers](https://github.com/orgs/open-telemetry/teams/java-instrumentation-triagers)):
 
 - [Jonas Kunz](https://github.com/JonasKunz), Elastic
-- [Steve Rao](https://github.com/steverao), Alibaba
 - [Sylvain Juge](https://github.com/SylvainJuge), Elastic
 
 Approvers ([@open-telemetry/java-instrumentation-approvers](https://github.com/orgs/open-telemetry/teams/java-instrumentation-approvers)):
@@ -172,6 +144,7 @@ Approvers ([@open-telemetry/java-instrumentation-approvers](https://github.com/o
 - [Jay DeLuca](https://github.com/jaydeluca)
 - [Jean Bisutti](https://github.com/jeanbisutti), Microsoft
 - [John Watson](https://github.com/jkwatson), Cloudera
+- [Steve Rao](https://github.com/steverao), Alibaba
 
 Maintainers ([@open-telemetry/java-instrumentation-maintainers](https://github.com/orgs/open-telemetry/teams/java-instrumentation-maintainers)):
 

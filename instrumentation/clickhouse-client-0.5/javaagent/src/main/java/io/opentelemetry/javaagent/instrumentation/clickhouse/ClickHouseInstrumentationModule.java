@@ -10,13 +10,25 @@ import static java.util.Arrays.asList;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
+import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
 
 @AutoService(InstrumentationModule.class)
-public class ClickHouseInstrumentationModule extends InstrumentationModule {
+public class ClickHouseInstrumentationModule extends InstrumentationModule
+    implements ExperimentalInstrumentationModule {
 
   public ClickHouseInstrumentationModule() {
     super("clickhouse-client", "clickhouse-client-0.5", "clickhouse");
+  }
+
+  @Override
+  public boolean isHelperClass(String className) {
+    return "com.clickhouse.client.ClickHouseRequestAccess".equals(className);
+  }
+
+  @Override
+  public List<String> injectedClassNames() {
+    return singletonList("com.clickhouse.client.ClickHouseRequestAccess");
   }
 
   @Override
@@ -24,7 +36,6 @@ public class ClickHouseInstrumentationModule extends InstrumentationModule {
     return asList(
         new ClickHouseClientV1Instrumentation(),
         new ClickHouseClientV2Instrumentation(),
-        new HttpApiClientHelperInstrumentation()
-    );
+        new HttpApiClientHelperInstrumentation());
   }
 }

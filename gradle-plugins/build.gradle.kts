@@ -25,7 +25,7 @@ configurations.named("compileOnly") {
   extendsFrom(bbGradlePlugin)
 }
 
-val byteBuddyVersion = "1.15.11"
+val byteBuddyVersion = "1.17.0"
 val aetherVersion = "1.1.0"
 
 dependencies {
@@ -40,9 +40,9 @@ dependencies {
   implementation("org.eclipse.aether:aether-transport-http:${aetherVersion}")
   implementation("org.apache.maven:maven-aether-provider:3.3.9")
 
-  implementation("com.gradleup.shadow:shadow-gradle-plugin:8.3.5")
+  implementation("com.gradleup.shadow:shadow-gradle-plugin:8.3.6")
 
-  testImplementation("org.assertj:assertj-core:3.27.0")
+  testImplementation("org.assertj:assertj-core:3.27.3")
 
   testImplementation(enforcedPlatform("org.junit:junit-bom:5.11.4"))
   testImplementation("org.junit.jupiter:junit-jupiter-api")

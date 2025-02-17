@@ -4,11 +4,53 @@
 
 ### Migration notes
 
+- `io.opentelemetry.instrumentation.api.incubator.semconv.util.SpanNames` has been deprecated,
+  replaced by the stable `io.opentelemetry.instrumentation.api.semconv.util.SpanNames`
+- In preparation for stabilizing HTTP library instrumentation, the classes and methods
+  that were deprecated in the prior two releases have now been removed
+
+## Version 2.12.0 (2025-01-17)
+
+### Migration notes
+
 - Some Java agent instrumentation suppression keys have been renamed to match their module names:
   - `elasticsearch-rest-6.0` --> `elasticsearch-rest-6.4`
   - `internal-application-logging` --> `internal-application-logger`
   - `javalin-5` -> `javalin-5.0`
   - `pulsar-2.8.0` -> `pulsar-2.8`
+- In preparation for stabilizing HTTP library instrumentation soon:
+  - `setCaptured*Headers(List)` methods in `*TelemetryBuilder` classes were changed to
+    `setCaptured*Headers(Collection)`
+    ([#12901](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/12901))
+  - `setKnownMethods(Set)` methods in `*TelemetryBuilder` classes were changed to
+    `setKnownMethods(Collection)`
+    ([#12902](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/12902))
+
+### 📈 Enhancements
+
+- Support `ExtendedTextMapGetter` in gRPC instrumentation
+  ([#13011](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/13011))
+- Add database client metrics in DynamoDB instrumentation
+  ([#13033](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/13033))
+- Propagate context into async http client CompletableFuture callbacks
+  ([#13041](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/13041))
+- Exclude spring routing data source from Spring Starter instrumentation
+  ([#13054](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/13054))
+- Instrument jdbc batch queries
+  ([#12797](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/12797))
+
+### 🛠️ Bug fixes
+
+- Fix incorrect dubbo trace caused by using rpcContext.isProviderSide()
+  ([#12930](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/12930))
+- Fix ClickHouse query failing with syntax error
+  ([#13020](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/13020))
+- Fix instrumentation module not loading silently when duplicate helper classnames are detected
+  ([#13005](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/13005))
+- Fix compatibility problem due to DubboHeadersGetter#keys in Dubbo 2.7.6 and 2.7.7
+  ([#12982](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/12982))
+- Fix appender install for async Logback appenders
+  ([#13047](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/13047))
 
 ## Version 2.11.0 (2024-12-23)
 
@@ -97,7 +139,6 @@ In preparation for stabilizing HTTP library instrumentation soon:
   ([#12883](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/12883))
 - Add close to fix CWE-404
   ([#12908](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/12908))
->>>>>>> upstream/main
 
 ## Version 2.10.0 (2024-11-13)
 

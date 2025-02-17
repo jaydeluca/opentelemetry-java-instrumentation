@@ -47,7 +47,6 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.testcontainers.containers.GenericContainer;
 
-
 @TestInstance(Lifecycle.PER_CLASS)
 @SuppressWarnings("deprecation") // using deprecated semconv
 class ClickHouseClientV2Test {
@@ -218,7 +217,10 @@ class ClickHouseClientV2Test {
   @Test
   void testPojoInsert() throws Exception {
     String tableName = "pojo_with_json_table";
-    String createSQL = "CREATE TABLE " + tableName + " (eventPayload String) ENGINE = MergeTree() ORDER BY tuple()";
+    String createSQL =
+        "CREATE TABLE "
+            + tableName
+            + " (eventPayload String) ENGINE = MergeTree() ORDER BY tuple()";
     String originalJsonStr = "{\"a\":{\"b\":\"42\"},\"c\":[\"1\",\"2\",\"3\"]}";
 
     CommandSettings commandSettings = new CommandSettings();
@@ -231,13 +233,15 @@ class ClickHouseClientV2Test {
     List<Object> data = Collections.singletonList(pojo);
 
     InsertSettings insertSettings = new InsertSettings();
-    InsertResponse response = client.insert(tableName, data, insertSettings).get(5, TimeUnit.SECONDS);
+    InsertResponse response =
+        client.insert(tableName, data, insertSettings).get(5, TimeUnit.SECONDS);
     assertThat(response.getWrittenRows()).isEqualTo(1);
 
-    QuerySettings settings = new QuerySettings()
-        .setFormat(ClickHouseFormat.CSV);
-    try (QueryResponse resp = client.query("SELECT * FROM " + tableName, settings).get(5, TimeUnit.SECONDS)) {
-      BufferedReader reader = new BufferedReader(new InputStreamReader(resp.getInputStream(), UTF_8));
+    QuerySettings settings = new QuerySettings().setFormat(ClickHouseFormat.CSV);
+    try (QueryResponse resp =
+        client.query("SELECT * FROM " + tableName, settings).get(5, TimeUnit.SECONDS)) {
+      BufferedReader reader =
+          new BufferedReader(new InputStreamReader(resp.getInputStream(), UTF_8));
       String jsonStr = StringEscapeUtils.unescapeCsv(reader.lines().findFirst().get());
       assertThat(jsonStr).isEqualTo(originalJsonStr);
     }
@@ -251,8 +255,7 @@ class ClickHouseClientV2Test {
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
                             attributeAssertions(
-                                "DROP TABLE IF EXISTS " + tableName,
-                                "DROP TABLE"))),
+                                "DROP TABLE IF EXISTS " + tableName, "DROP TABLE"))),
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
@@ -260,9 +263,7 @@ class ClickHouseClientV2Test {
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            attributeAssertions(
-                                createSQL,
-                                "CREATE TABLE"))),
+                            attributeAssertions(createSQL, "CREATE TABLE"))),
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
@@ -271,8 +272,7 @@ class ClickHouseClientV2Test {
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
                             attributeAssertions(
-                                "DESCRIBE TABLE pojo_with_json_table FORMAT TSKV",
-                                null))),
+                                "DESCRIBE TABLE pojo_with_json_table FORMAT TSKV", null))),
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
@@ -291,15 +291,16 @@ class ClickHouseClientV2Test {
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
                             attributeAssertions("SELECT * FROM pojo_with_json_table", "SELECT"))));
-
   }
 
   @SuppressWarnings("unused")
   public static class PojoWithJSON {
     private String eventPayload;
+
     public String getEventPayload() {
       return eventPayload;
     }
+
     public void setEventPayload(String eventPayload) {
       this.eventPayload = eventPayload;
     }
@@ -323,9 +324,7 @@ class ClickHouseClientV2Test {
 
     @Override
     public String toString() {
-      return "PojoWithJSON{" +
-          "eventPayload='" + eventPayload + '\'' +
-          '}';
+      return "PojoWithJSON{" + "eventPayload='" + eventPayload + '\'' + '}';
     }
   }
 
