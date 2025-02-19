@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package io.opentelemetry.instrumentation.docs;
+package io.opentelemetry.instrumentation.docs.utils;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import io.opentelemetry.instrumentation.docs.InstrumentationType;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -19,17 +20,23 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-class FileSearch {
+public class FileManager {
 
-  private FileSearch() {}
+  private final String rootDir;
 
-  public static List<String> getJavaCodePaths(String rootDir) {
-    Path rootPath = Paths.get(rootDir);
+  public FileManager(String rootDir) {
+    this.rootDir = rootDir;
+  }
+
+  public List<String> getJavaCodePaths(String instrumentationDirectory) {
+    Path rootPath = Paths.get(instrumentationDirectory);
 
     try (Stream<Path> walk = Files.walk(rootPath)) {
       return walk.filter(Files::isRegularFile)
           .map(Path::toString)
-          .filter(path -> !path.contains("/build/") && !path.contains("/test/"))
+          .filter(
+              path ->
+                  !path.contains("/build/") && !path.contains("/test/") && path.endsWith(".java"))
           .collect(Collectors.toList());
     } catch (IOException e) {
       System.out.println("Error traversing directory: " + e.getMessage());
@@ -37,7 +44,7 @@ class FileSearch {
     }
   }
 
-  public static Map<String, String> findStringInFiles(
+  public Map<String, String> findStringInFiles(
       List<String> fileList, Map<String, String> searchStrings) {
     Map<String, String> matchingFiles = new HashMap<>();
     for (String filePath : fileList) {
@@ -60,7 +67,7 @@ class FileSearch {
     return matchingFiles;
   }
 
-  public static List<InstrumentationPath> getInstrumentationList(String rootDir) {
+  public List<InstrumentationPath> getInstrumentationPaths() {
     Path rootPath = Paths.get(rootDir);
 
     try (Stream<Path> walk = Files.walk(rootPath)) {
@@ -75,7 +82,7 @@ class FileSearch {
     }
   }
 
-  static InstrumentationPath parseInstrumentationPath(String filePath) {
+  private static InstrumentationPath parseInstrumentationPath(String filePath) {
     if (filePath == null || filePath.isEmpty()) {
       return null;
     }
@@ -100,9 +107,9 @@ class FileSearch {
     if (filePath == null || filePath.isEmpty()) {
       return false;
     }
-    String instrumentationSegment = "instrumentation/";
+    String instrumentationSegment = "/instrumentation/";
 
-    if (!filePath.startsWith(instrumentationSegment)) {
+    if (!filePath.contains(instrumentationSegment)) {
       return false;
     }
 
@@ -121,8 +128,8 @@ class FileSearch {
     return filePath.endsWith("javaagent") || filePath.endsWith("library");
   }
 
-  public static List<String> findBuildGradleFiles(String rootDir) {
-    Path rootPath = Paths.get(rootDir);
+  public List<String> findBuildGradleFiles(String instrumentationDirectory) {
+    Path rootPath = Paths.get(instrumentationDirectory);
 
     try (Stream<Path> walk = Files.walk(rootPath)) {
       return walk.filter(Files::isRegularFile)
@@ -138,7 +145,7 @@ class FileSearch {
     }
   }
 
-  public static String readFileToString(String filePath) {
+  public String readFileToString(String filePath) {
     try {
       return Files.readString(Paths.get(filePath));
     } catch (IOException e) {

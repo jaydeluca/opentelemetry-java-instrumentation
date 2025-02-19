@@ -7,7 +7,7 @@ package io.opentelemetry.instrumentation.docs;
 
 import java.util.Locale;
 
-enum InstrumentationType {
+public enum InstrumentationType {
   JAVAAGENT,
   LIBRARY;
 

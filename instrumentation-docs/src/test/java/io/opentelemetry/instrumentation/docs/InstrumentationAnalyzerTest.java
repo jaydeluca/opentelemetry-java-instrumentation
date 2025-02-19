@@ -6,12 +6,54 @@
 package io.opentelemetry.instrumentation.docs;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.Mockito.when;
 
+import io.opentelemetry.instrumentation.docs.utils.FileManager;
+import io.opentelemetry.instrumentation.docs.utils.InstrumentationPath;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
+@ExtendWith(MockitoExtension.class)
 class InstrumentationAnalyzerTest {
+  @Mock private FileManager fileSearch;
+
+  private InstrumentationAnalyzer analyzer;
+
+  @BeforeEach
+  void setUp() {
+    analyzer = new InstrumentationAnalyzer(fileSearch);
+  }
+
+  @Test
+  void testAnalyzeSemanticConventionsServerAttributes() {
+    String fileContent =
+        "static {\n"
+            + "    INSTRUMENTER =\n"
+            + "        JavaagentHttpServerInstrumenters.create(\n"
+            + "            AkkaHttpUtil.instrumentationName(),\n"
+            + "            new AkkaHttpServerAttributesGetter(),\n"
+            + "            AkkaHttpServerHeaders.INSTANCE);\n"
+            + "  }";
+
+    InstrumentationEntity entity =
+        new InstrumentationEntity(
+            "instrumentation/akkahttp/server", "akka-http-server", "akka", "akka", List.of());
+
+    when(fileSearch.findStringInFiles(anyList(), anyMap()))
+        .thenReturn(Map.of("server_attributes", "HttpServerAttributesGetter"));
+
+    analyzer.analyzeSemanticConventions(List.of(fileContent), entity);
+
+    assertThat(entity.getSemanticConventions()).containsExactly("server_attributes");
+  }
 
   @Test
   void testConvertToEntities() {
