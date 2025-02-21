@@ -85,3 +85,8 @@ helpers to do some things differently?
 - [ ] What is a good way to summarize the `target_version` information? Is it useful to include?
 - [ ] Fix target_version when a variable is used, (example: zio - `dev.zio:zio_2.12:[$zioVersion,)`)
 - [ ] Map more semantic conventions
+
+
+Challenges:
+
+- When modules have a shared module, might not be able to attribute semantic conventions

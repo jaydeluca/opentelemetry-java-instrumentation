@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,16 +35,16 @@ class FileManagerTest {
     assertThat(javaPaths).doesNotContain(nonJavaFile.toString());
   }
 
-  @Test
-  void testFindStringInFiles() throws IOException {
-    Path javaFile = Files.createFile(tempDir.resolve("Test.java"));
-    Files.writeString(javaFile, "DbClientMetrics.get()");
-    Map<String, String> searchStrings = Map.of("db_client_metrics", "DbClientMetrics.get()");
-    Map<String, String> result =
-        fileManager.findStringInFiles(List.of(javaFile.toString()), searchStrings);
-    assertThat(result).containsKey("db_client_metrics");
-    assertThat(result.get("db_client_metrics")).isEqualTo(javaFile.toString());
-  }
+  //  @Test
+  //  void testFindStringInFiles() throws IOException {
+  //    Path javaFile = Files.createFile(tempDir.resolve("Test.java"));
+  //    Files.writeString(javaFile, "DbClientMetrics.get()");
+  //    Map<String, String> searchStrings = Map.of("db_client_metrics", "DbClientMetrics.get()");
+  //    Map<String, String> result =
+  //        fileManager.findStringInFiles(List.of(javaFile.toString()), searchStrings);
+  //    assertThat(result).containsKey("db_client_metrics");
+  //    assertThat(result.get("db_client_metrics")).isEqualTo(javaFile.toString());
+  //  }
 
   @Test
   void testGetInstrumentationPaths() throws IOException {

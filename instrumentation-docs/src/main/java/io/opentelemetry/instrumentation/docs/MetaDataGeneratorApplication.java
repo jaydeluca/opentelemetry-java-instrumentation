@@ -6,16 +6,26 @@
 package io.opentelemetry.instrumentation.docs;
 
 import io.opentelemetry.instrumentation.docs.utils.FileManager;
+import io.opentelemetry.instrumentation.docs.utils.FileReaderHelper;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 public class MetaDataGeneratorApplication {
 
   private MetaDataGeneratorApplication() {}
 
   public static void main(String[] args) {
+
     FileManager fileManager = new FileManager("instrumentation/");
-    List<InstrumentationEntity> entities = new InstrumentationAnalyzer(fileManager).analyze();
+    String experimentalConfigFile = fileManager.getExperimentalConfigFile();
+
+    Map<String, ConfigurationProperty> configurationProperties =
+        ExperimentalConfigParser.extractConfigMap(experimentalConfigFile);
+
+    List<InstrumentationEntity> entities =
+        new InstrumentationAnalyzer(fileManager, new FileReaderHelper(), configurationProperties)
+            .analyze();
 
     printInstrumentationList(entities);
   }
@@ -34,6 +44,16 @@ public class MetaDataGeneratorApplication {
               for (InstrumentationType type : entity.getTypes()) {
                 System.out.println("        - " + type);
               }
+
+              if (entity.getSpanTypes() == null || entity.getSpanTypes().isEmpty()) {
+                System.out.println("      span_types: []");
+              } else {
+                System.out.println("      span_types:");
+                for (String spanType : entity.getSpanTypes()) {
+                  System.out.println("        - " + spanType);
+                }
+              }
+
               if (entity.getSemanticConventions() == null
                   || entity.getSemanticConventions().isEmpty()) {
                 System.out.println("      semantic_conventions: []");

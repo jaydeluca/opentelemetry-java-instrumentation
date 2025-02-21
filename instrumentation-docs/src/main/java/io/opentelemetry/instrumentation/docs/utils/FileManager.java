@@ -5,18 +5,13 @@
 
 package io.opentelemetry.instrumentation.docs.utils;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import io.opentelemetry.instrumentation.docs.InstrumentationType;
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -42,29 +37,6 @@ public class FileManager {
       System.out.println("Error traversing directory: " + e.getMessage());
       return List.of();
     }
-  }
-
-  public Map<String, String> findStringInFiles(
-      List<String> fileList, Map<String, String> searchStrings) {
-    Map<String, String> matchingFiles = new HashMap<>();
-    for (String filePath : fileList) {
-      if (filePath.endsWith(".java")) {
-        try (BufferedReader reader = Files.newBufferedReader(Paths.get(filePath), UTF_8)) {
-          String line;
-          while ((line = reader.readLine()) != null) {
-            for (Map.Entry<String, String> entry : searchStrings.entrySet()) {
-              if (line.contains(entry.getValue())) {
-                matchingFiles.put(entry.getKey(), filePath);
-                break;
-              }
-            }
-          }
-        } catch (IOException e) {
-          // File may have been removed or is inaccessible; ignore or log as needed
-        }
-      }
-    }
-    return matchingFiles;
   }
 
   public List<InstrumentationPath> getInstrumentationPaths() {
@@ -107,7 +79,7 @@ public class FileManager {
     if (filePath == null || filePath.isEmpty()) {
       return false;
     }
-    String instrumentationSegment = "/instrumentation/";
+    String instrumentationSegment = "instrumentation/";
 
     if (!filePath.contains(instrumentationSegment)) {
       return false;
@@ -152,5 +124,11 @@ public class FileManager {
       System.out.println("Error reading file: " + e.getMessage());
       return null;
     }
+  }
+
+  public String getExperimentalConfigFile() {
+    String path =
+        "/Users/jay/code/projects/opentelemetry-java-instrumentation/javaagent-extension-api/src/main/java/io/opentelemetry/javaagent/bootstrap/internal/ExperimentalConfig.java";
+    return readFileToString(path);
   }
 }

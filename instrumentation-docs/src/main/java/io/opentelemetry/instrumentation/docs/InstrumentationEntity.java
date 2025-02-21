@@ -16,6 +16,7 @@ class InstrumentationEntity {
   private List<String> targetVersions;
   private List<String> semanticConventions;
   private List<ConfigurationProperty> configurationProperties;
+  private List<String> spanTypes;
 
   public InstrumentationEntity(
       String srcPath,
@@ -72,5 +73,13 @@ class InstrumentationEntity {
 
   public void setConfigurationProperties(List<ConfigurationProperty> configurationProperties) {
     this.configurationProperties = configurationProperties;
+  }
+
+  public List<String> getSpanTypes() {
+    return spanTypes;
+  }
+
+  public void setSpanTypes(List<String> spanTypes) {
+    this.spanTypes = spanTypes;
   }
 }

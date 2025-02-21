@@ -4,6 +4,7 @@ plugins {
 
 dependencies {
   implementation("com.google.guava:guava")
+  implementation("io.opentelemetry.javaagent:opentelemetry-javaagent-extension-api")
 
   testImplementation("org.assertj:assertj-core:3.27.3")
 

@@ -6,12 +6,14 @@
 package io.opentelemetry.instrumentation.docs;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.when;
 
 import io.opentelemetry.instrumentation.docs.utils.FileManager;
+import io.opentelemetry.instrumentation.docs.utils.FileReaderHelper;
 import io.opentelemetry.instrumentation.docs.utils.InstrumentationPath;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -24,16 +26,25 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class InstrumentationAnalyzerTest {
   @Mock private FileManager fileSearch;
+  @Mock private FileReaderHelper fileReaderHelper;
+  private final Map<String, ConfigurationProperty> experimentalConfigurations =
+      Map.of(
+          "messagingReceiveInstrumentationEnabled()",
+          new ConfigurationProperty(
+              "otel.instrumentation.messaging.experimental.receive-telemetry.enabled",
+              "Boolean",
+              "false"));
 
   private InstrumentationAnalyzer analyzer;
 
   @BeforeEach
   void setUp() {
-    analyzer = new InstrumentationAnalyzer(fileSearch);
+    analyzer =
+        new InstrumentationAnalyzer(fileSearch, fileReaderHelper, experimentalConfigurations);
   }
 
   @Test
-  void testAnalyzeSemanticConventionsServerAttributes() {
+  void testAnalyzeSemanticConventionsServerAttributes() throws IOException {
     String fileContent =
         "static {\n"
             + "    INSTRUMENTER =\n"
@@ -47,10 +58,56 @@ class InstrumentationAnalyzerTest {
         new InstrumentationEntity(
             "instrumentation/akkahttp/server", "akka-http-server", "akka", "akka", List.of());
 
-    when(fileSearch.findStringInFiles(anyList(), anyMap()))
-        .thenReturn(Map.of("server_attributes", "HttpServerAttributesGetter"));
+    BufferedReader reader = new BufferedReader(new StringReader(fileContent));
+    when(fileReaderHelper.getBufferedReader("singleton.java")).thenReturn(reader);
 
-    analyzer.analyzeSemanticConventions(List.of(fileContent), entity);
+    analyzer.analyzeSemanticConventions(List.of("singleton.java"), entity);
+
+    assertThat(entity.getSemanticConventions()).containsExactly("server_attributes");
+  }
+
+  @Test
+  void testAnalyzeSpanTypesServer() throws IOException {
+    String fileContent =
+        "static {\n"
+            + "    INSTRUMENTER =\n"
+            + "        JavaagentHttpServerInstrumenters.create(\n"
+            + "            AkkaHttpUtil.instrumentationName(),\n"
+            + "            new AkkaHttpServerAttributesGetter(),\n"
+            + "            AkkaHttpServerHeaders.INSTANCE);\n"
+            + "  }";
+
+    InstrumentationEntity entity =
+        new InstrumentationEntity(
+            "instrumentation/akkahttp/server", "akka-http-server", "akka", "akka", List.of());
+
+    BufferedReader reader = new BufferedReader(new StringReader(fileContent));
+    when(fileReaderHelper.getBufferedReader("singleton.java")).thenReturn(reader);
+
+    analyzer.analyzeSpanTypes(List.of("singleton.java"), entity);
+
+    assertThat(entity.getSpanTypes()).containsExactly("SERVER");
+  }
+
+  @Test
+  void testAnalyzeSpanTypesClient() throws IOException {
+    String fileContent =
+        "static {\n"
+            + "    INSTRUMENTER =\n"
+            + "        JavaagentHttpClientInstrumenters.create(\n"
+            + "            AkkaHttpUtil.instrumentationName(),\n"
+            + "            new AkkaHttpServerAttributesGetter(),\n"
+            + "            AkkaHttpServerHeaders.INSTANCE);\n"
+            + "  }";
+
+    InstrumentationEntity entity =
+        new InstrumentationEntity(
+            "instrumentation/akkahttp/server", "akka-http-server", "akka", "akka", List.of());
+
+    BufferedReader reader = new BufferedReader(new StringReader(fileContent));
+    when(fileReaderHelper.getBufferedReader("singleton.java")).thenReturn(reader);
+
+    analyzer.analyzeSemanticConventions(List.of("singleton.java"), entity);
 
     assertThat(entity.getSemanticConventions()).containsExactly("server_attributes");
   }
@@ -107,5 +164,28 @@ class InstrumentationAnalyzerTest {
     assertThat(springEntity.getSrcPath()).isEqualTo("instrumentation/spring/spring-web");
     assertThat(springEntity.getTypes()).hasSize(1);
     assertThat(springEntity.getTypes()).containsExactly(InstrumentationType.LIBRARY);
+  }
+
+  @Test
+  void testExperimentalConfigParsing() throws IOException {
+    String fileContent =
+        ".setMessagingReceiveInstrumentationEnabled(\n"
+            + "    ExperimentalConfig.get().messagingReceiveInstrumentationEnabled());\n";
+
+    InstrumentationEntity entity =
+        new InstrumentationEntity(
+            "instrumentation/akkahttp/server", "akka-http-server", "akka", "akka", List.of());
+
+    BufferedReader reader = new BufferedReader(new StringReader(fileContent));
+    when(fileReaderHelper.getBufferedReader("singleton.java")).thenReturn(reader);
+
+    analyzer.analyzeConfigurations(List.of("singleton.java"), entity);
+
+    ConfigurationProperty result = entity.getConfigurationProperties().get(0);
+
+    assertThat(result.name())
+        .isEqualTo("otel.instrumentation.messaging.experimental.receive-telemetry.enabled");
+    assertThat(result.type()).isEqualTo("Boolean");
+    assertThat(result.defaultValue()).isEqualTo("false");
   }
 }
