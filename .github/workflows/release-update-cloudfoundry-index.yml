@@ -22,7 +22,7 @@ jobs:
         # need to run this script before we switch branches
         # since the script doesn't exist on the cloudfoundry branch
       - name: Use CLA approved github bot
-        run: .github/scripts/use-cla-approved-github-bot.sh
+        run: .github/scripts/use-cla-approved-bot.sh
 
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -44,7 +44,7 @@ jobs:
       - name: display changes
         run: git diff
 
-      - uses: actions/create-github-app-token@67e27a7eb7db372a1c61a7f9bdab8699e9ee57f7 # v1.11.3
+      - uses: actions/create-github-app-token@21cfef2b496dd8ef5b904c159339626a10ad380e # v1.11.6
         id: otelbot-token
         with:
           app-id: ${{ vars.OTELBOT_APP_ID }}
