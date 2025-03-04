@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class GradleParser {
+class GradleParser {
 
   private GradleParser() {}
 
@@ -41,8 +41,6 @@ public class GradleParser {
       String versionRange = extractValue(passBlock, "versions\\.set\\(\"([^\"]+)\"\\)");
 
       if (group != null && module != null && versionRange != null) {
-        // Convert something like "[5.0,6.4)" to "5.0, 6.4"
-        //        String rangeSummary = simplifyVersionRange(versionRange);
         String summary = group + ":" + module + ":" + versionRange;
         results.add(summary);
       }

@@ -125,10 +125,4 @@ public class FileManager {
       return null;
     }
   }
-
-  public String getExperimentalConfigFile() {
-    String path =
-        "/Users/jay/code/projects/opentelemetry-java-instrumentation/javaagent-extension-api/src/main/java/io/opentelemetry/javaagent/bootstrap/internal/ExperimentalConfig.java";
-    return readFileToString(path);
-  }
 }

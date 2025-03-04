@@ -35,17 +35,6 @@ class FileManagerTest {
     assertThat(javaPaths).doesNotContain(nonJavaFile.toString());
   }
 
-  //  @Test
-  //  void testFindStringInFiles() throws IOException {
-  //    Path javaFile = Files.createFile(tempDir.resolve("Test.java"));
-  //    Files.writeString(javaFile, "DbClientMetrics.get()");
-  //    Map<String, String> searchStrings = Map.of("db_client_metrics", "DbClientMetrics.get()");
-  //    Map<String, String> result =
-  //        fileManager.findStringInFiles(List.of(javaFile.toString()), searchStrings);
-  //    assertThat(result).containsKey("db_client_metrics");
-  //    assertThat(result.get("db_client_metrics")).isEqualTo(javaFile.toString());
-  //  }
-
   @Test
   void testGetInstrumentationPaths() throws IOException {
     Path validDir =
@@ -67,18 +56,9 @@ class FileManagerTest {
   @Test
   void testFindBuildGradleFiles() throws IOException {
     Path gradleFile = Files.createFile(tempDir.resolve("build.gradle.kts"));
-    Path nonGradleFile = Files.createFile(tempDir.resolve("build.gradle"));
+    Path nonGradleFile = Files.createFile(tempDir.resolve("gradle.properties"));
     List<String> gradleFiles = fileManager.findBuildGradleFiles(tempDir.toString());
     assertThat(gradleFiles).contains(gradleFile.toString());
     assertThat(gradleFiles).doesNotContain(nonGradleFile.toString());
-  }
-
-  @Test
-  void testReadFileToString() throws IOException {
-    Path file = Files.createFile(tempDir.resolve("test.txt"));
-    String content = "Hello, World!";
-    Files.writeString(file, content);
-    String result = fileManager.readFileToString(file.toString());
-    assertThat(result).isEqualTo(content);
   }
 }

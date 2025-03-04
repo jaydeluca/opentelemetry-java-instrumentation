@@ -14,9 +14,6 @@ class InstrumentationEntity {
   private final String group;
   private final List<InstrumentationType> types;
   private List<String> targetVersions;
-  private List<String> semanticConventions;
-  private List<ConfigurationProperty> configurationProperties;
-  private List<String> spanTypes;
 
   public InstrumentationEntity(
       String srcPath,
@@ -57,29 +54,5 @@ class InstrumentationEntity {
 
   public void setTargetVersions(List<String> targetVersions) {
     this.targetVersions = targetVersions;
-  }
-
-  public List<String> getSemanticConventions() {
-    return semanticConventions;
-  }
-
-  public void setSemanticConventions(List<String> semanticConventions) {
-    this.semanticConventions = semanticConventions;
-  }
-
-  public List<ConfigurationProperty> getConfigurationProperties() {
-    return configurationProperties;
-  }
-
-  public void setConfigurationProperties(List<ConfigurationProperty> configurationProperties) {
-    this.configurationProperties = configurationProperties;
-  }
-
-  public List<String> getSpanTypes() {
-    return spanTypes;
-  }
-
-  public void setSpanTypes(List<String> spanTypes) {
-    this.spanTypes = spanTypes;
   }
 }
