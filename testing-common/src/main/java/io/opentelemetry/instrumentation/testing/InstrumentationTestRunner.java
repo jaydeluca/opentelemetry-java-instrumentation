@@ -154,7 +154,6 @@ public abstract class InstrumentationTestRunner {
   public void getMetadataFromTraces(List<List<SpanData>> traces) {
     for (List<SpanData> trace : traces) {
       for (SpanData span : trace) {
-
         if (spanKinds != null) {
           spanKinds.add(span.getKind());
         }
@@ -213,7 +212,6 @@ public abstract class InstrumentationTestRunner {
 
   public void getMetadataFromMetrics(List<MetricData> metrics) {
     for (MetricData metric : metrics) {
-
       if (!this.metrics.containsKey(metric.getName())) {
         this.metrics.put(metric.getName(), metric);
       }
