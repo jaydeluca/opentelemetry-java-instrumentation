@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.opentelemetry.instrumentation.docs.internal.InstrumentationEntity;
 import io.opentelemetry.instrumentation.docs.internal.InstrumentationMetaData;
 import io.opentelemetry.instrumentation.docs.internal.InstrumentationType;
+import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
 import java.io.BufferedWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
@@ -18,7 +19,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
 import org.junit.jupiter.api.Test;
 
 class YamlHelperTest {
@@ -45,8 +45,7 @@ class YamlHelperTest {
 
     Map<InstrumentationType, Set<String>> targetVersions2 = new HashMap<>();
 
-    InstrumentationScopeInfo scope = InstrumentationScopeInfo.builder("struts-2.3")
-        .build();
+    InstrumentationScopeInfo scope = InstrumentationScopeInfo.builder("struts-2.3").build();
 
     targetVersions2.put(
         InstrumentationType.LIBRARY,
