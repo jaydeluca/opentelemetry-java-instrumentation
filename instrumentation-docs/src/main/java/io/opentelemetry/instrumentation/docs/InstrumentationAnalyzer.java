@@ -7,7 +7,6 @@ package io.opentelemetry.instrumentation.docs;
 
 import static io.opentelemetry.instrumentation.docs.parsers.GradleParser.parseGradleFile;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.exc.ValueInstantiationException;
 import io.opentelemetry.instrumentation.docs.internal.DependencyInfo;
 import io.opentelemetry.instrumentation.docs.internal.EmittedMetrics;
@@ -16,6 +15,7 @@ import io.opentelemetry.instrumentation.docs.internal.InstrumentationType;
 import io.opentelemetry.instrumentation.docs.utils.FileManager;
 import io.opentelemetry.instrumentation.docs.utils.InstrumentationPath;
 import io.opentelemetry.instrumentation.docs.utils.YamlHelper;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -41,7 +41,7 @@ class InstrumentationAnalyzer {
    * @return a list of {@link InstrumentationModule} objects with aggregated types
    */
   public static List<InstrumentationModule> convertToInstrumentationModules(
-      List<InstrumentationPath> paths) {
+      String rootPath, List<InstrumentationPath> paths) {
     Map<String, InstrumentationModule> moduleMap = new HashMap<>();
 
     for (InstrumentationPath path : paths) {
@@ -50,7 +50,11 @@ class InstrumentationAnalyzer {
         moduleMap.put(
             key,
             new InstrumentationModule.Builder()
-                .srcPath(path.srcPath().replace("/javaagent", "").replace("/library", ""))
+                .srcPath(
+                    path.srcPath()
+                        .replace("/javaagent", "")
+                        .replace("/library", "")
+                        .replace(rootPath + "/", ""))
                 .instrumentationName(path.instrumentationName())
                 .namespace(path.namespace())
                 .group(path.group())
@@ -68,9 +72,10 @@ class InstrumentationAnalyzer {
    *
    * @return a list of {@link InstrumentationModule}
    */
-  List<InstrumentationModule> analyze() throws JsonProcessingException {
+  List<InstrumentationModule> analyze() throws IOException {
     List<InstrumentationPath> paths = fileManager.getInstrumentationPaths();
-    List<InstrumentationModule> modules = convertToInstrumentationModules(paths);
+    List<InstrumentationModule> modules =
+        convertToInstrumentationModules(fileManager.rootDir(), paths);
 
     for (InstrumentationModule module : modules) {
       List<String> gradleFiles = fileManager.findBuildGradleFiles(module.getSrcPath());

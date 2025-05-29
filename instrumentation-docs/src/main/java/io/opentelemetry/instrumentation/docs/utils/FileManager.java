@@ -10,22 +10,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
-public class FileManager {
+public record FileManager(String rootDir) {
   private static final Logger logger = Logger.getLogger(FileManager.class.getName());
-  private final String rootDir;
 
-  public FileManager(String rootDir) {
-    this.rootDir = rootDir;
-  }
-
-  public List<InstrumentationPath> getInstrumentationPaths() {
+  public List<InstrumentationPath> getInstrumentationPaths() throws IOException {
     Path rootPath = Paths.get(rootDir);
 
     try (Stream<Path> walk = Files.walk(rootPath)) {
@@ -33,9 +28,6 @@ public class FileManager {
           .filter(dir -> isValidInstrumentationPath(dir.toString()))
           .map(dir -> parseInstrumentationPath(dir.toString()))
           .collect(Collectors.toList());
-    } catch (IOException e) {
-      logger.severe("Error traversing directory: " + e.getMessage());
-      return new ArrayList<>();
     }
   }
 
@@ -84,8 +76,11 @@ public class FileManager {
     return filePath.endsWith("javaagent") || filePath.endsWith("library");
   }
 
-  public List<String> findBuildGradleFiles(String instrumentationDirectory) {
-    Path rootPath = Paths.get(instrumentationDirectory);
+  public List<String> findBuildGradleFiles(String instrumentationDirectory) throws IOException {
+    if (instrumentationDirectory.equals(rootDir)) {
+      return Collections.emptyList();
+    }
+    Path rootPath = Paths.get(rootDir + "/" + instrumentationDirectory);
 
     try (Stream<Path> walk = Files.walk(rootPath)) {
       return walk.filter(Files::isRegularFile)
@@ -95,15 +90,12 @@ public class FileManager {
                       && !path.toString().contains("/testing/"))
           .map(Path::toString)
           .collect(Collectors.toList());
-    } catch (IOException e) {
-      logger.severe("Error traversing directory: " + e.getMessage());
-      return new ArrayList<>();
     }
   }
 
   @Nullable
   public String getMetaDataFile(String instrumentationDirectory) {
-    String metadataFile = instrumentationDirectory + "/metadata.yaml";
+    String metadataFile = rootDir + instrumentationDirectory + "/metadata.yaml";
     if (Files.exists(Paths.get(metadataFile))) {
       return readFileToString(metadataFile);
     }
