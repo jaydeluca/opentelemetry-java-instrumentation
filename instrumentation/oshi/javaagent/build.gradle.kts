@@ -23,11 +23,12 @@ dependencies {
 }
 
 tasks {
-  withType<Test>().configureEach {
+  val testExperimental by registering(Test::class) {
     jvmArgs("-Dotel.instrumentation.oshi.experimental-metrics.enabled=true")
+    systemProperty("testExperimental", "true")
   }
 
-  test {
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+  check {
+    dependsOn(testExperimental)
   }
 }
