@@ -1,0 +1,5 @@
+configurations:
+  - name: otel.instrumentation.elasticsearch.experimental-span-attributes
+    description: Enable the capture of experimental span attributes.
+    type: boolean
+    default: false

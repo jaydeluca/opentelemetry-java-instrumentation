@@ -1,0 +1,9 @@
+configurations:
+  - name: otel.instrumentation.http.server.emit-experimental-telemetry
+    description: Enable the capture of experimental telemetry for HTTP server instrumentation.
+    type: boolean
+    default: false
+  - name: otel.instrumentation.http.client.emit-experimental-telemetry
+    description: Enable the capture of experimental telemetry for HTTP client instrumentation.
+    type: boolean
+    default: false
