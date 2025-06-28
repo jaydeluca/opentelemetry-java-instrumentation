@@ -1159,6 +1159,8 @@ libraries:
       - org.elasticsearch.client:transport:[5.0.0,5.3.0)
       - org.elasticsearch:elasticsearch:[5.0.0,5.3.0)
   - name: elasticsearch-transport-5.3
+    description: |
+      This instrumentation provides client spans for Elasticsearch transport client requests. Each call produces a span named after the Elasticsearch action, enriched with transport-specific attributes.
     source_path: instrumentation/elasticsearch/elasticsearch-transport-5.3
     scope:
       name: io.opentelemetry.elasticsearch-transport-5.3
@@ -1167,6 +1169,8 @@ libraries:
       - org.elasticsearch.client:transport:[5.3.0,6.0.0)
       - org.elasticsearch:elasticsearch:[5.3.0,6.0.0)
   - name: elasticsearch-transport-6.0
+    description: |
+      This instrumentation provides client spans for Elasticsearch transport client requests. Each call produces a span named after the Elasticsearch action, enriched with transport-specific attributes.
     source_path: instrumentation/elasticsearch/elasticsearch-transport-6.0
     scope:
       name: io.opentelemetry.elasticsearch-transport-6.0
@@ -1195,6 +1199,8 @@ libraries:
       default: false
   finagle:
   - name: finagle-http-23.11
+    description: |
+      This instrumentation provides tracing for Finagle HTTP client and server requests, capturing span data for incoming and outgoing HTTP calls.
     source_path: instrumentation/finagle-http-23.11
     scope:
       name: io.opentelemetry.finagle-http-23.11
@@ -1213,6 +1219,8 @@ libraries:
       - com.twitter:finatra-http_2.12:[2.9.0,]
   geode:
   - name: geode-1.4
+    description: |
+      This instrumentation provides tracing for Apache Geode cache operations. It create spans for cache interactions, including data manipulation and query operations.
     source_path: instrumentation/geode-1.4
     scope:
       name: io.opentelemetry.geode-1.4
@@ -1221,6 +1229,8 @@ libraries:
       - org.apache.geode:geode-core:[1.4.0,)
   google:
   - name: google-http-client-1.19
+    description: |
+      This instrumentation provides tracing for Google HTTP Client requests. It instruments outgoing HTTP calls to create spans, capturing request and response details.
     source_path: instrumentation/google-http-client-1.19
     scope:
       name: io.opentelemetry.google-http-client-1.19
@@ -1245,6 +1255,8 @@ libraries:
           type: LONG
   grails:
   - name: grails-3.0
+    description: |
+      This instrumentation provides tracing for Grails 3.0 applications. It instruments Grails controllers and URL mappings to create spans for incoming requests, capturing information about the controller and action being executed.
     source_path: instrumentation/grails-3.0
     scope:
       name: io.opentelemetry.grails-3.0
@@ -1253,6 +1265,8 @@ libraries:
       - org.grails:grails-web-url-mappings:[3.0,)
   graphql:
   - name: graphql-java-12.0
+    description: |
+      This instrumentation provides tracing for GraphQL Java applications. It instruments GraphQL execution to capture details about queries, mutations, and field resolutions.
     source_path: instrumentation/graphql-java/graphql-java-12.0
     scope:
       name: io.opentelemetry.graphql-java-12.0
@@ -1262,6 +1276,8 @@ libraries:
       library:
       - com.graphql-java:graphql-java:[12.0,19.+)
   - name: graphql-java-20.0
+    description: |
+      The graphql-java-20.0 instrumentation provides tracing for GraphQL Java applications. It instruments GraphQL execution to capture details about queries, mutations, and field resolutions.
     source_path: instrumentation/graphql-java/graphql-java-20.0
     minimum_java_version: 11
     scope:
@@ -1273,6 +1289,8 @@ libraries:
       - com.graphql-java:graphql-java:20.0
   grizzly:
   - name: grizzly-2.3
+    description: |
+      The grizzly-2.3 instrumentation provides tracing for Grizzly 2.3 HTTP server requests. It instruments the Grizzly filter chain to create spans for incoming HTTP requests and outgoing responses.
     source_path: instrumentation/grizzly-2.3
     scope:
       name: io.opentelemetry.grizzly-2.3

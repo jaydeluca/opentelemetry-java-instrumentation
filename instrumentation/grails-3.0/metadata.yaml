@@ -1,0 +1,4 @@
+description: >
+  This instrumentation provides tracing for Grails 3.0 applications.
+  It instruments Grails controllers and URL mappings to create spans for incoming requests,
+  capturing information about the controller and action being executed.

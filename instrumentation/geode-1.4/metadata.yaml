@@ -1,0 +1,3 @@
+description: >
+  This instrumentation provides tracing for Apache Geode cache operations. It create spans for cache
+  interactions, including data manipulation and query operations.

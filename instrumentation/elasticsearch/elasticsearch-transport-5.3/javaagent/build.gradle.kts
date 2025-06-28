@@ -68,6 +68,8 @@ dependencies {
 tasks {
   withType<Test>().configureEach {
     systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
+    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectSpans", true)
 
     // TODO run tests both with and without experimental span attributes
     jvmArgs("-Dotel.instrumentation.elasticsearch.experimental-span-attributes=true")
@@ -79,6 +81,7 @@ tasks {
 
   val testStableSemconv by registering(Test::class) {
     jvmArgs("-Dotel.semconv-stability.opt-in=database,code")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database,code")
   }
 
   check {

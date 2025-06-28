@@ -1,0 +1,3 @@
+description: >
+  This instrumentation provides client spans for Elasticsearch transport client requests. Each call
+  produces a span named after the Elasticsearch action, enriched with transport-specific attributes.

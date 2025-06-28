@@ -1,0 +1,3 @@
+description: >
+  This instrumentation provides tracing for GraphQL Java applications. It instruments GraphQL
+  execution to capture details about queries, mutations, and field resolutions.

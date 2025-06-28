@@ -1,0 +1,3 @@
+description: >
+  The grizzly-2.3 instrumentation provides tracing for Grizzly 2.3 HTTP server requests.
+  It instruments the Grizzly filter chain to create spans for incoming HTTP requests and outgoing responses.

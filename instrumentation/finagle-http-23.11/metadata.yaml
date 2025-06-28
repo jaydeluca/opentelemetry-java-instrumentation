@@ -1,0 +1,3 @@
+description: >
+  This instrumentation provides tracing for Finagle HTTP client and server requests, capturing span
+  data for incoming and outgoing HTTP calls.
