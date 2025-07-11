@@ -589,6 +589,25 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: apache-httpclient-5.2
     source_path: instrumentation/apache-httpclient/apache-httpclient-5.2
     scope:
@@ -596,6 +615,45 @@ libraries:
     target_versions:
       library:
       - org.apache.httpcomponents.client5:httpclient5:5.2.1
+    telemetry:
+    - when: default
+      metrics:
+      - name: http.client.request.duration
+        description: Duration of HTTP client requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.request.resend_count
+          type: LONG
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: apache-shenyu-2.4
     source_path: instrumentation/apache-shenyu-2.4
     scope:
@@ -618,6 +676,90 @@ libraries:
       - com.linecorp.armeria:armeria:[1.3.0,)
       library:
       - com.linecorp.armeria:armeria:1.3.0
+    telemetry:
+    - when: default
+      metrics:
+      - name: http.client.request.duration
+        description: Duration of HTTP client requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      - name: http.server.request.duration
+        description: Duration of HTTP server requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: http.route
+          type: STRING
+        - name: network.protocol.version
+          type: STRING
+        - name: url.scheme
+          type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: client.address
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: http.route
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.path
+          type: STRING
+        - name: url.query
+          type: STRING
+        - name: url.scheme
+          type: STRING
+        - name: user_agent.original
+          type: STRING
   - name: armeria-grpc-1.14
     source_path: instrumentation/armeria/armeria-grpc-1.14
     scope:
@@ -633,6 +775,39 @@ libraries:
     target_versions:
       javaagent:
       - com.ning:async-http-client:[1.9.0,)
+    telemetry:
+    - when: default
+      metrics:
+      - name: http.client.request.duration
+        description: Duration of HTTP client requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: async-http-client-2.0
     source_path: instrumentation/async-http-client/async-http-client-2.0
     scope:
@@ -640,6 +815,47 @@ libraries:
     target_versions:
       javaagent:
       - org.asynchttpclient:async-http-client:[2.0.0,)
+    telemetry:
+    - when: default
+      metrics:
+      - name: http.client.request.duration
+        description: Duration of HTTP client requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   avaje:
   - name: avaje-jex-3.0
     description: |
@@ -668,6 +884,13 @@ libraries:
       description: Flush timeout in milliseconds.
       type: int
       default: 10000
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: SERVER
+        attributes:
+        - name: faas.invocation_id
+          type: STRING
   - name: aws-lambda-events-2.2
     description: |
       Provides full instrumentation of the Lambda library, including standard and custom event types, from `aws-lambda-java-events` 2.2+.
@@ -685,6 +908,29 @@ libraries:
       description: Flush timeout in milliseconds.
       type: int
       default: 10000
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: faas.invocation_id
+          type: STRING
+        - name: faas.trigger
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: url.full
+          type: STRING
+        - name: user_agent.original
+          type: STRING
   - name: aws-sdk-1.11
     source_path: instrumentation/aws-sdk/aws-sdk-1.11
     scope:
@@ -710,6 +956,98 @@ libraries:
       type: list
       default: ''
     telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: aws.bucket.name
+          type: STRING
+        - name: aws.dynamodb.table_names
+          type: STRING_ARRAY
+        - name: aws.lambda.function.arn
+          type: STRING
+        - name: aws.lambda.function.name
+          type: STRING
+        - name: aws.lambda.resource_mapping.id
+          type: STRING
+        - name: aws.queue.name
+          type: STRING
+        - name: aws.queue.url
+          type: STRING
+        - name: aws.request_id
+          type: STRING
+        - name: aws.sns.topic.arn
+          type: STRING
+        - name: aws.step_functions.activity.arn
+          type: STRING
+        - name: aws.step_functions.state_machine.arn
+          type: STRING
+        - name: aws.stream.name
+          type: STRING
+        - name: aws.table.name
+          type: STRING
+        - name: db.operation
+          type: STRING
+        - name: db.system
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: network.protocol.version
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: CONSUMER
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: aws.queue.url
+          type: STRING
+        - name: aws.request_id
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
+        - name: network.protocol.version
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
     - when: otel.semconv-stability.opt-in=database
       metrics:
       - name: db.client.operation.duration
@@ -725,6 +1063,97 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: aws.bucket.name
+          type: STRING
+        - name: aws.dynamodb.table_names
+          type: STRING_ARRAY
+        - name: aws.lambda.function.arn
+          type: STRING
+        - name: aws.lambda.function.name
+          type: STRING
+        - name: aws.lambda.resource_mapping.id
+          type: STRING
+        - name: aws.queue.name
+          type: STRING
+        - name: aws.queue.url
+          type: STRING
+        - name: aws.request_id
+          type: STRING
+        - name: aws.sns.topic.arn
+          type: STRING
+        - name: aws.step_functions.activity.arn
+          type: STRING
+        - name: aws.step_functions.state_machine.arn
+          type: STRING
+        - name: aws.stream.name
+          type: STRING
+        - name: aws.table.name
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.system.name
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: network.protocol.version
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: CONSUMER
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: aws.queue.url
+          type: STRING
+        - name: aws.request_id
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
+        - name: network.protocol.version
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: aws-sdk-2.2
     source_path: instrumentation/aws-sdk/aws-sdk-2.2
     scope:
@@ -798,6 +1227,155 @@ libraries:
           type: STRING
         - name: gen_ai.token.type
           type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: aws.bucket.name
+          type: STRING
+        - name: aws.dynamodb.global_secondary_indexes
+          type: STRING
+        - name: aws.dynamodb.limit
+          type: STRING
+        - name: aws.dynamodb.provisioned_throughput.read_capacity_units
+          type: STRING
+        - name: aws.dynamodb.provisioned_throughput.write_capacity_units
+          type: STRING
+        - name: aws.dynamodb.select
+          type: STRING
+        - name: aws.lambda.function.arn
+          type: STRING
+        - name: aws.lambda.function.name
+          type: STRING
+        - name: aws.lambda.resource_mapping.id
+          type: STRING
+        - name: aws.queue.name
+          type: STRING
+        - name: aws.queue.url
+          type: STRING
+        - name: aws.request_id
+          type: STRING
+        - name: aws.secretsmanager.secret.arn
+          type: STRING
+        - name: aws.sns.topic.arn
+          type: STRING
+        - name: aws.step_functions.activity.arn
+          type: STRING
+        - name: aws.step_functions.state_machine.arn
+          type: STRING
+        - name: aws.stream.name
+          type: STRING
+        - name: aws.table.name
+          type: STRING
+        - name: db.operation
+          type: STRING
+        - name: db.system
+          type: STRING
+        - name: gen_ai.operation.name
+          type: STRING
+        - name: gen_ai.request.max_tokens
+          type: LONG
+        - name: gen_ai.request.model
+          type: STRING
+        - name: gen_ai.request.stop_sequences
+          type: STRING_ARRAY
+        - name: gen_ai.request.temperature
+          type: DOUBLE
+        - name: gen_ai.request.top_p
+          type: DOUBLE
+        - name: gen_ai.response.finish_reasons
+          type: STRING_ARRAY
+        - name: gen_ai.system
+          type: STRING
+        - name: gen_ai.usage.input_tokens
+          type: LONG
+        - name: gen_ai.usage.output_tokens
+          type: LONG
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: CONSUMER
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.batch.message_count
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.header.test_message_header
+          type: STRING_ARRAY
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: PRODUCER
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: aws.queue.url
+          type: STRING
+        - name: aws.request_id
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.header.test_message_header
+          type: STRING_ARRAY
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
     - when: otel.semconv-stability.opt-in=database
       metrics:
       - name: db.client.operation.duration
@@ -808,6 +1386,135 @@ libraries:
         - name: db.operation.name
           type: STRING
         - name: db.system.name
+          type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: aws.bucket.name
+          type: STRING
+        - name: aws.dynamodb.global_secondary_indexes
+          type: STRING
+        - name: aws.dynamodb.limit
+          type: STRING
+        - name: aws.dynamodb.provisioned_throughput.read_capacity_units
+          type: STRING
+        - name: aws.dynamodb.provisioned_throughput.write_capacity_units
+          type: STRING
+        - name: aws.dynamodb.select
+          type: STRING
+        - name: aws.lambda.function.arn
+          type: STRING
+        - name: aws.lambda.function.name
+          type: STRING
+        - name: aws.lambda.resource_mapping.id
+          type: STRING
+        - name: aws.queue.name
+          type: STRING
+        - name: aws.queue.url
+          type: STRING
+        - name: aws.request_id
+          type: STRING
+        - name: aws.secretsmanager.secret.arn
+          type: STRING
+        - name: aws.sns.topic.arn
+          type: STRING
+        - name: aws.step_functions.activity.arn
+          type: STRING
+        - name: aws.step_functions.state_machine.arn
+          type: STRING
+        - name: aws.stream.name
+          type: STRING
+        - name: aws.table.name
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.system.name
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: CONSUMER
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.batch.message_count
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.header.test_message_header
+          type: STRING_ARRAY
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: PRODUCER
+        attributes:
+        - name: aws.agent
+          type: STRING
+        - name: aws.queue.url
+          type: STRING
+        - name: aws.request_id
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.header.test_message_header
+          type: STRING_ARRAY
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
           type: STRING
   azure:
   - name: azure-core-1.14
@@ -898,6 +1605,115 @@ libraries:
       description: Enable the capture of experimental span attributes.
       type: boolean
       default: false
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.name
+          type: STRING
+        - name: db.statement
+          type: STRING
+        - name: db.system
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: INTERNAL
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.message.id
+          type: STRING
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: url.full
+          type: STRING
+    - when: otel.semconv-stability.opt-in=database
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.namespace
+          type: STRING
+        - name: db.query.text
+          type: STRING
+        - name: db.system.name
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: INTERNAL
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.message.id
+          type: STRING
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: url.full
+          type: STRING
+    - when: otel.instrumentation.camel.experimental-span-attributes=true
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: camel.uri
+          type: STRING
+        - name: db.name
+          type: STRING
+        - name: db.statement
+          type: STRING
+        - name: db.system
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: INTERNAL
+        attributes:
+        - name: camel.uri
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.message.id
+          type: STRING
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: camel.uri
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: url.full
+          type: STRING
   cassandra:
   - name: cassandra-3.0
     description: |
@@ -913,6 +1729,55 @@ libraries:
       description: Enables statement sanitization for database queries.
       type: boolean
       default: true
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.cassandra.table
+          type: STRING
+        - name: db.name
+          type: STRING
+        - name: db.operation
+          type: STRING
+        - name: db.statement
+          type: STRING
+        - name: db.system
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.type
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+    - when: otel.semconv-stability.opt-in=database
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.collection.name
+          type: STRING
+        - name: db.namespace
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.query.text
+          type: STRING
+        - name: db.system.name
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.type
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
   - name: cassandra-4.0
     description: |
       Instruments the Cassandra database client, providing database client spans and metrics for Cassandra queries.
@@ -927,6 +1792,79 @@ libraries:
       description: Enables statement sanitization for database queries.
       type: boolean
       default: true
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.cassandra.consistency_level
+          type: STRING
+        - name: db.cassandra.coordinator.dc
+          type: STRING
+        - name: db.cassandra.coordinator.id
+          type: STRING
+        - name: db.cassandra.idempotence
+          type: BOOLEAN
+        - name: db.cassandra.page_size
+          type: LONG
+        - name: db.cassandra.speculative_execution_count
+          type: LONG
+        - name: db.cassandra.table
+          type: STRING
+        - name: db.name
+          type: STRING
+        - name: db.operation
+          type: STRING
+        - name: db.statement
+          type: STRING
+        - name: db.system
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.type
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+    - when: otel.semconv-stability.opt-in=database
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: cassandra.consistency.level
+          type: STRING
+        - name: cassandra.coordinator.dc
+          type: STRING
+        - name: cassandra.coordinator.id
+          type: STRING
+        - name: cassandra.page.size
+          type: LONG
+        - name: cassandra.query.idempotent
+          type: BOOLEAN
+        - name: cassandra.speculative_execution.count
+          type: LONG
+        - name: db.collection.name
+          type: STRING
+        - name: db.namespace
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.query.text
+          type: STRING
+        - name: db.system.name
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.type
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
   - name: cassandra-4.4
     description: |
       Instruments the Cassandra database client, providing database client spans and metrics for Cassandra queries.
@@ -943,6 +1881,79 @@ libraries:
       description: Enables statement sanitization for database queries.
       type: boolean
       default: true
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.cassandra.consistency_level
+          type: STRING
+        - name: db.cassandra.coordinator.dc
+          type: STRING
+        - name: db.cassandra.coordinator.id
+          type: STRING
+        - name: db.cassandra.idempotence
+          type: BOOLEAN
+        - name: db.cassandra.page_size
+          type: LONG
+        - name: db.cassandra.speculative_execution_count
+          type: LONG
+        - name: db.cassandra.table
+          type: STRING
+        - name: db.name
+          type: STRING
+        - name: db.operation
+          type: STRING
+        - name: db.statement
+          type: STRING
+        - name: db.system
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.type
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+    - when: otel.semconv-stability.opt-in=database
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: cassandra.consistency.level
+          type: STRING
+        - name: cassandra.coordinator.dc
+          type: STRING
+        - name: cassandra.coordinator.id
+          type: STRING
+        - name: cassandra.page.size
+          type: LONG
+        - name: cassandra.query.idempotent
+          type: BOOLEAN
+        - name: cassandra.speculative_execution.count
+          type: LONG
+        - name: db.collection.name
+          type: STRING
+        - name: db.namespace
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.query.text
+          type: STRING
+        - name: db.system.name
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.type
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
   clickhouse:
   - name: clickhouse-client-0.5
     description: Instruments the V1 ClickHouseClient, providing database client spans
@@ -1025,6 +2036,41 @@ libraries:
         couchbase.local.address
       type: boolean
       default: false
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.name
+          type: STRING
+        - name: db.operation
+          type: STRING
+        - name: db.statement
+          type: STRING
+        - name: db.system
+          type: STRING
+    - when: otel.semconv-stability.opt-in=database
+      metrics:
+      - name: db.client.operation.duration
+        description: Duration of database client operations.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: db.operation.name
+          type: STRING
+        - name: db.system.name
+          type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.namespace
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.query.text
+          type: STRING
+        - name: db.system.name
+          type: STRING
   - name: couchbase-2.6
     source_path: instrumentation/couchbase/couchbase-2.6
     scope:
@@ -1141,6 +2187,32 @@ libraries:
           type: LONG
         - name: url.full
           type: STRING
+    - when: otel.semconv-stability.opt-in=database
+      metrics:
+      - name: db.client.operation.duration
+        description: Duration of database client operations.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: db.system.name
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.system.name
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: elasticsearch-rest-6.4
     description: This instrumentation provides tracing for Elasticsearch REST clients.
     source_path: instrumentation/elasticsearch/elasticsearch-rest-6.4
@@ -1161,6 +2233,32 @@ libraries:
       - span_kind: CLIENT
         attributes:
         - name: db.system
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+    - when: otel.semconv-stability.opt-in=database
+      metrics:
+      - name: db.client.operation.duration
+        description: Duration of database client operations.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: db.system.name
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.system.name
           type: STRING
         - name: http.request.method
           type: STRING
@@ -1192,6 +2290,32 @@ libraries:
       - span_kind: CLIENT
         attributes:
         - name: db.system
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+    - when: otel.semconv-stability.opt-in=database
+      metrics:
+      - name: db.client.operation.duration
+        description: Duration of database client operations.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: db.system.name
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.system.name
           type: STRING
         - name: http.request.method
           type: STRING
@@ -1264,6 +2388,16 @@ libraries:
         - name: network.peer.port
           type: LONG
     - when: otel.semconv-stability.opt-in=database
+      metrics:
+      - name: db.client.operation.duration
+        description: Duration of database client operations.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: db.operation.name
+          type: STRING
+        - name: db.system.name
+          type: STRING
       spans:
       - span_kind: CLIENT
         attributes:
@@ -1350,6 +2484,16 @@ libraries:
         - name: network.peer.port
           type: LONG
     - when: otel.semconv-stability.opt-in=database
+      metrics:
+      - name: db.client.operation.duration
+        description: Duration of database client operations.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: db.operation.name
+          type: STRING
+        - name: db.system.name
+          type: STRING
       spans:
       - span_kind: CLIENT
         attributes:
@@ -1432,6 +2576,16 @@ libraries:
         - name: network.type
           type: STRING
     - when: otel.semconv-stability.opt-in=database
+      metrics:
+      - name: db.client.operation.duration
+        description: Duration of database client operations.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: db.operation.name
+          type: STRING
+        - name: db.system.name
+          type: STRING
       spans:
       - span_kind: CLIENT
         attributes:
@@ -1484,6 +2638,15 @@ libraries:
       javaagent:
       - com.twitter:finatra-http_2.11:[2.9.0,]
       - com.twitter:finatra-http_2.12:[2.9.0,]
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
   geode:
   - name: geode-1.4
     source_path: instrumentation/geode-1.4
@@ -1516,6 +2679,21 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   grails:
   - name: grails-3.0
     source_path: instrumentation/grails-3.0
@@ -1782,6 +2960,23 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   hystrix:
   - name: hystrix-1.4
     source_path: instrumentation/hystrix-1.4
@@ -1825,6 +3020,25 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: java-http-server
     source_path: instrumentation/java-http-server
     scope:
@@ -2078,6 +3292,25 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: jetty-httpclient-9.2
     source_path: instrumentation/jetty-httpclient/jetty-httpclient-9.2
     scope:
@@ -2105,6 +3338,25 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   jms:
   - name: jms-1.1
     source_path: instrumentation/jms/jms-1.1
@@ -2149,6 +3401,25 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   jsf:
   - name: jsf-mojarra-1.2
     source_path: instrumentation/jsf/jsf-mojarra-1.2
@@ -2224,15 +3495,6 @@ libraries:
       javaagent:
       - org.apache.kafka:kafka-streams:[0.11.0.0,)
   kotlinx:
-  - name: kotlinx-coroutines
-    source_path: instrumentation/kotlinx-coroutines
-    scope:
-      name: io.opentelemetry.kotlinx-coroutines
-    target_versions:
-      javaagent:
-      - org.jetbrains.kotlinx:kotlinx-coroutines-core:[1.3.0,1.3.8)
-      - org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:[1.3.9,)
-      - org.jetbrains.kotlinx:kotlinx-coroutines-core:[1.0.0,1.3.8)
   - name: kotlinx-coroutines-1.0
     source_path: instrumentation/kotlinx-coroutines/kotlinx-coroutines-1.0
     scope:
@@ -2471,6 +3733,59 @@ libraries:
           type: STRING
         - name: url.scheme
           type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: client.address
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.path
+          type: STRING
+        - name: url.query
+          type: STRING
+        - name: url.scheme
+          type: STRING
+        - name: user_agent.original
+          type: STRING
   - name: netty-4.0
     source_path: instrumentation/netty/netty-4.0
     scope:
@@ -2518,6 +3833,59 @@ libraries:
         - name: network.protocol.version
           type: STRING
         - name: url.scheme
+          type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: client.address
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.path
+          type: STRING
+        - name: url.query
+          type: STRING
+        - name: url.scheme
+          type: STRING
+        - name: user_agent.original
           type: STRING
   - name: netty-4.1
     source_path: instrumentation/netty/netty-4.1
@@ -2569,6 +3937,59 @@ libraries:
           type: STRING
         - name: url.scheme
           type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: client.address
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.path
+          type: STRING
+        - name: url.query
+          type: STRING
+        - name: url.scheme
+          type: STRING
+        - name: user_agent.original
+          type: STRING
   okhttp:
   - name: okhttp-2.2
     source_path: instrumentation/okhttp/okhttp-2.2
@@ -2595,6 +4016,25 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: okhttp-3.0
     source_path: instrumentation/okhttp/okhttp-3.0
     scope:
@@ -2622,6 +4062,114 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.request.resend_count
+          type: LONG
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+  openai:
+  - name: openai-java-1.1
+    source_path: instrumentation/openai/openai-java-1.1
+    scope:
+      name: io.opentelemetry.openai-java-1.1
+    telemetry:
+    - when: default
+      metrics:
+      - name: gen_ai.client.operation.duration
+        description: GenAI operation duration.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: gen_ai.operation.name
+          type: STRING
+        - name: gen_ai.request.model
+          type: STRING
+        - name: gen_ai.response.model
+          type: STRING
+        - name: gen_ai.system
+          type: STRING
+      - name: gen_ai.client.token.usage
+        description: Measures number of input and output tokens used.
+        type: HISTOGRAM
+        unit: token
+        attributes:
+        - name: gen_ai.operation.name
+          type: STRING
+        - name: gen_ai.request.model
+          type: STRING
+        - name: gen_ai.response.model
+          type: STRING
+        - name: gen_ai.system
+          type: STRING
+        - name: gen_ai.token.type
+          type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: gen_ai.operation.name
+          type: STRING
+        - name: gen_ai.request.encoding_formats
+          type: STRING_ARRAY
+        - name: gen_ai.request.model
+          type: STRING
+        - name: gen_ai.response.model
+          type: STRING
+        - name: gen_ai.system
+          type: STRING
+        - name: gen_ai.usage.input_tokens
+          type: LONG
+      - span_kind: INTERNAL
+        attributes:
+        - name: gen_ai.operation.name
+          type: STRING
+        - name: gen_ai.request.frequency_penalty
+          type: DOUBLE
+        - name: gen_ai.request.max_tokens
+          type: LONG
+        - name: gen_ai.request.model
+          type: STRING
+        - name: gen_ai.request.presence_penalty
+          type: DOUBLE
+        - name: gen_ai.request.seed
+          type: LONG
+        - name: gen_ai.request.stop_sequences
+          type: STRING_ARRAY
+        - name: gen_ai.request.temperature
+          type: DOUBLE
+        - name: gen_ai.request.top_p
+          type: DOUBLE
+        - name: gen_ai.response.finish_reasons
+          type: STRING_ARRAY
+        - name: gen_ai.response.id
+          type: STRING
+        - name: gen_ai.response.model
+          type: STRING
+        - name: gen_ai.system
+          type: STRING
+        - name: gen_ai.usage.input_tokens
+          type: LONG
+        - name: gen_ai.usage.output_tokens
+          type: LONG
   opensearch:
   - name: opensearch-rest-1.0
     source_path: instrumentation/opensearch/opensearch-rest-1.0
@@ -2639,6 +4187,11 @@ libraries:
     target_versions:
       javaagent:
       - org.opensearch.client:opensearch-rest-client:[3.0,)
+  opentelemetry:
+  - name: opentelemetry-api-1.52
+    source_path: instrumentation/opentelemetry-api/opentelemetry-api-1.52
+    scope:
+      name: io.opentelemetry.opentelemetry-api-1.52
   oracle:
   - name: oracle-ucp-11.2
     description: The Oracle Universal Connection Pool (UCP) instrumentation generates
@@ -2921,6 +4474,49 @@ libraries:
           type: STRING
         - name: url.scheme
           type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: client.address
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: http.route
+          type: STRING
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.path
+          type: STRING
+        - name: url.query
+          type: STRING
+        - name: url.scheme
+          type: STRING
+        - name: user_agent.original
+          type: STRING
   play:
   - name: play-mvc-2.4
     source_path: instrumentation/play/play-mvc/play-mvc-2.4
@@ -2962,6 +4558,27 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: play-ws-2.0
     source_path: instrumentation/play/play-ws/play-ws-2.0
     scope:
@@ -2987,6 +4604,27 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: play-ws-2.1
     source_path: instrumentation/play/play-ws/play-ws-2.1
     scope:
@@ -3011,6 +4649,27 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   powerjob:
   - name: powerjob-4.0
     source_path: instrumentation/powerjob-4.0
@@ -3140,6 +4799,31 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.request.resend_count
+          type: LONG
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   rediscala:
   - name: rediscala-1.8
     source_path: instrumentation/rediscala-1.8
@@ -3313,6 +4997,13 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework.batch:spring-batch-core:[3.0.0.RELEASE,5)
+    telemetry:
+    - when: otel.instrumentation.spring-batch.experimental-span-attributes=true
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: job.system
+          type: STRING
   - name: spring-boot-actuator-autoconfigure-2.0
     disabled_by_default: true
     source_path: instrumentation/spring/spring-boot-actuator-autoconfigure-2.0
@@ -3356,6 +5047,15 @@ libraries:
       javaagent:
       - org.springframework:spring-aop:[1.2,]
       - org.springframework.data:spring-data-commons:[1.8.0.RELEASE,]
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
   - name: spring-integration-4.1
     source_path: instrumentation/spring/spring-integration-4.1
     scope:
@@ -3365,6 +5065,25 @@ libraries:
       - org.springframework.integration:spring-integration-core:[4.1.0.RELEASE,)
       library:
       - org.springframework.integration:spring-integration-core:[4.1.0.RELEASE,5.+)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: messaging.header.test_message_header
+          type: STRING_ARRAY
+        - name: messaging.operation
+          type: STRING
+    - when: otel.instrumentation.spring-integration.producer.enabled=true
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: messaging.operation
+          type: STRING
+      - span_kind: PRODUCER
+        attributes:
+        - name: messaging.operation
+          type: STRING
   - name: spring-jms-2.0
     source_path: instrumentation/spring/spring-jms/spring-jms-2.0
     scope:
@@ -3372,6 +5091,19 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework:spring-jms:[2.0,6)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
   - name: spring-jms-6.0
     source_path: instrumentation/spring/spring-jms/spring-jms-6.0
     minimum_java_version: 17
@@ -3380,6 +5112,23 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework:spring-jms:[6.0.0,)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.header.test_message_header
+          type: STRING_ARRAY
+        - name: messaging.header.test_message_int_header
+          type: STRING_ARRAY
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
   - name: spring-kafka-2.7
     source_path: instrumentation/spring/spring-kafka-2.7
     scope:
@@ -3387,6 +5136,57 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework.kafka:spring-kafka:[2.7.0,)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: messaging.batch.message_count
+          type: LONG
+        - name: messaging.client_id
+          type: STRING
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.destination.partition.id
+          type: STRING
+        - name: messaging.kafka.consumer.group
+          type: STRING
+        - name: messaging.kafka.message.key
+          type: STRING
+        - name: messaging.kafka.message.offset
+          type: LONG
+        - name: messaging.message.body.size
+          type: LONG
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
+    - when: otel.instrumentation.kafka.experimental-span-attributes=true
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: kafka.record.queue_time_ms
+          type: LONG
+        - name: messaging.batch.message_count
+          type: LONG
+        - name: messaging.client_id
+          type: STRING
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.destination.partition.id
+          type: STRING
+        - name: messaging.kafka.consumer.group
+          type: STRING
+        - name: messaging.kafka.message.key
+          type: STRING
+        - name: messaging.kafka.message.offset
+          type: LONG
+        - name: messaging.message.body.size
+          type: LONG
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
   - name: spring-pulsar-1.0
     source_path: instrumentation/spring/spring-pulsar-1.0
     minimum_java_version: 17
@@ -3395,6 +5195,21 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework.pulsar:spring-pulsar:[1.0.0,)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.message.body.size
+          type: LONG
+        - name: messaging.message.id
+          type: STRING
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
   - name: spring-rabbit-1.0
     source_path: instrumentation/spring/spring-rabbit-1.0
     scope:
@@ -3402,6 +5217,21 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework.amqp:spring-rabbit:(,)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CONSUMER
+        attributes:
+        - name: messaging.destination.name
+          type: STRING
+        - name: messaging.header.test_message_header
+          type: STRING_ARRAY
+        - name: messaging.message.body.size
+          type: LONG
+        - name: messaging.operation
+          type: STRING
+        - name: messaging.system
+          type: STRING
   - name: spring-rmi-4.0
     source_path: instrumentation/spring/spring-rmi-4.0
     scope:
@@ -3409,6 +5239,25 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework:spring-context:[4.0.0.RELEASE,6)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: rpc.method
+          type: STRING
+        - name: rpc.service
+          type: STRING
+        - name: rpc.system
+          type: STRING
   - name: spring-scheduling-3.1
     source_path: instrumentation/spring/spring-scheduling-3.1
     scope:
@@ -3416,6 +5265,25 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework:spring-context:[3.1.0.RELEASE,]
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
+    - when: otel.instrumentation.spring-scheduling.experimental-span-attributes=true
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
+        - name: job.system
+          type: STRING
   - name: spring-security-config-6.0
     source_path: instrumentation/spring/spring-security-config-6.0
     minimum_java_version: 17
@@ -3437,6 +5305,37 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework:spring-web:[3.1.0.RELEASE,6)
+    telemetry:
+    - when: default
+      metrics:
+      - name: http.client.request.duration
+        description: Duration of HTTP client requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: spring-web-6.0
     source_path: instrumentation/spring/spring-web/spring-web-6.0
     scope:
@@ -3454,6 +5353,50 @@ libraries:
       - org.springframework:spring-webflux:[5.0.0.RELEASE,)
       - io.projectreactor.netty:reactor-netty:[0.8.0.RELEASE,)
     telemetry:
+    - when: otel.instrumentation.common.experimental.controller-telemetry.enabled
+      metrics:
+      - name: http.client.request.duration
+        description: Duration of HTTP client requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
+  - name: spring-webflux-5.3
+    source_path: instrumentation/spring/spring-webflux/spring-webflux-5.3
+    scope:
+      name: io.opentelemetry.spring-webflux-5.3
+    target_versions:
+      library:
+      - org.springframework:spring-webflux:5.3.0
+    telemetry:
     - when: default
       metrics:
       - name: http.client.request.duration
@@ -3469,13 +5412,62 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
-  - name: spring-webflux-5.3
-    source_path: instrumentation/spring/spring-webflux/spring-webflux-5.3
-    scope:
-      name: io.opentelemetry.spring-webflux-5.3
-    target_versions:
-      library:
-      - org.springframework:spring-webflux:5.3.0
+      - name: http.server.request.duration
+        description: Duration of HTTP server requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: http.route
+          type: STRING
+        - name: url.scheme
+          type: STRING
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+      - span_kind: SERVER
+        attributes:
+        - name: client.address
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: http.route
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.path
+          type: STRING
+        - name: url.query
+          type: STRING
+        - name: url.scheme
+          type: STRING
+        - name: user_agent.original
+          type: STRING
   - name: spring-webmvc-3.1
     source_path: instrumentation/spring/spring-webmvc/spring-webmvc-3.1
     scope:
@@ -3483,10 +5475,80 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework:spring-webmvc:[3.1.0.RELEASE,6)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
+    - when: otel.instrumentation.spring-webmvc.experimental-span-attributes=true
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
+        - name: spring-webmvc.view.type
+          type: STRING
   - name: spring-webmvc-5.3
     source_path: instrumentation/spring/spring-webmvc/spring-webmvc-5.3
     scope:
       name: io.opentelemetry.spring-webmvc-5.3
+    telemetry:
+    - when: default
+      metrics:
+      - name: http.server.request.duration
+        description: Duration of HTTP server requests.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: http.route
+          type: STRING
+        - name: network.protocol.version
+          type: STRING
+        - name: url.scheme
+          type: STRING
+      spans:
+      - span_kind: SERVER
+        attributes:
+        - name: client.address
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: http.route
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.path
+          type: STRING
+        - name: url.query
+          type: STRING
+        - name: url.scheme
+          type: STRING
+        - name: user_agent.original
+          type: STRING
   - name: spring-webmvc-6.0
     source_path: instrumentation/spring/spring-webmvc/spring-webmvc-6.0
     minimum_java_version: 17
@@ -3495,6 +5557,25 @@ libraries:
     target_versions:
       javaagent:
       - org.springframework:spring-webmvc:[6.0.0,)
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
+    - when: otel.instrumentation.spring-webmvc.experimental-span-attributes=true
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
+        - name: spring-webmvc.view.type
+          type: STRING
   - name: spring-ws-2.0
     disabled_by_default: true
     source_path: instrumentation/spring/spring-ws-2.0
@@ -3689,6 +5770,21 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: vertx-http-client-4.0
     source_path: instrumentation/vertx/vertx-http-client/vertx-http-client-4.0
     scope:
@@ -3714,6 +5810,29 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: vertx-http-client-5.0
     source_path: instrumentation/vertx/vertx-http-client/vertx-http-client-5.0
     minimum_java_version: 11
@@ -3740,6 +5859,29 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: error.type
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: http.request.method_original
+          type: STRING
+        - name: http.response.status_code
+          type: LONG
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: network.protocol.version
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: vertx-kafka-client-3.6
     source_path: instrumentation/vertx/vertx-kafka-client-3.6
     scope:
@@ -3755,6 +5897,26 @@ libraries:
       javaagent:
       - io.vertx:vertx-redis-client:[4.0.0,)
     telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.operation
+          type: STRING
+        - name: db.redis.database_index
+          type: LONG
+        - name: db.statement
+          type: STRING
+        - name: db.system
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
     - when: otel.semconv-stability.opt-in=database
       metrics:
       - name: db.client.operation.duration
@@ -3765,6 +5927,25 @@ libraries:
         - name: db.namespace
           type: STRING
         - name: db.operation.name
+          type: STRING
+        - name: db.system.name
+          type: STRING
+        - name: network.peer.address
+          type: STRING
+        - name: network.peer.port
+          type: LONG
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.namespace
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.query.text
           type: STRING
         - name: db.system.name
           type: STRING
@@ -3791,6 +5972,24 @@ libraries:
       javaagent:
       - io.vertx:vertx-sql-client:[4.0.0,5)
     telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.name
+          type: STRING
+        - name: db.operation
+          type: STRING
+        - name: db.sql.table
+          type: STRING
+        - name: db.statement
+          type: STRING
+        - name: db.user
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
     - when: otel.semconv-stability.opt-in=database
       metrics:
       - name: db.client.operation.duration
@@ -3808,6 +6007,25 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.collection.name
+          type: STRING
+        - name: db.namespace
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.query.text
+          type: STRING
+        - name: db.response.status_code
+          type: STRING
+        - name: error.type
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
   - name: vertx-sql-client-5.0
     source_path: instrumentation/vertx/vertx-sql-client/vertx-sql-client-5.0
     minimum_java_version: 11
@@ -3817,6 +6035,24 @@ libraries:
       javaagent:
       - io.vertx:vertx-sql-client:[5.0.0,)
     telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.name
+          type: STRING
+        - name: db.operation
+          type: STRING
+        - name: db.sql.table
+          type: STRING
+        - name: db.statement
+          type: STRING
+        - name: db.user
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
     - when: otel.semconv-stability.opt-in=database
       metrics:
       - name: db.client.operation.duration
@@ -3829,6 +6065,25 @@ libraries:
         - name: db.namespace
           type: STRING
         - name: db.operation.name
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.collection.name
+          type: STRING
+        - name: db.namespace
+          type: STRING
+        - name: db.operation.name
+          type: STRING
+        - name: db.query.text
+          type: STRING
+        - name: db.response.status_code
+          type: STRING
+        - name: error.type
           type: STRING
         - name: server.address
           type: STRING
