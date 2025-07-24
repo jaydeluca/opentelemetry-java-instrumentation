@@ -43,8 +43,11 @@ jobs:
 #      - name: Collect telemetry
 #        run: ./instrumentation-docs/collect.sh
 
-      - name: Run documentation analyzer
-        run: ./gradlew :instrumentation-docs:runAnalysis
+#      - name: Run documentation analyzer
+#        run: ./gradlew :instrumentation-docs:runAnalysis
+
+      - name: Delete instrumentation-list.yaml to force a diff
+        run: rm -f docs/instrumentation-list.yaml
 
       - name: Create PR if changes detected
         env:
