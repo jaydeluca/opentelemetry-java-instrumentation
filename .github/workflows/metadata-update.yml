@@ -40,11 +40,11 @@ jobs:
 #      - name: Check out main branch
 #        run: git fetch origin main && git checkout main && git pull origin main
 
-#      - name: Collect telemetry
-#        run: ./instrumentation-docs/collect.sh
+      - name: Collect telemetry
+        run: ./instrumentation-docs/ci-collect.sh
 
-#      - name: Run documentation analyzer
-#        run: ./gradlew :instrumentation-docs:runAnalysis
+      - name: Run documentation analyzer
+        run: ./gradlew :instrumentation-docs:runAnalysis
 
       - name: Delete instrumentation-list.yaml to force a diff
         run: rm -f docs/instrumentation-list.yaml
