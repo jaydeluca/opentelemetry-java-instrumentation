@@ -10,6 +10,7 @@ import static io.opentelemetry.instrumentation.awssdk.v2_2.internal.AwsSdkReques
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
+import io.opentelemetry.api.logs.Logger;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapPropagator;
@@ -27,7 +28,6 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
-import software.amazon.awssdk.auth.signer.AwsSignerExecutionAttribute;
 import software.amazon.awssdk.awscore.AwsResponse;
 import software.amazon.awssdk.core.ClientType;
 import software.amazon.awssdk.core.SdkRequest;
@@ -77,6 +77,8 @@ public final class TracingExecutionInterceptor implements ExecutionInterceptor {
   private final Instrumenter<SqsProcessRequest, Response> consumerProcessInstrumenter;
   private final Instrumenter<ExecutionAttributes, Response> producerInstrumenter;
   private final Instrumenter<ExecutionAttributes, Response> dynamoDbInstrumenter;
+  private final Instrumenter<ExecutionAttributes, Response> bedrockRuntimeInstrumenter;
+  private final Logger eventLogger;
   private final boolean captureExperimentalSpanAttributes;
 
   static final AttributeKey<String> HTTP_ERROR_MSG =
@@ -103,31 +105,40 @@ public final class TracingExecutionInterceptor implements ExecutionInterceptor {
   @Nullable private final TextMapPropagator messagingPropagator;
   private final boolean useXrayPropagator;
   private final boolean recordIndividualHttpError;
+  private final boolean genAiCaptureMessageContent;
   private final FieldMapper fieldMapper;
 
+  @SuppressWarnings("TooManyParameters") // internal method
   public TracingExecutionInterceptor(
       Instrumenter<ExecutionAttributes, Response> requestInstrumenter,
       Instrumenter<SqsReceiveRequest, Response> consumerReceiveInstrumenter,
       Instrumenter<SqsProcessRequest, Response> consumerProcessInstrumenter,
       Instrumenter<ExecutionAttributes, Response> producerInstrumenter,
       Instrumenter<ExecutionAttributes, Response> dynamoDbInstrumenter,
+      Instrumenter<ExecutionAttributes, Response> bedrockRuntimeInstrumenter,
+      Logger eventLogger,
       boolean captureExperimentalSpanAttributes,
       TextMapPropagator messagingPropagator,
       boolean useXrayPropagator,
-      boolean recordIndividualHttpError) {
+      boolean recordIndividualHttpError,
+      boolean genAiCaptureMessageContent) {
     this.requestInstrumenter = requestInstrumenter;
     this.consumerReceiveInstrumenter = consumerReceiveInstrumenter;
     this.consumerProcessInstrumenter = consumerProcessInstrumenter;
     this.producerInstrumenter = producerInstrumenter;
     this.dynamoDbInstrumenter = dynamoDbInstrumenter;
+    this.bedrockRuntimeInstrumenter = bedrockRuntimeInstrumenter;
+    this.eventLogger = eventLogger;
     this.captureExperimentalSpanAttributes = captureExperimentalSpanAttributes;
     this.messagingPropagator = messagingPropagator;
     this.useXrayPropagator = useXrayPropagator;
     this.recordIndividualHttpError = recordIndividualHttpError;
+    this.genAiCaptureMessageContent = genAiCaptureMessageContent;
     this.fieldMapper = new FieldMapper();
   }
 
   @Override
+  @SuppressWarnings("deprecation") // need to access deprecated signer
   public SdkRequest modifyRequest(
       Context.ModifyRequest context, ExecutionAttributes executionAttributes) {
 
@@ -144,7 +155,8 @@ public final class TracingExecutionInterceptor implements ExecutionInterceptor {
 
     // Ignore presign request. These requests don't run all interceptor methods and the span created
     // here would never be ended and scope closed.
-    if (executionAttributes.getAttribute(AwsSignerExecutionAttribute.PRESIGNER_EXPIRATION)
+    if (executionAttributes.getAttribute(
+            software.amazon.awssdk.auth.signer.AwsSignerExecutionAttribute.PRESIGNER_EXPIRATION)
         != null) {
       return request;
     }
@@ -159,6 +171,8 @@ public final class TracingExecutionInterceptor implements ExecutionInterceptor {
       // NB: We also skip injection in case we don't start.
       return request;
     }
+
+    BedrockRuntimeAccess.maybeParseInvokeModelRequest(executionAttributes, request);
 
     RequestSpanFinisher requestFinisher;
     io.opentelemetry.context.Context otelContext;
@@ -221,6 +235,11 @@ public final class TracingExecutionInterceptor implements ExecutionInterceptor {
     modifiedRequest = LambdaAccess.modifyRequest(request, otelContext);
     if (modifiedRequest != null) {
       return modifiedRequest;
+    }
+
+    if (BedrockRuntimeAccess.isBedrockRuntimeRequest(request)) {
+      BedrockRuntimeAccess.recordRequestEvents(
+          otelContext, eventLogger, executionAttributes, request, genAiCaptureMessageContent);
     }
 
     // Insert other special handling here, following the same pattern as SQS and SNS.
@@ -349,11 +368,12 @@ public final class TracingExecutionInterceptor implements ExecutionInterceptor {
 
     io.opentelemetry.context.Context otelContext = getContext(executionAttributes);
     if (otelContext != null) {
+      BedrockRuntimeAccess.maybeParseInvokeModelResponse(executionAttributes, context.response());
+
       // http request has been changed
       executionAttributes.putAttribute(SDK_HTTP_REQUEST_ATTRIBUTE, context.httpRequest());
 
-      Span span = Span.fromContext(otelContext);
-      onSdkResponse(span, context.response(), executionAttributes);
+      onSdkResponse(otelContext, context.response(), executionAttributes);
 
       SdkHttpResponse httpResponse = context.httpResponse();
 
@@ -361,15 +381,25 @@ public final class TracingExecutionInterceptor implements ExecutionInterceptor {
           executionAttributes, otelContext, Span.fromContext(otelContext), httpResponse);
       RequestSpanFinisher finisher = executionAttributes.getAttribute(REQUEST_FINISHER_ATTRIBUTE);
       finisher.finish(
-          otelContext, executionAttributes, new Response(httpResponse, context.response()), null);
+          otelContext,
+          executionAttributes,
+          new Response(httpResponse, context.response(), otelContext),
+          null);
     }
     clearAttributes(executionAttributes);
   }
 
   private void onSdkResponse(
-      Span span, SdkResponse response, ExecutionAttributes executionAttributes) {
+      io.opentelemetry.context.Context otelContext,
+      SdkResponse response,
+      ExecutionAttributes executionAttributes) {
+    Span span = Span.fromContext(otelContext);
     if (response instanceof AwsResponse) {
       span.setAttribute(AWS_REQUEST_ID, ((AwsResponse) response).responseMetadata().requestId());
+    }
+    if (BedrockRuntimeAccess.isBedrockRuntimeResponse(response)) {
+      BedrockRuntimeAccess.recordResponseEvents(
+          otelContext, eventLogger, executionAttributes, response, genAiCaptureMessageContent);
     }
     if (captureExperimentalSpanAttributes) {
       AwsSdkRequest sdkRequest = executionAttributes.getAttribute(AWS_SDK_REQUEST_ATTRIBUTE);
@@ -450,6 +480,9 @@ public final class TracingExecutionInterceptor implements ExecutionInterceptor {
       SdkRequest request, AwsSdkRequest awsSdkRequest) {
     if (SqsAccess.isSqsProducerRequest(request)) {
       return producerInstrumenter;
+    }
+    if (BedrockRuntimeAccess.isBedrockRuntimeRequest(request)) {
+      return bedrockRuntimeInstrumenter;
     }
     if (awsSdkRequest != null && awsSdkRequest.type() == DYNAMODB) {
       return dynamoDbInstrumenter;
