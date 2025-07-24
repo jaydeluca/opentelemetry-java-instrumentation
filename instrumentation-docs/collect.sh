@@ -233,7 +233,7 @@ find_and_remove_all_telemetry() {
 
 # Main execution
 main() {
-  colima stop
+#  colima stop
 
   # Process regular instrumentations
   echo "Processing standard instrumentations..."
