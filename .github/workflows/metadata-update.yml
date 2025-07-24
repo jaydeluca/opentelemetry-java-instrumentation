@@ -58,7 +58,9 @@ jobs:
           git add .
           if ! git diff --cached --quiet; then
             git commit -m "chore: update metadata files [automated]"
-            git push origin HEAD:metadata-update-automation || true
+            git fetch origin metadata-update-automation || true
+            git rebase origin/metadata-update-automation || true
+            git push --force-with-lease origin HEAD:metadata-update-automation || true
             gh pr create \
               --title "chore: update metadata files [automated]" \
               --body "This PR was created automatically by the metadata update workflow." \
