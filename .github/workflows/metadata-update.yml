@@ -51,7 +51,7 @@ jobs:
 
       - name: Create PR if changes detected
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -59,7 +59,14 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "chore: update metadata files [automated]"
             git fetch origin metadata-update-automation || true
-            git rebase origin/metadata-update-automation || true
+            if ! git rebase origin/metadata-update-automation; then
+              echo "Rebase failed, aborting and resetting to main."
+              git rebase --abort || true
+              git fetch origin main
+              git reset --hard origin/main
+              git add .
+              git commit -m "chore: update metadata files [automated] (reset to main)" || true
+            fi
             git push --force-with-lease origin HEAD:metadata-update-automation || true
             gh pr create \
               --title "chore: update metadata files [automated]" \
