@@ -58,20 +58,13 @@ jobs:
           git add .
           if ! git diff --cached --quiet; then
             git commit -m "chore: update metadata files [automated]"
-            git fetch origin metadata-update-automation || true
-            if ! git rebase origin/metadata-update-automation; then
-              echo "Rebase failed, aborting and resetting to main."
-              git rebase --abort || true
-              git fetch origin main
-              git reset --hard origin/main
-              git add .
-              git commit -m "chore: update metadata files [automated] (reset to main)" || true
-            fi
-            git push --force-with-lease origin HEAD:metadata-update-automation || true
+            BRANCH_NAME="metadata-update-automation-$(date +%s)-$RANDOM"
+            git checkout -b "$BRANCH_NAME"
+            git push origin "$BRANCH_NAME"
             gh pr create \
               --title "chore: update metadata files [automated]" \
               --body "This PR was created automatically by the metadata update workflow." \
-              --head metadata-update-automation \
+              --head "$BRANCH_NAME" \
               --base main \
               --label "automation" || echo "PR already exists or failed to create."
           else
