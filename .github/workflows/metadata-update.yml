@@ -37,8 +37,8 @@ jobs:
         with:
           cache-read-only: true
 
-      - name: Check out main branch
-        run: git fetch origin main && git checkout main && git pull origin main
+#      - name: Check out main branch
+#        run: git fetch origin main && git checkout main && git pull origin main
 
       - name: Collect telemetry
         run: ./instrumentation-docs/collect.sh
