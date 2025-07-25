@@ -46,9 +46,6 @@ jobs:
       - name: Run documentation analyzer
         run: ./gradlew :instrumentation-docs:runAnalysis
 
-      - name: Delete instrumentation-list.yaml to force a diff
-        run: rm -f docs/instrumentation-list.yaml
-
       - name: Create PR if changes detected
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
