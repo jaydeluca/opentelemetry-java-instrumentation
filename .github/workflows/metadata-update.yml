@@ -52,7 +52,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
+          git add docs/instrumentation-list.yaml
           if ! git diff --cached --quiet; then
             git commit -m "chore: update metadata files [automated]"
             BRANCH_NAME="metadata-update-automation-$(date +%s)-$RANDOM"
@@ -63,6 +63,7 @@ jobs:
               --body "This PR was created automatically by the metadata update workflow." \
               --head "$BRANCH_NAME" \
               --base main \
+              --assignee jaydeluca \
               --label "automation" || echo "PR already exists or failed to create."
           else
             echo "No changes to commit."
