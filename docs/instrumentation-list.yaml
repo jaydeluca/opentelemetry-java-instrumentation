@@ -2468,7 +2468,7 @@ libraries:
       default: false
   - name: kafka-clients-2.6
     description: |
-      This instrumentation provides a library integeration that enables messaging spans and metrics for Apache Kafka 2.6+ clients.
+      This instrumentation provides a library integration that enables messaging spans and metrics for Apache Kafka 2.6+ clients.
     source_path: instrumentation/kafka/kafka-clients/kafka-clients-2.6
     scope:
       name: io.opentelemetry.kafka-clients-2.6
@@ -2483,15 +2483,6 @@ libraries:
       javaagent:
       - org.apache.kafka:kafka-streams:[0.11.0.0,)
   kotlinx:
-  - name: kotlinx-coroutines
-    source_path: instrumentation/kotlinx-coroutines
-    scope:
-      name: io.opentelemetry.kotlinx-coroutines
-    target_versions:
-      javaagent:
-      - org.jetbrains.kotlinx:kotlinx-coroutines-core:[1.3.0,1.3.8)
-      - org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:[1.3.9,)
-      - org.jetbrains.kotlinx:kotlinx-coroutines-core:[1.0.0,1.3.8)
   - name: kotlinx-coroutines-1.0
     source_path: instrumentation/kotlinx-coroutines/kotlinx-coroutines-1.0
     scope:
@@ -2881,6 +2872,16 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
+  openai:
+  - name: openai-java-1.1
+    source_path: instrumentation/openai/openai-java-1.1
+    scope:
+      name: io.opentelemetry.openai-java-1.1
+    target_versions:
+      javaagent:
+      - com.openai:openai-java:[1.1.0,)
+      library:
+      - com.openai:openai-java:1.1.0
   opensearch:
   - name: opensearch-rest-1.0
     source_path: instrumentation/opensearch/opensearch-rest-1.0
