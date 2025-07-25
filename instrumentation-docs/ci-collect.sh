@@ -96,10 +96,13 @@ readonly INSTRUMENTATIONS=(
   "oracle-ucp-11.2:javaagent:testStableSemconv"
 )
 
+INSTRUMENTATION_TASKS=()
+for task in "${INSTRUMENTATIONS[@]}"; do
+  INSTRUMENTATION_TASKS+=(":instrumentation:${task}")
+done
 
 echo "Processing instrumentations..."
-./gradlew "${INSTRUMENTATIONS[@]}" \
+./gradlew "${INSTRUMENTATION_TASKS[@]}" \
   -PcollectMetadata=true \
   --rerun-tasks --continue
 echo "Telemetry file regeneration complete."
-
