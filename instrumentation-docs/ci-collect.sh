@@ -90,7 +90,6 @@ readonly INSTRUMENTATIONS=(
   "finagle-http-23.11:javaagent:test"
   "finatra-2.9:javaagent:test"
 
-
   "elasticsearch:elasticsearch-rest-6.4:javaagent:test"
   "elasticsearch:elasticsearch-rest-5.0:javaagent:test"
   "oracle-ucp-11.2:javaagent:test"
