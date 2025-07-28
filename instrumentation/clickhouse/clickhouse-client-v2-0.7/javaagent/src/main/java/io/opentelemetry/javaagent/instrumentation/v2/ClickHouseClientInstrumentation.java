@@ -55,10 +55,8 @@ public class ClickHouseClientInstrumentation implements TypeInstrumentation {
 
       String regex = "http://([^:]+):(\\d+)";
 
-      String endpoint = clickhouseClient.getEndpoints().stream().findFirst().orElse(null);
-      if (endpoint == null) {
-        return null;
-      }
+//      String endpoint = clickhouseClient.getEndpoints().stream().findFirst().orElse(null);
+      String endpoint = "test";
       Pattern pattern = Pattern.compile(regex);
       Matcher matcher = pattern.matcher(endpoint);
 
@@ -104,10 +102,7 @@ public class ClickHouseClientInstrumentation implements TypeInstrumentation {
 
       Context parentContext = currentContext();
 
-      String endpoint = clickhouseClient.getEndpoints().stream().findFirst().orElse(null);
-      if (endpoint == null) {
-        return null;
-      }
+      String endpoint = "tst";
       String regex = "http://([^:]+):(\\d+)";
       Pattern pattern = Pattern.compile(regex);
       Matcher matcher = pattern.matcher(endpoint);
