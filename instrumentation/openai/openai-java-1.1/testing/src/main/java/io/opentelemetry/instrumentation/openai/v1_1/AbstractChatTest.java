@@ -213,6 +213,7 @@ public abstract class AbstractChatTest {
             }
             throw e;
           }
+          stream.close();
           return result;
         }
     }
