@@ -6,6 +6,8 @@
 package io.opentelemetry.javaagent.instrumentation.spring.aws;
 
 import io.awspring.cloud.sqs.annotation.SqsListener;
+import io.awspring.cloud.sqs.listener.MessageListenerContainer;
+import io.awspring.cloud.sqs.listener.SqsMessageListenerContainer;
 import io.awspring.cloud.sqs.operations.SqsTemplate;
 import java.net.URI;
 import java.util.function.Consumer;
@@ -41,5 +43,19 @@ class AwsSqsTestApplication {
     if (messageHandler != null) {
       messageHandler.accept(message);
     }
+  }
+
+  @Bean
+  MessageListenerContainer<Object> listenerContainer(SqsAsyncClient sqsAsyncClient) {
+    SqsMessageListenerContainer<Object> container =
+        new SqsMessageListenerContainer<>(sqsAsyncClient);
+    container.setQueueNames("custom-container");
+    container.setMessageListener(
+        message -> {
+          if (messageHandler != null) {
+            messageHandler.accept(message.getPayload().toString());
+          }
+        });
+    return container;
   }
 }

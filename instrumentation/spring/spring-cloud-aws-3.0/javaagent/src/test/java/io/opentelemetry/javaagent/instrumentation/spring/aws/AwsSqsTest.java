@@ -190,4 +190,126 @@ class AwsSqsTest {
                                     + "/000000000000/test-queue"),
                             satisfies(AWS_REQUEST_ID, val -> val.isInstanceOf(String.class)))));
   }
+
+  @SuppressWarnings("deprecation") // using deprecated semconv
+  @Test
+  void customContainerSqsListener()
+      throws InterruptedException, ExecutionException, TimeoutException {
+    String messageContent = "hello";
+    CompletableFuture<String> messageFuture = new CompletableFuture<>();
+    AwsSqsTestApplication.messageHandler =
+        string -> testing.runWithSpan("callback", () -> messageFuture.complete(string));
+
+    testing.runWithSpan("parent", () -> sqsTemplate.send("custom-container", messageContent));
+
+    String result = messageFuture.get(10, TimeUnit.SECONDS);
+    assertThat(result).isEqualTo(messageContent);
+
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span -> span.hasName("parent").hasKind(SpanKind.INTERNAL).hasNoParent(),
+                span ->
+                    span.hasName("Sqs.GetQueueUrl")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(RPC_SYSTEM, "aws-api"),
+                            equalTo(RPC_METHOD, "GetQueueUrl"),
+                            equalTo(RPC_SERVICE, "Sqs"),
+                            equalTo(
+                                HTTP_REQUEST_METHOD, HttpAttributes.HttpRequestMethodValues.POST),
+                            equalTo(HTTP_RESPONSE_STATUS_CODE, 200),
+                            equalTo(SERVER_ADDRESS, "localhost"),
+                            equalTo(SERVER_PORT, AwsSqsTestApplication.sqsPort),
+                            satisfies(
+                                URL_FULL,
+                                v ->
+                                    v.startsWith(
+                                        "http://localhost:" + AwsSqsTestApplication.sqsPort)),
+                            equalTo(AttributeKey.stringKey("aws.queue.name"), "test-queue"),
+                            satisfies(AWS_REQUEST_ID, val -> val.isInstanceOf(String.class))),
+                span ->
+                    span.hasName("custom-container publish")
+                        .hasKind(SpanKind.PRODUCER)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(RPC_SYSTEM, "aws-api"),
+                            equalTo(RPC_METHOD, "SendMessage"),
+                            equalTo(RPC_SERVICE, "Sqs"),
+                            equalTo(
+                                HTTP_REQUEST_METHOD, HttpAttributes.HttpRequestMethodValues.POST),
+                            equalTo(HTTP_RESPONSE_STATUS_CODE, 200),
+                            equalTo(SERVER_ADDRESS, "localhost"),
+                            equalTo(SERVER_PORT, AwsSqsTestApplication.sqsPort),
+                            satisfies(
+                                URL_FULL,
+                                v ->
+                                    v.startsWith(
+                                        "http://localhost:" + AwsSqsTestApplication.sqsPort)),
+                            equalTo(
+                                MESSAGING_SYSTEM,
+                                MessagingIncubatingAttributes.MessagingSystemIncubatingValues
+                                    .AWS_SQS),
+                            satisfies(MESSAGING_MESSAGE_ID, AbstractStringAssert::isNotBlank),
+                            equalTo(MESSAGING_OPERATION, "publish"),
+                            equalTo(MESSAGING_DESTINATION_NAME, "test-queue"),
+                            equalTo(
+                                stringKey("aws.queue.url"),
+                                "http://localhost:"
+                                    + AwsSqsTestApplication.sqsPort
+                                    + "/000000000000/test-queue"),
+                            satisfies(AWS_REQUEST_ID, val -> val.isInstanceOf(String.class))),
+                span ->
+                    span.hasName("custom-container process")
+                        .hasKind(SpanKind.CONSUMER)
+                        .hasParent(trace.getSpan(2))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(RPC_SYSTEM, "aws-api"),
+                            equalTo(RPC_METHOD, "ReceiveMessage"),
+                            equalTo(RPC_SERVICE, "Sqs"),
+                            equalTo(
+                                HTTP_REQUEST_METHOD, HttpAttributes.HttpRequestMethodValues.POST),
+                            equalTo(HTTP_RESPONSE_STATUS_CODE, 200),
+                            equalTo(SERVER_ADDRESS, "localhost"),
+                            equalTo(SERVER_PORT, AwsSqsTestApplication.sqsPort),
+                            satisfies(
+                                URL_FULL,
+                                v ->
+                                    v.startsWith(
+                                        "http://localhost:" + AwsSqsTestApplication.sqsPort)),
+                            equalTo(
+                                MESSAGING_SYSTEM,
+                                MessagingIncubatingAttributes.MessagingSystemIncubatingValues
+                                    .AWS_SQS),
+                            satisfies(MESSAGING_MESSAGE_ID, AbstractStringAssert::isNotBlank),
+                            equalTo(MESSAGING_OPERATION, "process"),
+                            equalTo(MESSAGING_DESTINATION_NAME, "test-queue")),
+                span ->
+                    span.hasName("callback").hasKind(SpanKind.INTERNAL).hasParent(trace.getSpan(3)),
+                span ->
+                    span.hasName("Sqs.DeleteMessageBatch")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(2))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(RPC_SYSTEM, "aws-api"),
+                            equalTo(RPC_METHOD, "DeleteMessageBatch"),
+                            equalTo(RPC_SERVICE, "Sqs"),
+                            equalTo(
+                                HTTP_REQUEST_METHOD, HttpAttributes.HttpRequestMethodValues.POST),
+                            equalTo(HTTP_RESPONSE_STATUS_CODE, 200),
+                            equalTo(SERVER_ADDRESS, "localhost"),
+                            equalTo(SERVER_PORT, AwsSqsTestApplication.sqsPort),
+                            satisfies(
+                                URL_FULL,
+                                v ->
+                                    v.startsWith(
+                                        "http://localhost:" + AwsSqsTestApplication.sqsPort)),
+                            equalTo(
+                                stringKey("aws.queue.url"),
+                                "http://localhost:"
+                                    + AwsSqsTestApplication.sqsPort
+                                    + "/000000000000/test-queue"),
+                            satisfies(AWS_REQUEST_ID, val -> val.isInstanceOf(String.class)))));
+  }
 }
