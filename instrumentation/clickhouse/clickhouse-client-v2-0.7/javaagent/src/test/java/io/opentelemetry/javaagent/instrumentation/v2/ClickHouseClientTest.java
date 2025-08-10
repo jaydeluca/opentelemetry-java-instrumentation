@@ -60,7 +60,7 @@ class ClickHouseClientTest {
   private Client client;
 
   private static final GenericContainer<?> clickhouseServer =
-      new GenericContainer<>("clickhouse/clickhouse-server:25.1.4")
+      new GenericContainer<>("clickhouse/clickhouse-server:25.6.5")
           .withExposedPorts(8123)
           .withEnv("CLICKHOUSE_DB", dbName)
           .withEnv("CLICKHOUSE_USER", user)
@@ -76,26 +76,19 @@ class ClickHouseClientTest {
 
     client =
         new Client.Builder()
-            .useNewImplementation(true)
-            .addEndpoint("http://" + host + ":" + port)
+            .addEndpoint("http://" + host + ":" + port + "/")
             .setUsername(user)
             .setPassword("")
             .setDefaultDatabase(dbName)
             .build();
 
     String dbInit =
-        "create table if not exists my_metrics ("
-            + "id Nullable(Float64), "
-            + "value Nullable(Float64), "
-            + "type Nullable(String)) engine = MergeTree order by ();";
+        "CREATE OR REPLACE TABLE my_metrics ("
+            + "id Float64, "
+            + "value Float64, "
+            + "type String) ENGINE = MergeTree;";
 
-    //    BufferedReader reader =
-    //        new BufferedReader(new InputStreamReader(new ByteArrayInputStream(dbInit), UTF_8));
-    //    String sql = reader.lines().collect(Collectors.joining());
-    //    if (sql.isEmpty()) {
-    //      throw new IllegalArgumentException("Query string is empty");
-    //    }
-    client.query(dbInit).get(10, TimeUnit.SECONDS);
+    client.query(dbInit).get(30, TimeUnit.SECONDS);
 
     // wait for CREATE operation and clear
     testing.waitForTraces(1);
