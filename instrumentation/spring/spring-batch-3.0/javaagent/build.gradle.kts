@@ -14,7 +14,9 @@ muzzle {
 dependencies {
   library("org.springframework.batch:spring-batch-core:3.0.0.RELEASE")
 
+  testImplementation("com.google.guava:guava")
   testImplementation("javax.inject:javax.inject:1")
+
   // SimpleAsyncTaskExecutor context propagation
   testInstrumentation(project(":instrumentation:spring:spring-core-2.0:javaagent"))
 
@@ -46,6 +48,9 @@ tasks {
       excludeTestsMatching("*ItemLevelSpanTest")
       excludeTestsMatching("*CustomSpanEventTest")
     }
+
+    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("metaDataConfig", "otel.instrumentation.spring-batch.experimental-span-attributes=true")
   }
 
   check {

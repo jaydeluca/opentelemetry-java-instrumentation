@@ -33,7 +33,7 @@ muzzle {
 dependencies {
   library("co.elastic.clients:elasticsearch-java:7.16.0")
 
-  implementation(project(":instrumentation:elasticsearch:elasticsearch-rest-common:javaagent"))
+  implementation(project(":instrumentation:elasticsearch:elasticsearch-rest-common-5.0:javaagent"))
 
   testInstrumentation(project(":instrumentation:elasticsearch:elasticsearch-rest-7.0:javaagent"))
   testInstrumentation(project(":instrumentation:apache-httpclient:apache-httpclient-4.0:javaagent"))
@@ -77,10 +77,13 @@ tasks {
   withType<Test>().configureEach {
     jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
+
+    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
   }
 
   val testStableSemconv by registering(Test::class) {
     jvmArgs("-Dotel.semconv-stability.opt-in=database")
+    systemProperty("metaDataConfig", "otel.semconv-stability.opt-in=database")
   }
 
   check {

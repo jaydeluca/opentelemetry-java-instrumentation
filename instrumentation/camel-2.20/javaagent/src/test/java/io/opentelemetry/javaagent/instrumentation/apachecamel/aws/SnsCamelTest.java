@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
 class SnsCamelTest {
 
   @RegisterExtension
-  public static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
+  static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
   private static final Logger logger = LoggerFactory.getLogger(SnsCamelTest.class);
 
@@ -174,7 +174,7 @@ class SnsCamelTest {
     private final String queueUrl;
     private final String topicArn;
 
-    public SnsMetadata(String queueUrl, String topicArn) {
+    SnsMetadata(String queueUrl, String topicArn) {
       this.queueUrl = queueUrl;
       this.topicArn = topicArn;
     }

@@ -39,6 +39,8 @@ val javaagentLibs by configurations.creating {
 listOf(baseJavaagentLibs, javaagentLibs).forEach {
   it.run {
     exclude("io.opentelemetry", "opentelemetry-api")
+    exclude("io.opentelemetry", "opentelemetry-common")
+    exclude("io.opentelemetry", "opentelemetry-context")
     exclude("io.opentelemetry.semconv", "opentelemetry-semconv")
     exclude("io.opentelemetry.semconv", "opentelemetry-semconv-incubating")
     // events API and metrics advice API
@@ -76,6 +78,18 @@ dependencies {
   baseJavaagentLibs(project(":muzzle"))
   baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.0:javaagent"))
   baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.4:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.10:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.15:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.27:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.31:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.32:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.37:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.38:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.40:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.42:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.47:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.50:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.52:javaagent"))
   baseJavaagentLibs(project(":instrumentation:opentelemetry-instrumentation-api:javaagent"))
   baseJavaagentLibs(project(":instrumentation:opentelemetry-instrumentation-annotations-1.16:javaagent"))
   baseJavaagentLibs(project(":instrumentation:executors:javaagent"))
@@ -166,8 +180,7 @@ tasks {
 
     excludeBootstrapClasses()
     // remove MPL licensed content
-    exclude("okhttp3/internal/publicsuffix/NOTICE")
-    exclude("okhttp3/internal/publicsuffix/publicsuffixes.gz")
+    exclude("okhttp3/internal/publicsuffix/PublicSuffixDatabase.list")
 
     duplicatesStrategy = DuplicatesStrategy.FAIL
 
