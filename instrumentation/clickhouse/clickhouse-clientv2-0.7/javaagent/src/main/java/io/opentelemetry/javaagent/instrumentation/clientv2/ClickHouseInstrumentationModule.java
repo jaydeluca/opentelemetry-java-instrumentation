@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package io.opentelemetry.javaagent.instrumentation.v2;
+package io.opentelemetry.javaagent.instrumentation.clientv2;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
@@ -19,7 +19,7 @@ public class ClickHouseInstrumentationModule extends InstrumentationModule
     implements ExperimentalInstrumentationModule {
 
   public ClickHouseInstrumentationModule() {
-    super("clickhouse-client", "clickhouse-client-0.5", "clickhouse");
+    super("clickhouse", "clickhouse-clientv2", "clickhouse-clientv2-0.7");
   }
 
   @Override
@@ -34,6 +34,9 @@ public class ClickHouseInstrumentationModule extends InstrumentationModule
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return asList(new ClickHouseClientInstrumentation(), new HttpApiClientHelperInstrumentation());
+    return asList(
+        new ClickHouseClientInstrumentation(),
+        new HttpApiClientHelperInstrumentation(),
+        new HttpApiClientHelperInstrumentation());
   }
 }

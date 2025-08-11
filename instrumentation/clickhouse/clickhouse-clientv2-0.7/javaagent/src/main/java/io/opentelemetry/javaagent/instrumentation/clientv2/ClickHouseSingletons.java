@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package io.opentelemetry.javaagent.instrumentation.v2;
+package io.opentelemetry.javaagent.instrumentation.clientv2;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesExtractor;
@@ -23,7 +23,7 @@ public final class ClickHouseSingletons {
     INSTRUMENTER =
         Instrumenter.<ClickHouseDbRequest, Void>builder(
                 GlobalOpenTelemetry.get(),
-                "io.opentelemetry.clickhouse-client-0.5",
+                "io.opentelemetry.clickhouse-clientv2-0.7",
                 DbClientSpanNameExtractor.create(dbAttributesGetter))
             .addAttributesExtractor(DbClientAttributesExtractor.create(dbAttributesGetter))
             .addAttributesExtractor(

@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package io.opentelemetry.javaagent.instrumentation.v2;
+package io.opentelemetry.javaagent.instrumentation.clientv2;
 
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesGetter;
 import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
 import javax.annotation.Nullable;
 
-final class ClickHouseAttributesGetter implements DbClientAttributesGetter<ClickHouseDbRequest, Void> {
+final class ClickHouseAttributesGetter
+    implements DbClientAttributesGetter<ClickHouseDbRequest, Void> {
 
   @Nullable
   @Override

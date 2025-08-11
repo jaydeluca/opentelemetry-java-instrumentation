@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package io.opentelemetry.javaagent.instrumentation.v2;
+package io.opentelemetry.javaagent.instrumentation.clientv2;
 
 import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
 import static net.bytebuddy.matcher.ElementMatchers.isMethod;
@@ -55,18 +55,18 @@ public class ClickHouseClientInstrumentation implements TypeInstrumentation {
 
       String regex = "http://([^:]+):(\\d+)";
 
-//      String endpoint = clickhouseClient.getEndpoints().stream().findFirst().orElse(null);
-      String endpoint = "test";
-      Pattern pattern = Pattern.compile(regex);
-      Matcher matcher = pattern.matcher(endpoint);
+      //      Map<String, String> endpoint = clickhouseClient.loadServerInfo();
+      //      String endpoint = "test";
+      //      Pattern pattern = Pattern.compile(regex);
+      //      Matcher matcher = pattern.matcher(endpoint);
 
       String host = "";
       int port = 8123;
 
-      if (matcher.find()) {
-        host = matcher.group(1);
-        port = Integer.parseInt(matcher.group(2));
-      }
+      //      if (matcher.find()) {
+      //        host = matcher.group(1);
+      //        port = Integer.parseInt(matcher.group(2));
+      //      }
 
       ClickHouseDbRequest request =
           ClickHouseDbRequest.create(host, port, clickhouseClient.getDefaultDatabase(), query);

@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package io.opentelemetry.javaagent.instrumentation.v2;
+package io.opentelemetry.javaagent.instrumentation.clientv2;
 
-import static io.opentelemetry.javaagent.instrumentation.v2.ClickHouseSingletons.instrumenter;
+import static io.opentelemetry.javaagent.instrumentation.clientv2.ClickHouseSingletons.instrumenter;
 
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
