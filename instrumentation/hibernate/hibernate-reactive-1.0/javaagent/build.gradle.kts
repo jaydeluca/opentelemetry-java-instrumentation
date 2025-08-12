@@ -46,13 +46,47 @@ testing {
       dependencies {
         implementation("org.testcontainers:testcontainers")
         if (latestDepTest) {
-          implementation("org.hibernate.reactive:hibernate-reactive-core:latest.release")
+          implementation("org.hibernate.reactive:hibernate-reactive-core:2+")
           implementation("io.vertx:vertx-pg-client:4.+")
         } else {
           implementation("org.hibernate.reactive:hibernate-reactive-core:2.0.0.Final")
           implementation("io.vertx:vertx-pg-client:4.4.2")
         }
         compileOnly("io.vertx:vertx-codegen:4.4.2")
+      }
+    }
+
+    val hibernateReactive3Test by registering(JvmTestSuite::class) {
+      sources {
+        java {
+          setSrcDirs(listOf("src/hibernateReactive2Test"))
+        }
+      }
+
+      dependencies {
+        implementation("org.testcontainers:testcontainers")
+        if (latestDepTest) {
+          implementation("org.hibernate.reactive:hibernate-reactive-core:3+")
+          implementation("io.vertx:vertx-pg-client:4.+")
+        } else {
+          implementation("org.hibernate.reactive:hibernate-reactive-core:3.0.0.Final")
+          implementation("io.vertx:vertx-pg-client:4.4.2")
+        }
+        compileOnly("io.vertx:vertx-codegen:4.4.2")
+      }
+    }
+
+    val hibernateReactive4Test by registering(JvmTestSuite::class) {
+      dependencies {
+        implementation("org.testcontainers:testcontainers")
+        if (latestDepTest) {
+          implementation("org.hibernate.reactive:hibernate-reactive-core:latest.release")
+          implementation("io.vertx:vertx-pg-client:5.+")
+        } else {
+          implementation("org.hibernate.reactive:hibernate-reactive-core:2.0.0.Final")
+          implementation("io.vertx:vertx-pg-client:5.0.0")
+        }
+        compileOnly("io.vertx:vertx-codegen:5.0.0")
       }
     }
   }
@@ -65,11 +99,25 @@ tasks {
   named("compileHibernateReactive2TestJava", JavaCompile::class).configure {
     options.release.set(11)
   }
+  named("compileHibernateReactive3TestJava", JavaCompile::class).configure {
+    options.release.set(11)
+  }
+  named("compileHibernateReactive4TestJava", JavaCompile::class).configure {
+    options.release.set(11)
+  }
   val testJavaVersion =
     gradle.startParameter.projectProperties.get("testJavaVersion")?.let(JavaVersion::toVersion)
       ?: JavaVersion.current()
   if (testJavaVersion.isJava8) {
     named("hibernateReactive2Test", Test::class).configure {
+      enabled = false
+    }
+
+    named("hibernateReactive3Test", Test::class).configure {
+      enabled = false
+    }
+
+    named("hibernateReactive4Test", Test::class).configure {
       enabled = false
     }
     if (latestDepTest) {
