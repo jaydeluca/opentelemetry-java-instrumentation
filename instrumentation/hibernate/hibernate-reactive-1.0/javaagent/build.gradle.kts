@@ -59,7 +59,10 @@ testing {
     val hibernateReactive3Test by registering(JvmTestSuite::class) {
       sources {
         java {
-          setSrcDirs(listOf("src/hibernateReactive2Test"))
+          setSrcDirs(listOf("src/hibernateReactive2Test/java"))
+        }
+        resources {
+          setSrcDirs(listOf("src/hibernateReactive3Test/resources"))
         }
       }
 
@@ -77,13 +80,22 @@ testing {
     }
 
     val hibernateReactive4Test by registering(JvmTestSuite::class) {
+      sources {
+        java {
+          setSrcDirs(listOf("src/hibernateReactive4Test/java"))
+        }
+        resources {
+          setSrcDirs(listOf("src/hibernateReactive4Test/resources"))
+        }
+      }
+
       dependencies {
         implementation("org.testcontainers:testcontainers")
         if (latestDepTest) {
           implementation("org.hibernate.reactive:hibernate-reactive-core:latest.release")
           implementation("io.vertx:vertx-pg-client:5.+")
         } else {
-          implementation("org.hibernate.reactive:hibernate-reactive-core:2.0.0.Final")
+          implementation("org.hibernate.reactive:hibernate-reactive-core:4.0.0.Final")
           implementation("io.vertx:vertx-pg-client:5.0.0")
         }
         compileOnly("io.vertx:vertx-codegen:5.0.0")
