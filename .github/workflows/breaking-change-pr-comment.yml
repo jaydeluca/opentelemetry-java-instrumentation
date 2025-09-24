@@ -50,7 +50,7 @@ jobs:
                 "",
                 "---",
                 "*This comment was automatically generated because the `breaking change` label was applied to this PR.*"
-              ].join("\\n");
+              ].join("\n");
 
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
