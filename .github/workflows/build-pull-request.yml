@@ -6,6 +6,7 @@ on:
       - opened
       - synchronize
       - reopened
+      - labeled
   # called from rebuild-pull-request-on-label.yml
   workflow_call:
 
@@ -17,7 +18,19 @@ permissions:
   contents: read
 
 jobs:
+  # Gate job to check if workflow should run when triggered by label
+  should-run:
+    if: |
+      github.event_name != 'labeled' ||
+      github.event.label.name == 'test native' ||
+      github.event.label.name == 'test openj9' ||
+      github.event.label.name == 'test windows'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Workflow should run"
+
   common:
+    needs: should-run
     uses: ./.github/workflows/build-common.yml
     with:
       # it's rare for only the openj9 tests or the windows smoke tests to break
@@ -26,34 +39,41 @@ jobs:
       cache-read-only: true
 
   test-latest-deps:
+    needs: should-run
     uses: ./.github/workflows/reusable-test-latest-deps.yml
     with:
       cache-read-only: true
 
   test-native:
+    needs: should-run
     uses: ./.github/workflows/reusable-native-tests.yml
     with:
       skip-native-tests: ${{ !contains(github.event.pull_request.labels.*.name, 'test native') }}
 
   muzzle:
+    needs: should-run
     uses: ./.github/workflows/reusable-muzzle.yml
     with:
       cache-read-only: true
 
   shell-script-check:
+    needs: should-run
     uses: ./.github/workflows/reusable-shell-script-check.yml
 
   # this is not a required check to avoid blocking pull requests if external links break
   markdown-check:
+    needs: should-run
     # release branches are excluded because the README.md javaagent download link has to be updated
     # on release branches before the release download has been published
     if: "!startsWith(github.ref_name, 'release/') && !startsWith(github.base_ref, 'release/')"
     uses: ./.github/workflows/reusable-link-check.yml
 
   markdown-lint-check:
+    needs: should-run
     uses: ./.github/workflows/reusable-markdown-lint-check.yml
 
   misspell-check:
+    needs: should-run
     uses: ./.github/workflows/reusable-misspell-check.yml
 
   required-status-check:
@@ -67,6 +87,7 @@ jobs:
     # only the "common" checks are required for release branch PRs in order to avoid any unnecessary
     # release branch maintenance (especially for patches)
     needs:
+      - should-run
       - common
       - muzzle
       - shell-script-check

@@ -69,6 +69,7 @@ graalvmNative {
 
   tasks.test {
     useJUnitPlatform()
+    setForkEvery(1)
   }
 }
 
