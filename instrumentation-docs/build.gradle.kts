@@ -33,4 +33,15 @@ tasks {
     mainClass.set("io.opentelemetry.instrumentation.docs.DocSynchronization")
     classpath(sourceSets["main"].runtimeClasspath)
   }
+
+  val generateDocs by registering(JavaExec::class) {
+    dependsOn(classes)
+
+    systemProperty("basePath", project.rootDir)
+    systemProperty("docsRepoPath", project.findProperty("docsRepoPath") ?: "../opentelemetry.io")
+    systemProperty("generateVersion", project.findProperty("version") ?: project.version)
+
+    mainClass.set("io.opentelemetry.instrumentation.docs.DocGeneration")
+    classpath(sourceSets["main"].runtimeClasspath)
+  }
 }

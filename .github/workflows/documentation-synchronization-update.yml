@@ -1,0 +1,222 @@
+name: Documentation Synchronization Update (opentelemetry.io)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version tag to document (e.g., v2.11.0)'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to document (e.g., v2.11.0)'
+        required: true
+        type: string
+      fork_owner:
+        description: 'GitHub username for fork (where PR branch will be pushed)'
+        required: false
+        type: string
+        default: 'open-telemetry'
+
+permissions:
+  contents: read
+
+jobs:
+  generate-and-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout at version tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version-file: .java-version
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Checkout opentelemetry.io
+        uses: actions/checkout@v4
+        with:
+          repository: open-telemetry/opentelemetry.io
+          path: opentelemetry.io
+          persist-credentials: false
+
+      - name: Generate documentation updates
+        id: generate
+        run: |
+          ./gradlew :instrumentation-docs:generateDocs \
+            -PdocsRepoPath=opentelemetry.io \
+            -Pversion=${{ inputs.version }}
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          cd opentelemetry.io
+          if git diff --quiet content/en/docs/zero-code/java/agent/; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No documentation changes detected"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected in the following files:"
+            git --no-pager diff --name-only content/en/docs/zero-code/java/agent/
+          fi
+
+      - name: Create tracking issue
+        if: steps.check_changes.outputs.has_changes == 'true'
+        id: create_issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Update Java agent documentation for ${context.payload.inputs.version}`;
+            const body = `## Documentation Update Required
+            
+            Documentation changes have been detected for version **${context.payload.inputs.version}**.
+            
+            ### Files to update:
+            - \`content/en/docs/zero-code/java/agent/supported-libraries.md\`
+            
+            ### Next Steps:
+            1. A PR will be created automatically with the updates
+            2. Review the PR and merge when ready
+            3. Close this issue
+            
+            ### Related
+            - Version: ${context.payload.inputs.version}
+            - Repository: opentelemetry-java-instrumentation
+            
+            ---
+            🤖 _This issue was automatically generated_`;
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['documentation', 'opentelemetry.io']
+            });
+            
+            core.setOutput('issue_number', issue.data.number);
+            return issue.data.number;
+
+      - name: Configure Git
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          cd opentelemetry.io
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create branch and commit
+        if: steps.check_changes.outputs.has_changes == 'true'
+        id: create_branch
+        run: |
+          cd opentelemetry.io
+          
+          # Create branch name (replace dots with dashes for valid branch name)
+          VERSION="${{ inputs.version }}"
+          BRANCH_NAME="java-agent-docs-${VERSION//\./-}"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          
+          # Create branch and commit
+          git checkout -b "$BRANCH_NAME"
+          git add content/en/docs/zero-code/java/agent/
+          git commit -m "Update Java agent supported libraries for ${{ inputs.version }}
+
+Auto-generated documentation update from opentelemetry-java-instrumentation.
+
+Related issue: #${{ steps.create_issue.outputs.issue_number }}"
+
+      - name: Push to fork and create PR
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_PR_TOKEN }}
+          FORK_OWNER: ${{ inputs.fork_owner || secrets.DOCS_FORK_OWNER || 'open-telemetry' }}
+        run: |
+          cd opentelemetry.io
+          
+          # Verify token is set
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "❌ ERROR: GH_TOKEN (DOCS_PR_TOKEN secret) is not set"
+            echo "Please configure the DOCS_PR_TOKEN secret with a PAT that has repo access"
+            exit 1
+          fi
+          
+          # Add fork as remote with token authentication
+          git remote add fork "https://x-access-token:${GH_TOKEN}@github.com/${FORK_OWNER}/opentelemetry.io.git"
+          
+          # Push branch to fork
+          BRANCH="${{ steps.create_branch.outputs.branch_name }}"
+          git push -f fork "$BRANCH"
+          
+          # Determine PR head format
+          if [ "${FORK_OWNER}" = "open-telemetry" ]; then
+            PR_HEAD="$BRANCH"
+          else
+            PR_HEAD="${FORK_OWNER}:${BRANCH}"
+          fi
+          
+          # Create PR
+          gh pr create \
+            --repo open-telemetry/opentelemetry.io \
+            --head "${PR_HEAD}" \
+            --title "Update Java agent supported libraries for ${{ inputs.version }}" \
+            --body "## Update Java Agent Documentation
+
+This PR updates the OpenTelemetry Java agent supported libraries documentation for version **${{ inputs.version }}**.
+
+### Changes
+
+Updated auto-generated sections in:
+- \`content/en/docs/zero-code/java/agent/supported-libraries.md\`
+
+### Auto-Generated Content
+
+This PR was generated from the \`instrumentation-list.yaml\` file in the [opentelemetry-java-instrumentation](https://github.com/open-telemetry/opentelemetry-java-instrumentation/tree/${{ inputs.version }}) repository at tag \`${{ inputs.version }}\`.
+
+The content within the marker comments was automatically updated:
+\`\`\`html
+<!-- BEGIN-GENERATED: COMPONENT:supported-libraries SOURCE:opentelemetry-java-instrumentation -->
+... auto-generated content ...
+<!-- END-GENERATED: COMPONENT:supported-libraries SOURCE:opentelemetry-java-instrumentation -->
+\`\`\`
+
+All other content (outside the markers) has been preserved.
+
+### Review Checklist
+
+- [ ] Verify the supported libraries list is complete and accurate
+- [ ] Check that version ranges are correct
+- [ ] Ensure links to instrumentation modules work
+- [ ] Confirm semantic conventions are properly referenced
+
+### Related
+
+- Version: ${{ inputs.version }}
+- Tracking Issue: open-telemetry/opentelemetry-java-instrumentation#${{ steps.create_issue.outputs.issue_number }}
+
+---
+
+🤖 _This PR was automatically generated by the [documentation synchronization workflow](https://github.com/${{ github.repository }}/blob/main/.github/workflows/documentation-synchronization-update.yml)_"
+
+  workflow-summary:
+    runs-on: ubuntu-latest
+    needs: generate-and-update
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## Documentation Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.generate-and-update.outputs.has_changes }}" == "true" ]; then
+            echo "✅ Documentation updates were generated and a PR was created" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ No documentation changes were needed" >> $GITHUB_STEP_SUMMARY
+          fi
+
