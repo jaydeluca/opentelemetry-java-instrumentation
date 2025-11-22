@@ -14,6 +14,8 @@ readonly INSTRUMENTATIONS=(
   "apache-dbcp-2.0:javaagent:test"
   "apache-dbcp-2.0:javaagent:testStableSemconv"
   "apache-dubbo-2.7:javaagent:testDubbo"
+  "apache-elasticjob-3.0:javaagent:test"
+  "apache-elasticjob-3.0:javaagent:testExperimental"
   "apache-httpasyncclient-4.1:javaagent:test"
   "apache-httpclient:apache-httpclient-2.0:javaagent:test"
   "apache-httpclient:apache-httpclient-4.0:javaagent:test"
@@ -146,7 +148,16 @@ readonly INSTRUMENTATIONS=(
   "jsf:jsf-mojarra-3.0:javaagent:test"
   "jsf:jsf-myfaces-1.2:javaagent:myfaces2Test"
   "jsf:jsf-myfaces-3.0:javaagent:test"
+  "jsp-2.3:javaagent:test"
+  "jsp-2.3:javaagent:testExperimental"
+  "jfinal-3.2:javaagent:test"
+  "kafka:kafka-clients:kafka-clients-2.6:library:test"
   "kafka:kafka-connect-2.6:testing:test"
+  "ktor:ktor-1.0:library:test"
+  "ktor:ktor-2.0:library:test"
+  "ktor:ktor-3.0:library:test"
+  "kubernetes-client-7.0:javaagent:test"
+  "kubernetes-client-7.0:javaagent:testExperimental"
   "nats:nats-2.17:javaagent:test"
   "nats:nats-2.17:javaagent:testExperimental"
   "netty:netty-3.8:javaagent:test"
@@ -221,4 +232,14 @@ readonly COLIMA_INSTRUMENTATIONS=(
   "oracle-ucp-11.2:javaagent:test"
   "oracle-ucp-11.2:javaagent:testStableSemconv"
   "spring:spring-jms:spring-jms-6.0:javaagent:test"
+)
+
+# Some instrumentation test suites need to run with -PtestLatestDeps=true to collect
+# metrics telemetry or test against latest library versions.
+# shellcheck disable=SC2034
+readonly TEST_LATEST_DEPS_INSTRUMENTATIONS=(
+  "kafka:kafka-clients:kafka-clients-0.11:javaagent:test"
+  "kafka:kafka-clients:kafka-clients-0.11:javaagent:testExperimental"
+  "kafka:kafka-streams-0.11:javaagent:test"
+  "kafka:kafka-streams-0.11:javaagent:testExperimental"
 )
