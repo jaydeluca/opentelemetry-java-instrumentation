@@ -6,11 +6,11 @@
 package io.opentelemetry.instrumentation.spring.autoconfigure.internal.instrumentation.webmvc;
 
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.InstrumentationConfig;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.ConditionalOnEnabledInstrumentation;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.properties.InstrumentationConfigUtil;
 import io.opentelemetry.instrumentation.spring.webmvc.v6_0.SpringWebMvcTelemetry;
 import io.opentelemetry.instrumentation.spring.webmvc.v6_0.internal.SpringMvcBuilderUtil;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import jakarta.servlet.Filter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.annotation.Bean;
@@ -19,10 +19,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.DispatcherServlet;
 
 /**
- * Auto-configuration for Spring Boot 4.0 (Spring Framework 7.0) WebMvc instrumentation.
- *
- * <p>This class is internal and is hence not for public use. Its APIs are unstable and can change
- * at any time.
+ * This class is internal and is hence not for public use. Its APIs are unstable and can change at
+ * any time.
  */
 @ConditionalOnEnabledInstrumentation(module = "spring-webmvc")
 @ConditionalOnClass({Filter.class, OncePerRequestFilter.class, DispatcherServlet.class})
@@ -30,7 +28,7 @@ import org.springframework.web.servlet.DispatcherServlet;
 public class SpringWebMvc7InstrumentationAutoConfiguration {
 
   @Bean
-  Filter otelWebMvcFilter(OpenTelemetry openTelemetry, ConfigProperties config) {
+  Filter otelWebMvcFilter(OpenTelemetry openTelemetry, InstrumentationConfig config) {
     return InstrumentationConfigUtil.configureServerBuilder(
             config,
             SpringWebMvcTelemetry.builder(openTelemetry),

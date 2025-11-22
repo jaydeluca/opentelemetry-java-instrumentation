@@ -24,6 +24,14 @@ dependencies {
 
   implementation(project(":smoke-tests-otel-starter:spring-boot-common"))
   testImplementation("org.springframework.boot:spring-boot-starter-test")
+  testImplementation("org.springframework.boot:spring-boot-resttestclient")
+  testImplementation("org.springframework.boot:spring-boot-restclient")
+  testImplementation(project(":instrumentation:spring:starters:spring-boot-starter"))
+  testImplementation("org.springframework.boot:spring-boot-starter-kafka")
+  testImplementation("org.springframework.boot:spring-boot-starter-data-mongodb")
+  testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+  testImplementation("org.testcontainers:testcontainers-kafka")
+  testImplementation("org.testcontainers:testcontainers-mongodb")
 
   val testLatestDeps = gradle.startParameter.projectProperties["testLatestDeps"] == "true"
   if (testLatestDeps) {
@@ -37,12 +45,21 @@ springBoot {
   mainClass = "io.opentelemetry.spring.smoketest.OtelSpringStarterSmokeTestApplication"
 }
 
-// Disable -Werror for Spring Framework 7.0 RC compatibility
+// Disable -Werror for Spring Framework 7.0 compatibility
 tasks.withType<JavaCompile>().configureEach {
   options.compilerArgs.removeAll(listOf("-Werror"))
 }
 
 tasks {
+  // Disable AOT processing for Spring Boot 4 due to modularization issues
+  // with DataSourceAutoConfiguration package relocation
+  named("processAot") {
+    enabled = false
+  }
+  named("processTestAot") {
+    enabled = false
+  }
+
   compileAotJava {
     with(options) {
       compilerArgs.add("-Xlint:-deprecation,-unchecked,none")

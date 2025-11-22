@@ -14,8 +14,9 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledInNativeImage;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 
 @SpringBootTest(
     classes = {
@@ -25,6 +26,7 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
     },
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {"otel.sdk.disabled=true"})
+@AutoConfigureTestRestTemplate
 @DisabledInNativeImage // Without this the native tests in the OtelSpringStarterSmokeTest class will
 // fail with org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "CUSTOMER" already exists
 class OtelSpringStarterDisabledSmokeTest extends AbstractSpringStarterSmokeTest {

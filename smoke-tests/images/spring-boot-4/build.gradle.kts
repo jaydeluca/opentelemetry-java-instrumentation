@@ -5,12 +5,12 @@ plugins {
   id("otel.java-conventions")
 
   id("com.google.cloud.tools.jib")
-  id("org.springframework.boot") version "4.0.0-RC2"
+  id("org.springframework.boot") version "4.0.0"
 }
 
 dependencies {
   implementation(platform("io.opentelemetry:opentelemetry-bom"))
-  implementation(platform("org.springframework.boot:spring-boot-dependencies:4.0.0-RC2"))
+  implementation(platform("org.springframework.boot:spring-boot-dependencies:4.0.0"))
 
   implementation("io.opentelemetry:opentelemetry-api")
   implementation(project(":instrumentation-annotations"))
@@ -38,7 +38,7 @@ java {
   }
 }
 
-// Disable -Werror for Spring Framework 7.0 RC compatibility
+// Disable -Werror for Spring Framework 7.0 compatibility
 tasks.withType<JavaCompile>().configureEach {
   options.compilerArgs.removeAll(listOf("-Werror"))
 }

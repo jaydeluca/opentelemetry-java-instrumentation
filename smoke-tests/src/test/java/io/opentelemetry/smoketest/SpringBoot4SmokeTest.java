@@ -5,10 +5,10 @@
 
 package io.opentelemetry.smoketest;
 
+import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
 
-import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.semconv.ServiceAttributes;
 import io.opentelemetry.semconv.incubating.OsIncubatingAttributes;
 import io.opentelemetry.semconv.incubating.TelemetryIncubatingAttributes;
@@ -17,11 +17,6 @@ import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * Smoke test for Spring Boot 4.0 (Spring Framework 7.0) with OpenTelemetry Java Agent.
- *
- * <p>Tests instrumentation with Spring Boot 4.0.0-RC2, which requires Java 17+.
- */
 @DisabledIf("io.opentelemetry.smoketest.TestContainerManager#useWindowsContainers")
 class SpringBoot4SmokeTest extends AbstractSmokeTest<Integer> {
 
@@ -72,19 +67,17 @@ class SpringBoot4SmokeTest extends AbstractSmokeTest<Integer> {
                                     .hasAttribute(
                                         satisfies(
                                             OsIncubatingAttributes.OS_TYPE, a -> a.isNotNull()))
-                                    .hasAttribute(AttributeKey.stringKey("foo"), "bar")
+                                    .hasAttribute(stringKey("foo"), "bar")
                                     .hasAttribute(
                                         ServiceAttributes.SERVICE_NAME, "otel-spring-test-app")
                                     .hasAttribute(ServiceAttributes.SERVICE_VERSION, "4.0.0")),
                 span -> span.hasName("WebController.withSpan")));
 
-    // Check agent version is logged on startup
     output.assertAgentVersionLogged();
 
     // Check trace IDs are logged via MDC instrumentation
     assertThat(output.getLoggedTraceIds()).isEqualTo(getSpanTraceIds());
 
-    // Check JVM metrics are exported
     testing.waitAndAssertMetrics(
         "io.opentelemetry.runtime-telemetry-java8",
         metric -> metric.hasName("jvm.memory.used"),

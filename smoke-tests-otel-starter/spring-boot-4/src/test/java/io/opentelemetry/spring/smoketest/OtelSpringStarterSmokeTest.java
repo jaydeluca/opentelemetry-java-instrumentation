@@ -7,6 +7,7 @@ package io.opentelemetry.spring.smoketest;
 
 import java.util.List;
 import org.assertj.core.api.AbstractIterableAssert;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest(
@@ -23,6 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
       "otel.instrumentation.runtime-telemetry-java17.enable-all=true",
       "otel.instrumentation.common.thread_details.enabled=true",
     })
+@AutoConfigureTestRestTemplate
 class OtelSpringStarterSmokeTest extends AbstractOtelSpringStarterSmokeTest {
 
   @Override

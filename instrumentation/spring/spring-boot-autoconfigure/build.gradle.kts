@@ -121,7 +121,8 @@ dependencies {
 
   // Spring Boot 4
   add("javaSpring4CompileOnly", files(sourceSets.main.get().output.classesDirs))
-  add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-starter-web:4.0.0-RC2")
+  add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-starter-web:4.0.0")
+  add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-starter-data-jdbc:4.0.0")
   add("javaSpring4CompileOnly", "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
   add("javaSpring4CompileOnly", "jakarta.servlet:jakarta.servlet-api:6.1.0")
   add("javaSpring4CompileOnly", project(":instrumentation:spring:spring-web:spring-web-3.1:library"))
@@ -209,12 +210,12 @@ testing {
     val testSpring4 by registering(JvmTestSuite::class) {
       dependencies {
         implementation(project())
-        implementation("org.springframework.boot:spring-boot-starter-web:4.0.0-RC2")
+        implementation("org.springframework.boot:spring-boot-starter-web:4.0.0")
         implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
         implementation(project(":instrumentation:spring:spring-web:spring-web-3.1:library"))
         implementation(project(":instrumentation:spring:spring-webmvc:spring-webmvc-6.0:library"))
         implementation("jakarta.servlet:jakarta.servlet-api:6.1.0")
-        implementation("org.springframework.boot:spring-boot-starter-test:4.0.0-RC2") {
+        implementation("org.springframework.boot:spring-boot-starter-test:4.0.0") {
           exclude("org.junit.vintage", "junit-vintage-engine")
         }
       }

@@ -44,7 +44,7 @@ dependencyResolutionManagement {
     // spring boot 3.0 is not compatible with graalvm native image
     addSpringBootCatalog("springBoot31", "3.1.0", "3.+")
     addSpringBootCatalog("springBoot32", "3.2.0", "3.+")
-    addSpringBootCatalog("springBoot40", "4.0.0-RC2", "4.+")
+    addSpringBootCatalog("springBoot40", "4.0.0", "4.+")
   }
 }
 
