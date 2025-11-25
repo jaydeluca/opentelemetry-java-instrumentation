@@ -143,7 +143,6 @@ if (latestDepTest) {
 
 val testJavaVersion = gradle.startParameter.projectProperties["testJavaVersion"]?.let(JavaVersion::toVersion)
 val testSpring3 = (testJavaVersion == null || testJavaVersion.compareTo(JavaVersion.VERSION_17) >= 0)
-val testSpring4 = (testJavaVersion == null || testJavaVersion.compareTo(JavaVersion.VERSION_17) >= 0)
 
 testing {
   suites {
@@ -208,21 +207,6 @@ testing {
         implementation("org.springframework.boot:spring-boot-starter-web:$springBootVersion")
       }
     }
-
-    // Spring Boot 4
-    val testSpring4 by registering(JvmTestSuite::class) {
-      dependencies {
-        implementation(project())
-        implementation("org.springframework.boot:spring-boot-starter-web:4.0.0")
-        implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
-        implementation(project(":instrumentation:spring:spring-web:spring-web-3.1:library"))
-        implementation(project(":instrumentation:spring:spring-webmvc:spring-webmvc-6.0:library"))
-        implementation("jakarta.servlet:jakarta.servlet-api:6.1.0")
-        implementation("org.springframework.boot:spring-boot-starter-test:4.0.0") {
-          exclude("org.junit.vintage", "junit-vintage-engine")
-        }
-      }
-    }
   }
 }
 
@@ -261,30 +245,12 @@ tasks {
     isEnabled = testSpring3
   }
 
-  named<JavaCompile>("compileJavaSpring4Java") {
-    sourceCompatibility = "17"
-    targetCompatibility = "17"
-    options.release.set(17)
-  }
-
-  named<JavaCompile>("compileTestSpring4Java") {
-    sourceCompatibility = "17"
-    targetCompatibility = "17"
-    options.release.set(17)
-  }
-
-  named<Test>("testSpring4") {
-    isEnabled = testSpring4
-  }
-
   named<Jar>("jar") {
     from(sourceSets["javaSpring3"].output)
-    from(sourceSets["javaSpring4"].output)
   }
 
   named<Jar>("sourcesJar") {
     from(sourceSets["javaSpring3"].java)
-    from(sourceSets["javaSpring4"].java)
   }
 
   val testStableSemconv by registering(Test::class) {
