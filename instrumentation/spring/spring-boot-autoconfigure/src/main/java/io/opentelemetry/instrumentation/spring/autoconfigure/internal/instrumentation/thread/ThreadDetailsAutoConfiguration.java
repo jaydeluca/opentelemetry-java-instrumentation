@@ -5,9 +5,9 @@
 
 package io.opentelemetry.instrumentation.spring.autoconfigure.internal.instrumentation.thread;
 
+import io.opentelemetry.instrumentation.api.incubator.instrumenter.InstrumenterCustomizerProvider;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.ConditionalOnEnabledInstrumentation;
-import io.opentelemetry.instrumentation.thread.internal.AddThreadDetailsSpanProcessor;
-import io.opentelemetry.sdk.autoconfigure.spi.AutoConfigurationCustomizerProvider;
+import io.opentelemetry.instrumentation.thread.internal.ThreadDetailsAttributesExtractor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -20,12 +20,9 @@ import org.springframework.context.annotation.Configuration;
 public class ThreadDetailsAutoConfiguration {
 
   @Bean
-  public AutoConfigurationCustomizerProvider threadDetailOtelCustomizer() {
-    return p ->
-        p.addTracerProviderCustomizer(
-            (builder, config) -> {
-              builder.addSpanProcessor(new AddThreadDetailsSpanProcessor());
-              return builder;
-            });
+  public InstrumenterCustomizerProvider threadDetailsInstrumenterCustomizer() {
+    return customizer -> {
+      customizer.addAttributesExtractor(new ThreadDetailsAttributesExtractor<>());
+    };
   }
 }

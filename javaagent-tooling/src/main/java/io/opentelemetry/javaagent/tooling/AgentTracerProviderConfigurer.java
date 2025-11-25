@@ -11,7 +11,6 @@ import static java.util.Collections.emptyList;
 import com.google.auto.service.AutoService;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.exporter.logging.LoggingSpanExporter;
-import io.opentelemetry.instrumentation.thread.internal.AddThreadDetailsSpanProcessor;
 import io.opentelemetry.javaagent.tooling.config.AgentConfig;
 import io.opentelemetry.sdk.autoconfigure.spi.AutoConfigurationCustomizer;
 import io.opentelemetry.sdk.autoconfigure.spi.AutoConfigurationCustomizerProvider;
@@ -21,7 +20,6 @@ import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 
 @AutoService(AutoConfigurationCustomizerProvider.class)
 public class AgentTracerProviderConfigurer implements AutoConfigurationCustomizerProvider {
-  private static final String ADD_THREAD_DETAILS = "otel.javaagent.add-thread-details";
 
   @Override
   public void customize(AutoConfigurationCustomizer autoConfigurationCustomizer) {
@@ -34,11 +32,6 @@ public class AgentTracerProviderConfigurer implements AutoConfigurationCustomize
       SdkTracerProviderBuilder sdkTracerProviderBuilder, ConfigProperties config) {
     if (!config.getBoolean(JAVAAGENT_ENABLED_CONFIG, true)) {
       return sdkTracerProviderBuilder;
-    }
-
-    // Register additional thread details logging span processor
-    if (config.getBoolean(ADD_THREAD_DETAILS, true)) {
-      sdkTracerProviderBuilder.addSpanProcessor(new AddThreadDetailsSpanProcessor());
     }
 
     maybeEnableLoggingExporter(sdkTracerProviderBuilder, config);

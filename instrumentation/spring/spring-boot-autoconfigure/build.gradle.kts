@@ -66,6 +66,7 @@ dependencies {
 
   implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
   implementation("io.opentelemetry:opentelemetry-sdk-extension-incubator")
+  implementation(project(":instrumentation-api-incubator"))
   implementation(project(":sdk-autoconfigure-support"))
   implementation(project(":declarative-config-bridge"))
   compileOnly("io.opentelemetry:opentelemetry-extension-trace-propagators")
