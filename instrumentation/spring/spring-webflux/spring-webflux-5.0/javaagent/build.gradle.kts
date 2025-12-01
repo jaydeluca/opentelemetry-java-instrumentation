@@ -68,6 +68,20 @@ dependencies {
 
 val latestDepTest = findProperty("testLatestDeps") as Boolean
 
+// Exclude IpcSingleThreadNettyCustomizer and SpringThreadedSpringWebfluxTest when testing
+// with latest deps (Spring Boot 3+) because IpcSingleThreadNettyCustomizer uses old
+// reactor.ipc.netty classes that don't exist in newer versions
+if (latestDepTest) {
+  sourceSets {
+    test {
+      java {
+        exclude("**/IpcSingleThreadNettyCustomizer.java")
+        exclude("**/SpringThreadedSpringWebfluxTest.java")
+      }
+    }
+  }
+}
+
 tasks.withType<Test>().configureEach {
   // required on jdk17
   jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")

@@ -19,10 +19,13 @@ public class WebfluxServerInstrumentationModule extends InstrumentationModule
 
   public WebfluxServerInstrumentationModule() {
     super("spring-webflux", "spring-webflux-5.0", "spring-webflux-server");
+    System.out.println("[OTEL-DEBUG] WebfluxServerInstrumentationModule instantiated");
   }
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
+    System.out.println(
+        "[OTEL-DEBUG] WebfluxServerInstrumentationModule.typeInstrumentations() called");
     return asList(
         new DispatcherHandlerInstrumentation(),
         new HandlerAdapterInstrumentation(),

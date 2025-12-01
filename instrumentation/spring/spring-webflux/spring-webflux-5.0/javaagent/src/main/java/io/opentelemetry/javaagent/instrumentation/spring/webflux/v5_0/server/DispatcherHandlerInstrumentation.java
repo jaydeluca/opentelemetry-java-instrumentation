@@ -52,6 +52,8 @@ public class DispatcherHandlerInstrumentation implements TypeInstrumentation {
         @Advice.Thrown Throwable throwable,
         @Advice.Argument(0) ServerWebExchange exchange,
         @Advice.Return Mono<Void> originalMono) {
+      System.out.println(
+          "[OTEL-DEBUG] DispatcherHandlerInstrumentation.HandleAdvice.methodExit called");
       Mono<Void> mono = originalMono;
       if (mono != null) {
         // note: it seems like this code should go in @OnMethodExit of

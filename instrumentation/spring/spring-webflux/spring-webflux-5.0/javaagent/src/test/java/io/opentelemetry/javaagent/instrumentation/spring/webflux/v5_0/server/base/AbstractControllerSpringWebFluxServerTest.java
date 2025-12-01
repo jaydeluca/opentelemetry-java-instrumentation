@@ -20,7 +20,7 @@ import io.opentelemetry.sdk.testing.assertj.SpanDataAssert;
 import io.opentelemetry.sdk.trace.data.StatusData;
 import java.util.Locale;
 
-public abstract class ControllerSpringWebFluxServerTest extends SpringWebFluxServerTest {
+public abstract class AbstractControllerSpringWebFluxServerTest extends SpringWebFluxServerTest {
 
   @Override
   protected SpanDataAssert assertHandlerSpan(

@@ -703,3 +703,5 @@ include(":instrumentation:zio:zio-2.0:javaagent")
 // benchmark
 include(":benchmark-overhead-jmh")
 include(":benchmark-jfr-analyzer")
+
+include("instrumentation:spring:spring-webflux:spring-webflux-5.0:testing-webflux7")

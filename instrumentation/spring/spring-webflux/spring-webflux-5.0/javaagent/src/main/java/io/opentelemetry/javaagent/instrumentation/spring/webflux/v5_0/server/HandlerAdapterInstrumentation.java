@@ -114,14 +114,17 @@ public class HandlerAdapterInstrumentation implements TypeInstrumentation {
     }
 
     @Nullable
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter
     public static AdviceScope methodEnter(
         @Advice.Argument(0) ServerWebExchange exchange, @Advice.Argument(1) Object handler) {
+      System.out.println(
+          "[OTEL-DEBUG] HandlerAdapterInstrumentation.methodEnter called for handler: "
+              + (handler != null ? handler.getClass().getName() : "null"));
       return AdviceScope.enter(exchange, handler);
     }
 
     @AssignReturned.ToReturned
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class)
     public static Mono<HandlerResult> methodExit(
         @Advice.Return Mono<HandlerResult> mono,
         @Advice.Argument(0) ServerWebExchange exchange,
