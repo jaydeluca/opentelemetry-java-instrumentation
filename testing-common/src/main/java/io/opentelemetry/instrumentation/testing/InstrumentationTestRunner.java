@@ -13,6 +13,8 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.AttributeType;
 import io.opentelemetry.api.internal.InternalAttributeKeyImpl;
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.instrumentation.testing.internal.ConfigRecordingAgentListener;
+import io.opentelemetry.instrumentation.testing.internal.ConfigUsage;
 import io.opentelemetry.instrumentation.testing.util.TelemetryDataUtil;
 import io.opentelemetry.instrumentation.testing.util.ThrowingRunnable;
 import io.opentelemetry.instrumentation.testing.util.ThrowingSupplier;
@@ -67,6 +69,13 @@ public abstract class InstrumentationTestRunner {
   protected Map<
           InstrumentationScopeInfo, Map<SpanKind, Map<InternalAttributeKeyImpl<?>, AttributeType>>>
       tracesByScope = new HashMap<>();
+
+  /**
+   * Stores configuration usage information collected during tests. The map is keyed by
+   * instrumentation name (e.g., "graphql", "jdbc") and contains a list of all config properties
+   * accessed by that instrumentation.
+   */
+  protected Map<String, List<ConfigUsage>> configUsageByInstrumentation = new HashMap<>();
 
   protected InstrumentationTestRunner(OpenTelemetry openTelemetry) {
     this.openTelemetry = openTelemetry;
@@ -254,6 +263,104 @@ public abstract class InstrumentationTestRunner {
         }
       }
     }
+  }
+
+  /**
+   * Collects configuration usage information from the RecordingConfigProvider if metadata
+   * collection is enabled. This should be called in afterTestClass() before writing to files.
+   */
+  @SuppressWarnings("unchecked")
+  protected void collectConfigurationUsage() {
+    if (!Boolean.getBoolean("collectMetadata")) {
+      return;
+    }
+
+    // Try to get the provider from ConfigRecordingAgentListener first
+    Object provider = ConfigRecordingAgentListener.getRecordingProvider();
+
+    // If not found there, try to get recorded usages directly from AgentTestingExporterFactory
+    Object usagesObj = null;
+    if (provider == null) {
+      try {
+        Class<?> factoryClass =
+            io.opentelemetry.javaagent.testing.common.AgentClassLoaderAccess.loadClass(
+                "io.opentelemetry.javaagent.testing.exporter.AgentTestingExporterFactory");
+        java.lang.reflect.Method getRecordedConfigUsagesMethod =
+            factoryClass.getMethod("getRecordedConfigUsages");
+        usagesObj = getRecordedConfigUsagesMethod.invoke(null);
+      } catch (Exception e) {
+        // Failed to access via factory, try provider instead
+      }
+    }
+
+    // If we got usages directly from factory, use them; otherwise get from provider
+    if (usagesObj == null) {
+      if (provider == null) {
+        return;
+      }
+
+      // Use reflection to call getRecordedUsages() since the provider is in the agent classloader
+      try {
+        java.lang.reflect.Method getRecordedUsages =
+            provider.getClass().getMethod("getRecordedUsages");
+        usagesObj = getRecordedUsages.invoke(provider);
+      } catch (Exception e) {
+        return;
+      }
+    }
+
+    if (usagesObj == null || !(usagesObj instanceof Map)) {
+      return;
+    }
+
+    // Safe to cast: we know from RecordingConfigProvider.getRecordedUsages() that it returns
+    // Map<String, Map<String, Object>>
+    @SuppressWarnings("unchecked")
+    Map<String, Map<String, Object>> usagesRaw = (Map<String, Map<String, Object>>) usagesObj;
+
+    // Convert raw data maps to ConfigUsage objects and group by instrumentation name
+    for (Map<String, Object> usageData : usagesRaw.values()) {
+      String path = (String) usageData.get("path");
+      String key = (String) usageData.get("key");
+      String type = (String) usageData.get("type");
+      Object defaultValue = usageData.get("defaultValue");
+      Object actualValue = usageData.get("actualValue");
+
+      ConfigUsage usage = new ConfigUsage(path, key, type, defaultValue, actualValue);
+      String instrumentation = extractInstrumentationName(path);
+      configUsageByInstrumentation
+          .computeIfAbsent(instrumentation, k -> new ArrayList<>())
+          .add(usage);
+    }
+  }
+
+  /**
+   * Extracts the instrumentation name from a configuration path. Path format:
+   * "instrumentation.java.graphql.capture_query" Extracts: "graphql"
+   * "instrumentation.java.java.graphql_java_12.0.enabled" Extracts: "graphql_java_12"
+   *
+   * <p>Handles paths that may have multiple "java" segments or version-specific instrumentation
+   * names like "graphql_java_12.0".
+   */
+  private static String extractInstrumentationName(String path) {
+    String[] parts = path.split("\\.");
+    if (parts.length >= 3 && "instrumentation".equals(parts[0]) && "java".equals(parts[1])) {
+      // Skip over any additional "java" segments (e.g., "instrumentation.java.java.graphql...")
+      int startIndex = 2;
+      while (startIndex < parts.length && "java".equals(parts[startIndex])) {
+        startIndex++;
+      }
+
+      if (startIndex < parts.length) {
+        String name = parts[startIndex];
+        // If the next part is numeric (version number), include it in the name
+        // e.g., "graphql_java_12" + ".0" -> "graphql_java_12"
+        // But we want to keep the base name without the version for grouping
+        // So we just return the name part, and handle version in extractRelativePath
+        return name;
+      }
+    }
+    return "unknown";
   }
 
   public final List<LogRecordData> waitForLogRecords(int numberOfLogRecords) {

@@ -20,6 +20,7 @@ import io.opentelemetry.context.propagation.ContextPropagators;
 import io.opentelemetry.context.propagation.TextMapPropagator;
 import io.opentelemetry.contrib.baggage.processor.BaggageSpanProcessor;
 import io.opentelemetry.exporter.logging.LoggingSpanExporter;
+import io.opentelemetry.instrumentation.testing.internal.ConfigMetaDataCollector;
 import io.opentelemetry.instrumentation.testing.internal.MetaDataCollector;
 import io.opentelemetry.instrumentation.testing.provider.TestLogRecordExporterComponentProvider;
 import io.opentelemetry.instrumentation.testing.provider.TestMetricExporterComponentProvider;
@@ -135,6 +136,10 @@ public final class LibraryTestRunner extends InstrumentationTestRunner {
 
       MetaDataCollector.writeTelemetryToFiles(
           path, metricsByScope, tracesByScope, instrumentationScopes);
+
+      // Collect and write configuration usage metadata
+      collectConfigurationUsage();
+      ConfigMetaDataCollector.writeConfigToFiles(path, configUsageByInstrumentation);
     }
   }
 

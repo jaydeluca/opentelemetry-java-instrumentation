@@ -31,6 +31,8 @@ tasks.withType<ShadowJar>().configureEach {
       // Exclude resource providers since they live in the agent class loader
       exclude("io.opentelemetry.instrumentation.resources.*")
       exclude("io.opentelemetry.instrumentation.spring.resources.*")
+      // Exclude testing infrastructure to allow extension-based config recording
+      exclude("io.opentelemetry.instrumentation.testing.*")
     }
 
     // relocate(OpenTelemetry API) since these classes live in the bootstrap class loader

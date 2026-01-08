@@ -10,6 +10,7 @@ import ch.qos.logback.classic.Logger;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.instrumentation.test.utils.LoggerUtils;
+import io.opentelemetry.instrumentation.testing.internal.ConfigMetaDataCollector;
 import io.opentelemetry.instrumentation.testing.internal.MetaDataCollector;
 import io.opentelemetry.javaagent.testing.common.AgentTestingExporterAccess;
 import io.opentelemetry.javaagent.testing.common.TestAgentListenerAccess;
@@ -70,6 +71,10 @@ public final class AgentTestRunner extends InstrumentationTestRunner {
 
       MetaDataCollector.writeTelemetryToFiles(
           path, metricsByScope, tracesByScope, instrumentationScopes);
+
+      // Collect and write configuration usage metadata
+      collectConfigurationUsage();
+      ConfigMetaDataCollector.writeConfigToFiles(path, configUsageByInstrumentation);
     }
 
     // additional library ignores are ignored during tests, because they can make it really

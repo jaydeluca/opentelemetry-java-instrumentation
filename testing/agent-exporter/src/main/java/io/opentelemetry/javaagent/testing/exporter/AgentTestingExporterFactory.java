@@ -6,6 +6,7 @@
 package io.opentelemetry.javaagent.testing.exporter;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public final class AgentTestingExporterFactory {
@@ -13,6 +14,7 @@ public final class AgentTestingExporterFactory {
   static final OtlpInMemorySpanExporter spanExporter = new OtlpInMemorySpanExporter();
   static final OtlpInMemoryMetricExporter metricExporter = new OtlpInMemoryMetricExporter();
   static final OtlpInMemoryLogRecordExporter logExporter = new OtlpInMemoryLogRecordExporter();
+  static volatile RecordingConfigProvider recordingConfigProvider;
 
   static {
     TestExportersUtil.initTestExporters();
@@ -41,6 +43,13 @@ public final class AgentTestingExporterFactory {
 
   public static boolean forceFlushCalled() {
     return AgentTestingCustomizer.spanProcessor.forceFlushCalled;
+  }
+
+  public static Map<String, Map<String, Object>> getRecordedConfigUsages() {
+    if (recordingConfigProvider == null) {
+      return java.util.Collections.emptyMap();
+    }
+    return recordingConfigProvider.getRecordedUsages();
   }
 
   private AgentTestingExporterFactory() {}

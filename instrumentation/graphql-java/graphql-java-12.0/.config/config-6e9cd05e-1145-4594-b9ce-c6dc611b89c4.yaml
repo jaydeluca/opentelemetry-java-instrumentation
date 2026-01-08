@@ -1,0 +1,192 @@
+instrumentation:
+  general:
+    http:
+      client:
+        request_captured_headers:
+          default: null
+          type: list<string>
+        response_captured_headers:
+          default: null
+          type: list<string>
+      server:
+        request_captured_headers:
+          default: null
+          type: list<string>
+        response_captured_headers:
+          default: null
+          type: list<string>
+    peer:
+      service_mapping:
+        default: null
+        type: list<structured>
+  java:
+    agent:
+      exclude_class_loaders:
+        default: null
+        type: list<string>
+      exclude_classes:
+        default: null
+        type: list<string>
+      force-synchronous-agent-listeners/development:
+        default: "false"
+        type: boolean
+      indy/development:
+        default: null
+        type: boolean
+      testing:
+        additional_library_ignores:
+          enabled:
+            default: null
+            type: boolean
+    annotations:
+      enabled:
+        default: null
+        type: boolean
+    common:
+      database:
+        sqlcommenter/development:
+          enabled:
+            default: "false"
+            type: boolean
+        statement_sanitizer:
+          enabled:
+            default: "true"
+            type: boolean
+      enduser:
+        id:
+          enabled:
+            default: "false"
+            type: boolean
+        role:
+          enabled:
+            default: "false"
+            type: boolean
+        scope:
+          enabled:
+            default: "false"
+            type: boolean
+      http:
+        client:
+          emit_experimental_telemetry/development:
+            default: "false"
+            type: boolean
+          redact_query_parameters/development:
+            default: "true"
+            type: boolean
+        known_methods:
+          default: null
+          type: list<string>
+        server:
+          emit_experimental_telemetry/development:
+            default: "false"
+            type: boolean
+      logging:
+        span_id:
+          default: null
+          type: string
+        trace_flags:
+          default: null
+          type: string
+        trace_id:
+          default: null
+          type: string
+      mdc:
+        resource_attributes:
+          default: null
+          type: list<string>
+      span_suppression_strategy/development:
+        default: ""
+        type: string
+    deny_unsafe:
+      enabled:
+        default: null
+        type: boolean
+    executors:
+      enabled:
+        default: null
+        type: boolean
+      include:
+        default: null
+        type: list<string>
+      include_all:
+        default: "false"
+        type: boolean
+    graphql:
+      add_operation_name_to_span_name:
+        enabled:
+          default: null
+          type: boolean
+      capture_query:
+        default: "true"
+        type: boolean
+      query_sanitizer:
+        enabled:
+          default: "true"
+          type: boolean
+    graphql_java:
+      enabled:
+        default: null
+        type: boolean
+    graphql_java_12:
+      enabled:
+        default: null
+        type: boolean
+    graphql_java_20:
+      enabled:
+        default: null
+        type: boolean
+    internal_application_logger:
+      enabled:
+        default: null
+        type: boolean
+    internal_class_loader:
+      enabled:
+        default: null
+        type: boolean
+    internal_eclipse_osgi:
+      enabled:
+        default: null
+        type: boolean
+    internal_eclipse_osgi_3:
+      enabled:
+        default: null
+        type: boolean
+    internal_lambda:
+      enabled:
+        default: null
+        type: boolean
+    internal_reflection:
+      enabled:
+        default: null
+        type: boolean
+    internal_url_class_loader:
+      enabled:
+        default: null
+        type: boolean
+    opentelemetry_api:
+      enabled:
+        default: null
+        type: boolean
+    opentelemetry_api_1:
+      enabled:
+        default: null
+        type: boolean
+    opentelemetry_api_incubator_1:
+      enabled:
+        default: null
+        type: boolean
+    opentelemetry_instrumentation_annotations:
+      enabled:
+        default: null
+        type: boolean
+      exclude_methods:
+        default: null
+        type: list<structured>
+    opentelemetry_instrumentation_annotations_1:
+      enabled:
+        default: null
+        type: boolean
+    opentelemetry_instrumentation_api:
+      enabled:
+        default: null
+        type: boolean

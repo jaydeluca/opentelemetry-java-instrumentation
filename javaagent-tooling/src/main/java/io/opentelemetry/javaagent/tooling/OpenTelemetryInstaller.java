@@ -47,11 +47,19 @@ public final class OpenTelemetryInstaller {
       // Provide a fake declarative configuration based on config properties
       // so that declarative configuration API can be used everywhere
       configProvider = ConfigPropertiesBackedConfigProvider.create(configProperties);
+
+      // TEST HOOK: Wrap with recording provider if metadata collection is enabled
+      configProvider = wrapWithRecordingProviderIfEnabled(configProvider, extensionClassLoader);
+
       sdk = new ExtendedOpenTelemetrySdkWrapper(sdk, configProvider);
     } else {
       // Provide a fake ConfigProperties until we have migrated all runtime configuration
       // access to use declarative configuration API
       configProvider = ((ExtendedOpenTelemetry) sdk).getConfigProvider();
+
+      // TEST HOOK: Wrap with recording provider if metadata collection is enabled
+      configProvider = wrapWithRecordingProviderIfEnabled(configProvider, extensionClassLoader);
+
       configProperties = getDeclarativeConfigBridgedProperties(earlyConfig, configProvider);
     }
 
@@ -63,6 +71,69 @@ public final class OpenTelemetryInstaller {
         SdkAutoconfigureAccess.getResource(autoConfiguredSdk),
         configProperties,
         configProvider);
+  }
+
+  /**
+   * Wraps the ConfigProvider with a recording provider if metadata collection is enabled. Uses
+   * reflection to load the recording provider from the extension classloader.
+   */
+  private static ConfigProvider wrapWithRecordingProviderIfEnabled(
+      ConfigProvider configProvider, ClassLoader extensionClassLoader) {
+    boolean collectMetadata = Boolean.getBoolean("collectMetadata");
+    if (!collectMetadata) {
+      return configProvider;
+    }
+
+    try {
+      // Load RecordingConfigProvider class from extension classloader
+      Class<?> recordingProviderClass =
+          Class.forName(
+              "io.opentelemetry.javaagent.testing.exporter.RecordingConfigProvider",
+              true,
+              extensionClassLoader);
+
+      // Create instance: new RecordingConfigProvider(configProvider)
+      Object recordingProvider =
+          recordingProviderClass.getConstructor(ConfigProvider.class).newInstance(configProvider);
+
+      // Store the RecordingConfigProvider in AgentTestingExporterFactory for access from test side
+      try {
+        Class<?> factoryClass =
+            Class.forName(
+                "io.opentelemetry.javaagent.testing.exporter.AgentTestingExporterFactory",
+                true,
+                extensionClassLoader);
+        java.lang.reflect.Field providerField =
+            factoryClass.getDeclaredField("recordingConfigProvider");
+        providerField.setAccessible(true);
+        providerField.set(null, recordingProvider);
+      } catch (Exception e2) {
+        // Ignore - factory may not be available
+      }
+
+      // Also try to set in ConfigRecordingAgentListener (may fail due to classloader, that's OK)
+      try {
+        // Try loading from the current thread's context classloader (test classloader)
+        ClassLoader testClassLoader = Thread.currentThread().getContextClassLoader();
+        if (testClassLoader != null) {
+          Class<?> listenerClass =
+              Class.forName(
+                  "io.opentelemetry.instrumentation.testing.internal.ConfigRecordingAgentListener",
+                  true,
+                  testClassLoader);
+          listenerClass
+              .getMethod("setRecordingProvider", Object.class)
+              .invoke(null, recordingProvider);
+        }
+      } catch (Exception e) {
+        // Don't fail - the provider will be accessed from the factory via reflection
+      }
+
+      return (ConfigProvider) recordingProvider;
+    } catch (Exception e) {
+      // Silently fail if test classes are not available (e.g., in production builds)
+      return configProvider;
+    }
   }
 
   // Visible for testing

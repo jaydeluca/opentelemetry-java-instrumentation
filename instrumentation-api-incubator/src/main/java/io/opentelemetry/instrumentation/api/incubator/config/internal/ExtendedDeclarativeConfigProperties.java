@@ -26,7 +26,10 @@ public final class ExtendedDeclarativeConfigProperties implements DeclarativeCon
   }
 
   public ExtendedDeclarativeConfigProperties get(String name) {
-    return new ExtendedDeclarativeConfigProperties(delegate.getStructured(name, empty()));
+    DeclarativeConfigProperties structured = delegate.getStructured(name, empty());
+    // If delegate is a RecordingDeclarativeConfigProperties, getStructured() already returned
+    // a RecordingDeclarativeConfigProperties wrapper, so we preserve it by wrapping it
+    return new ExtendedDeclarativeConfigProperties(structured);
   }
 
   @Nullable
@@ -39,6 +42,37 @@ public final class ExtendedDeclarativeConfigProperties implements DeclarativeCon
   @Override
   public Boolean getBoolean(String name) {
     return delegate.getBoolean(name);
+  }
+
+  /**
+   * Returns a boolean-valued configuration property or {@code defaultValue} if a property with name
+   * {@code name} has not been configured.
+   */
+  @Override
+  public boolean getBoolean(String name, boolean defaultValue) {
+    Boolean value = delegate.getBoolean(name);
+    if (value == null) {
+      // If delegate is a RecordingDeclarativeConfigProperties, update the recorded usage with
+      // the default value
+      if (delegate
+          .getClass()
+          .getName()
+          .equals(
+              "io.opentelemetry.javaagent.testing.exporter.RecordingDeclarativeConfigProperties")) {
+        try {
+          java.lang.reflect.Method recordMethod =
+              delegate
+                  .getClass()
+                  .getMethod(
+                      "recordBooleanWithDefault", String.class, boolean.class, Boolean.class);
+          recordMethod.invoke(delegate, name, defaultValue, null);
+        } catch (Exception e) {
+          // If reflection fails, just continue - the usage was already recorded by getBoolean()
+        }
+      }
+      return defaultValue;
+    }
+    return value;
   }
 
   @Nullable
