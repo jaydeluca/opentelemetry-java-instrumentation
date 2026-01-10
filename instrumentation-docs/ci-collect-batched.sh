@@ -2,6 +2,7 @@
 
 # Runs selected Gradle test tasks to regenerate *.telemetry output for
 # individual OpenTelemetry Java agent instrumentations.
+# This version processes tests in batches with cleanup between batches.
 
 set -euo pipefail
 
@@ -30,6 +31,9 @@ cleanup_resources() {
   df -h
 }
 
+# Process tasks in batches
+BATCH_SIZE=50
+
 # Collect standard and colima tasks (without testLatestDeps)
 ALL_TASKS=()
 for task in "${INSTRUMENTATIONS[@]}"; do
@@ -41,15 +45,22 @@ done
 
 echo "Disk space before tests:"
 df -h
+echo "Total tasks to process: ${#ALL_TASKS[@]}"
 
-echo "Processing standard instrumentations..."
-./gradlew "${ALL_TASKS[@]}" \
-  -PcollectMetadata=true \
-  "${GRADLE_FLAGS[@]}" \
-  --rerun-tasks --continue
+# Process standard instrumentations in batches
+for ((i=0; i<${#ALL_TASKS[@]}; i+=BATCH_SIZE)); do
+  BATCH_NUM=$((i/BATCH_SIZE + 1))
+  BATCH=("${ALL_TASKS[@]:i:BATCH_SIZE}")
+  echo "Processing batch ${BATCH_NUM} (tasks $((i+1))-$((i+${#BATCH[@]})) of ${#ALL_TASKS[@]})..."
 
-# Cleanup after standard instrumentations
-cleanup_resources
+  ./gradlew "${BATCH[@]}" \
+    -PcollectMetadata=true \
+    "${GRADLE_FLAGS[@]}" \
+    --rerun-tasks --continue
+
+  # Cleanup after each batch
+  cleanup_resources
+done
 
 # Collect and run tasks that need testLatestDeps
 LATEST_DEPS_TASKS=()
@@ -64,6 +75,9 @@ if [[ ${#LATEST_DEPS_TASKS[@]} -gt 0 ]]; then
     -PtestLatestDeps=true \
     "${GRADLE_FLAGS[@]}" \
     --rerun-tasks --continue
+
+  # Final cleanup
+  cleanup_resources
 fi
 
 echo "Telemetry file regeneration complete."
