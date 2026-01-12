@@ -33,7 +33,7 @@ public final class OpenTelemetryInstaller {
    * @return the {@link AutoConfiguredOpenTelemetrySdk}
    */
   public static AutoConfiguredOpenTelemetrySdk installOpenTelemetrySdk(
-      ClassLoader extensionClassLoader, EarlyInitAgentConfig earlyConfig) {
+      ClassLoader extensionClassLoader) {
 
     AutoConfiguredOpenTelemetrySdk autoConfiguredSdk =
         AutoConfiguredOpenTelemetrySdk.builder()
@@ -60,7 +60,7 @@ public final class OpenTelemetryInstaller {
       // TEST HOOK: Allow test code to wrap the ConfigProvider
       configProvider = wrapConfigProviderIfNeeded(configProvider, extensionClassLoader);
 
-      configProperties = getDeclarativeConfigBridgedProperties(earlyConfig, configProvider);
+      configProperties = getDeclarativeConfigBridgedProperties(configProvider);
     }
 
     setForceFlush(sdk);
@@ -102,16 +102,15 @@ public final class OpenTelemetryInstaller {
   }
 
   // Visible for testing
-  static ConfigProperties getDeclarativeConfigBridgedProperties(
-      EarlyInitAgentConfig earlyConfig, ConfigProvider configProvider) {
+  static ConfigProperties getDeclarativeConfigBridgedProperties(ConfigProvider configProvider) {
     return new DeclarativeConfigPropertiesBridgeBuilder()
         .addMapping("otel.javaagent", "agent")
         .addOverride("otel.instrumentation.common.default-enabled", defaultEnabled(configProvider))
         // these properties are used to initialize the SDK before the configuration file
         // is loaded for consistency, we pass them to the bridge, so that they can be read
         // later with the same value from the {@link DeclarativeConfigPropertiesBridge}
-        .addOverride("otel.javaagent.debug", earlyConfig.getBoolean("otel.javaagent.debug", false))
-        .addOverride("otel.javaagent.logging", earlyConfig.getString("otel.javaagent.logging"))
+        .addOverride("otel.javaagent.debug", EarlyInitAgentConfig.get().isDebug())
+        .addOverride("otel.javaagent.logging", EarlyInitAgentConfig.get().getLogging())
         .buildFromInstrumentationConfig(configProvider.getInstrumentationConfig());
   }
 

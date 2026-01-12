@@ -27,12 +27,15 @@ instrumentation:
       exclude_classes:
         default: null
         type: list<string>
-      force-synchronous-agent-listeners/development:
+      force_synchronous_agent_listeners/development:
         default: "false"
         type: boolean
       indy/development:
         default: null
         type: boolean
+      instrumentation_mode:
+        default: null
+        type: string
       testing:
         additional_library_ignores:
           enabled:

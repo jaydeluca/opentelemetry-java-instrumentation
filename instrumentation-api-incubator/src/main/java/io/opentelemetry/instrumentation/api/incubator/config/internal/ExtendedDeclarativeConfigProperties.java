@@ -26,10 +26,7 @@ public final class ExtendedDeclarativeConfigProperties implements DeclarativeCon
   }
 
   public ExtendedDeclarativeConfigProperties get(String name) {
-    DeclarativeConfigProperties structured = delegate.getStructured(name, empty());
-    // If delegate is a RecordingDeclarativeConfigProperties, getStructured() already returned
-    // a RecordingDeclarativeConfigProperties wrapper, so we preserve it by wrapping it
-    return new ExtendedDeclarativeConfigProperties(structured);
+    return new ExtendedDeclarativeConfigProperties(delegate.getStructured(name, empty()));
   }
 
   @Nullable

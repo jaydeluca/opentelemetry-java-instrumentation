@@ -18,7 +18,7 @@ final class GeodeDbAttributesGetter implements DbClientAttributesGetter<GeodeReq
 
   @SuppressWarnings("deprecation") // using deprecated DbSystemIncubatingValues
   @Override
-  public String getDbSystem(GeodeRequest request) {
+  public String getDbSystemName(GeodeRequest request) {
     return DbIncubatingAttributes.DbSystemIncubatingValues.GEODE;
   }
 
@@ -32,7 +32,7 @@ final class GeodeDbAttributesGetter implements DbClientAttributesGetter<GeodeReq
   @Nullable
   public String getDbQueryText(GeodeRequest request) {
     // sanitized statement is cached
-    return sanitizer.sanitize(request.getQuery()).getFullStatement();
+    return sanitizer.sanitize(request.getQuery()).getQueryText();
   }
 
   @Override

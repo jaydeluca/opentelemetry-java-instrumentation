@@ -35,6 +35,10 @@ public final class JettyClientTelemetryBuilder {
     builder = JettyHttpClientInstrumenterBuilderFactory.create(openTelemetry);
   }
 
+  /**
+   * @deprecated Use {@link JettyClientTelemetry#newHttpClient(HttpClientTransport)} instead.
+   */
+  @Deprecated
   @CanIgnoreReturnValue
   public JettyClientTelemetryBuilder setHttpClientTransport(
       HttpClientTransport httpClientTransport) {
@@ -42,6 +46,13 @@ public final class JettyClientTelemetryBuilder {
     return this;
   }
 
+  /**
+   * @deprecated Use {@link
+   *     org.eclipse.jetty.client.HttpClient#setSslContextFactory(SslContextFactory.Client)} on the
+   *     HttpClient returned by {@link JettyClientTelemetry#newHttpClient()} or {@link
+   *     JettyClientTelemetry#newHttpClient(HttpClientTransport)} instead.
+   */
+  @Deprecated
   @CanIgnoreReturnValue
   public JettyClientTelemetryBuilder setSslContextFactory(
       SslContextFactory.Client sslContextFactory) {
@@ -103,18 +114,6 @@ public final class JettyClientTelemetryBuilder {
   }
 
   /**
-   * Sets custom {@link SpanNameExtractor} via transform function.
-   *
-   * @deprecated Use {@link #setSpanNameExtractorCustomizer(UnaryOperator)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public JettyClientTelemetryBuilder setSpanNameExtractor(
-      UnaryOperator<SpanNameExtractor<Request>> spanNameExtractorTransformer) {
-    return setSpanNameExtractorCustomizer(spanNameExtractorTransformer);
-  }
-
-  /**
    * Sets a customizer that receives the default {@link SpanNameExtractor} and returns a customized
    * one.
    */
@@ -130,9 +129,10 @@ public final class JettyClientTelemetryBuilder {
    * JettyClientTelemetryBuilder}.
    */
   public JettyClientTelemetry build() {
+    var instrumenter = builder.build();
     TracingHttpClient tracingHttpClient =
-        TracingHttpClient.buildNew(builder.build(), sslContextFactory, httpClientTransport);
+        TracingHttpClient.buildNew(instrumenter, sslContextFactory, httpClientTransport);
 
-    return new JettyClientTelemetry(tracingHttpClient);
+    return new JettyClientTelemetry(tracingHttpClient, instrumenter);
   }
 }
