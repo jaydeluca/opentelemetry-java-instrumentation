@@ -48,8 +48,8 @@ public final class OpenTelemetryInstaller {
       // so that declarative configuration API can be used everywhere
       configProvider = ConfigPropertiesBackedConfigProvider.create(configProperties);
 
-      // TEST HOOK: Wrap with recording provider if metadata collection is enabled
-      configProvider = wrapWithRecordingProviderIfEnabled(configProvider, extensionClassLoader);
+      // TEST HOOK: Allow test code to wrap the ConfigProvider
+      configProvider = wrapConfigProviderIfNeeded(configProvider, extensionClassLoader);
 
       sdk = new ExtendedOpenTelemetrySdkWrapper(sdk, configProvider);
     } else {
@@ -57,8 +57,8 @@ public final class OpenTelemetryInstaller {
       // access to use declarative configuration API
       configProvider = ((ExtendedOpenTelemetry) sdk).getConfigProvider();
 
-      // TEST HOOK: Wrap with recording provider if metadata collection is enabled
-      configProvider = wrapWithRecordingProviderIfEnabled(configProvider, extensionClassLoader);
+      // TEST HOOK: Allow test code to wrap the ConfigProvider
+      configProvider = wrapConfigProviderIfNeeded(configProvider, extensionClassLoader);
 
       configProperties = getDeclarativeConfigBridgedProperties(earlyConfig, configProvider);
     }
@@ -74,66 +74,31 @@ public final class OpenTelemetryInstaller {
   }
 
   /**
-   * Wraps the ConfigProvider with a recording provider if metadata collection is enabled. Uses
-   * reflection to load the recording provider from the extension classloader.
+   * Hook point for test code to wrap the ConfigProvider. Uses reflection to call a test hook if
+   * available, allowing test infrastructure to intercept configuration without modifying production
+   * code.
    */
-  private static ConfigProvider wrapWithRecordingProviderIfEnabled(
+  private static ConfigProvider wrapConfigProviderIfNeeded(
       ConfigProvider configProvider, ClassLoader extensionClassLoader) {
-    boolean collectMetadata = Boolean.getBoolean("collectMetadata");
-    if (!collectMetadata) {
-      return configProvider;
-    }
-
     try {
-      // Load RecordingConfigProvider class from extension classloader
-      Class<?> recordingProviderClass =
+      // Try to load a test hook class that can wrap the ConfigProvider
+      Class<?> hookClass =
           Class.forName(
-              "io.opentelemetry.javaagent.testing.exporter.RecordingConfigProvider",
-              true,
+              "io.opentelemetry.javaagent.testing.exporter.ConfigProviderTestHook",
+              false, // Don't initialize - we'll check if it exists first
               extensionClassLoader);
-
-      // Create instance: new RecordingConfigProvider(configProvider)
-      Object recordingProvider =
-          recordingProviderClass.getConstructor(ConfigProvider.class).newInstance(configProvider);
-
-      // Store the RecordingConfigProvider in AgentTestingExporterFactory for access from test side
-      try {
-        Class<?> factoryClass =
-            Class.forName(
-                "io.opentelemetry.javaagent.testing.exporter.AgentTestingExporterFactory",
-                true,
-                extensionClassLoader);
-        java.lang.reflect.Field providerField =
-            factoryClass.getDeclaredField("recordingConfigProvider");
-        providerField.setAccessible(true);
-        providerField.set(null, recordingProvider);
-      } catch (Exception e2) {
-        // Ignore - factory may not be available
+      java.lang.reflect.Method wrapMethod =
+          hookClass.getMethod("wrap", ConfigProvider.class, ClassLoader.class);
+      Object wrapped = wrapMethod.invoke(null, configProvider, extensionClassLoader);
+      if (wrapped instanceof ConfigProvider) {
+        return (ConfigProvider) wrapped;
       }
-
-      // Also try to set in ConfigRecordingAgentListener (may fail due to classloader, that's OK)
-      try {
-        // Try loading from the current thread's context classloader (test classloader)
-        ClassLoader testClassLoader = Thread.currentThread().getContextClassLoader();
-        if (testClassLoader != null) {
-          Class<?> listenerClass =
-              Class.forName(
-                  "io.opentelemetry.instrumentation.testing.internal.ConfigRecordingAgentListener",
-                  true,
-                  testClassLoader);
-          listenerClass
-              .getMethod("setRecordingProvider", Object.class)
-              .invoke(null, recordingProvider);
-        }
-      } catch (Exception e) {
-        // Don't fail - the provider will be accessed from the factory via reflection
-      }
-
-      return (ConfigProvider) recordingProvider;
+    } catch (ClassNotFoundException e) {
+      // Test hook not available - this is normal in production
     } catch (Exception e) {
-      // Silently fail if test classes are not available (e.g., in production builds)
-      return configProvider;
+      // Test hook failed - continue with original provider
     }
+    return configProvider;
   }
 
   // Visible for testing
