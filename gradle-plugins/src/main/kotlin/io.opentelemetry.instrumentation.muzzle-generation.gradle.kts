@@ -1,3 +1,4 @@
+import io.opentelemetry.gradle.PluginVersion
 import io.opentelemetry.javaagent.muzzle.generation.ClasspathByteBuddyPlugin
 import io.opentelemetry.javaagent.muzzle.generation.ClasspathTransformation
 import io.opentelemetry.javaagent.muzzle.generation.ConfigurationCacheFriendlyByteBuddyTask
@@ -35,6 +36,8 @@ val codegen by configurations.creating {
   isCanBeResolved = true
 }
 
+val pluginVersion = PluginVersion.get()
+
 // Configure codegen configuration to inherit from project's main configurations.
 // This allows dependency versions to be resolved from BOMs applied to compileClasspath/compileOnly.
 afterEvaluate {
@@ -49,6 +52,10 @@ afterEvaluate {
 }
 
 dependencies {
+  // Add alpha BOM directly to codegen configuration to ensure version alignment
+  // This works in conjunction with inheritance from compileClasspath/compileOnly
+  add("codegen", platform("io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom-alpha:$pluginVersion"))
+
   /*
    * Code generation dependency: Used by the muzzle gradle plugin during code generation.
    * These classes are inspected and traversed during the muzzle reference collection phase

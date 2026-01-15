@@ -4,6 +4,7 @@
  */
 
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import io.opentelemetry.gradle.PluginVersion
 import io.opentelemetry.javaagent.muzzle.AcceptableVersions
 import io.opentelemetry.javaagent.muzzle.MuzzleDirective
 import io.opentelemetry.javaagent.muzzle.MuzzleExtension
@@ -46,6 +47,8 @@ val muzzleBootstrap: Configuration by configurations.creating {
   isCanBeResolved = true
 }
 
+val pluginVersion = PluginVersion.get()
+
 // Configure muzzle-specific configurations to inherit from project's main configurations.
 // This allows dependency versions to be resolved from BOMs applied to compileClasspath/compileOnly.
 afterEvaluate {
@@ -63,6 +66,11 @@ afterEvaluate {
 }
 
 dependencies {
+  // Add alpha BOM directly to muzzle configurations to ensure version alignment
+  // This works in conjunction with inheritance from compileClasspath/compileOnly
+  add("muzzleBootstrap", platform("io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom-alpha:$pluginVersion"))
+  add("muzzleTooling", platform("io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom-alpha:$pluginVersion"))
+
   // Bootstrap dependencies: Required classes for instrumentation that run in the bootstrap classloader
   add("muzzleBootstrap", "io.opentelemetry.instrumentation:opentelemetry-instrumentation-api")
   add("muzzleBootstrap", "io.opentelemetry.instrumentation:opentelemetry-instrumentation-api-incubator")

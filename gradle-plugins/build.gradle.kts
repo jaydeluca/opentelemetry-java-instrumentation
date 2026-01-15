@@ -50,7 +50,31 @@ dependencies {
   testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+// Generate version properties file for runtime access in plugins
+val generateVersionProperties by tasks.registering {
+  val versionPropsFile = layout.buildDirectory.file("generated/resources/io/opentelemetry/gradle/plugin-version.properties")
+  outputs.file(versionPropsFile)
+
+  doLast {
+    versionPropsFile.get().asFile.apply {
+      parentFile.mkdirs()
+      writeText("plugin.version=${project.version}")
+    }
+  }
+}
+
+// Include generated properties in the plugin jar
+sourceSets {
+  main {
+    output.dir(generateVersionProperties.map { it.outputs.files.singleFile.parentFile.parentFile.parentFile })
+  }
+}
+
 tasks {
+  named("processResources") {
+    dependsOn(generateVersionProperties)
+  }
+
   withType<Test>().configureEach {
     useJUnitPlatform()
   }
