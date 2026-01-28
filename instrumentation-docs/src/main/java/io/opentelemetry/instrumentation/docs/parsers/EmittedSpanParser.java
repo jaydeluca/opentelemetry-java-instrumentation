@@ -70,7 +70,13 @@ public class EmittedSpanParser {
       }
     }
 
-    return parseSpans(spansByScope);
+    try {
+      return parseSpans(spansByScope);
+    } catch (Exception e) {
+      logger.warning(
+          "Error parsing spans from " + instrumentationDirectory + ": " + e.getMessage());
+      throw e;
+    }
   }
 
   /**

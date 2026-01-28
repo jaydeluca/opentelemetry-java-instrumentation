@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -32,10 +33,16 @@ public class GradleParser {
   private static final Pattern libraryPattern =
       Pattern.compile("library\\(\"([^\"]+:[^\"]+):([^\"]+)\"\\)");
 
+  private static final Pattern testLibraryPattern =
+      Pattern.compile("testLibrary\\(\"([^\"]+:[^\"]+):([^\"]+)\"\\)");
+
   private static final Pattern compileOnlyPattern =
       Pattern.compile(
           "compileOnly\\(\"([^\"]+:[^\"]+)(?::[^\"]+)?\"\\)\\s*\\{\\s*version\\s*\\{.*?strictly\\(\"([^\"]+)\"\\).*?}\\s*",
           Pattern.DOTALL);
+
+  private static final Pattern simpleCompileOnlyPattern =
+      Pattern.compile("compileOnly\\(\"([^\"]+:[^\"]+):([^\"]+)\"\\)");
 
   private static final Pattern latestDepTestLibraryPattern =
       Pattern.compile("latestDepTestLibrary\\(\"([^\"]+:[^\"]+):([^\"]+)\"\\)");
@@ -44,6 +51,9 @@ public class GradleParser {
 
   private static final Pattern ifBlockPattern =
       Pattern.compile("if\\s*\\([^)]*\\)\\s*\\{.*?}", Pattern.DOTALL);
+
+  private static final Pattern testingBlockPattern =
+      Pattern.compile("testing\\s*\\{.*?^}", Pattern.DOTALL | Pattern.MULTILINE);
 
   private static final Pattern otelJavaBlockPattern =
       Pattern.compile("otelJava\\s*\\{.*?}", Pattern.DOTALL);
@@ -111,8 +121,11 @@ public class GradleParser {
 
   /**
    * Parses the "dependencies" block from the given Gradle file content and extracts information
-   * about what library versions are supported. Looks for library() and compileOnly() blocks for
-   * lower bounds, and latestDepTestLibrary() for upper bounds.
+   * about what library versions are supported. Uses a priority-based approach:
+   *
+   * <p>Priority 1: library() declarations - use as-is Priority 2: compileOnly() declarations - use
+   * as primary source Priority 3: testLibrary() with matching artifactId - use for min version
+   * Priority 4: Filtered testLibrary() - fallback only
    *
    * @param gradleFileContents Contents of a Gradle build file as a String
    * @param variables Map of variable names to their values
@@ -121,22 +134,60 @@ public class GradleParser {
   private static DependencyInfo parseLibraryDependencies(
       String gradleFileContents, Map<String, String> variables) {
     Map<String, String> versions = new HashMap<>();
+    boolean hasLibraryDeclarations = false;
 
+    // Priority 1: Extract library() declarations
     Matcher libraryMatcher = libraryPattern.matcher(gradleFileContents);
-
     while (libraryMatcher.find()) {
       String groupAndArtifact = libraryMatcher.group(1);
       String version = libraryMatcher.group(2);
       versions.put(groupAndArtifact, version);
+      hasLibraryDeclarations = true;
     }
 
-    Matcher compileOnlyMatcher = compileOnlyPattern.matcher(gradleFileContents);
-    while (compileOnlyMatcher.find()) {
-      String groupAndArtifact = compileOnlyMatcher.group(1);
-      String version = compileOnlyMatcher.group(2);
-      versions.put(groupAndArtifact, version);
+    // Priority 2: Extract compileOnly() declarations (only if no library() found)
+    if (!hasLibraryDeclarations) {
+      // Build list of excluded ranges (testing blocks)
+      List<int[]> excludedRanges = buildExcludedRanges(gradleFileContents);
+
+      // Extract compileOnly() declarations with strictly() version
+      Matcher compileOnlyMatcher = compileOnlyPattern.matcher(gradleFileContents);
+      while (compileOnlyMatcher.find()) {
+        if (isInExcludedRange(compileOnlyMatcher.start(), excludedRanges)) {
+          continue; // Skip compileOnly inside testing blocks
+        }
+        String groupAndArtifact = compileOnlyMatcher.group(1);
+        String version = compileOnlyMatcher.group(2);
+        versions.put(groupAndArtifact, version);
+      }
+
+      // Extract simple compileOnly() declarations
+      Matcher simpleCompileOnlyMatcher = simpleCompileOnlyPattern.matcher(gradleFileContents);
+      while (simpleCompileOnlyMatcher.find()) {
+        if (isInExcludedRange(simpleCompileOnlyMatcher.start(), excludedRanges)) {
+          continue; // Skip compileOnly inside testing blocks
+        }
+        String groupAndArtifact = simpleCompileOnlyMatcher.group(1);
+        String version = simpleCompileOnlyMatcher.group(2);
+        // Only add if not already present from strictly() pattern
+        if (!versions.containsKey(groupAndArtifact)) {
+          versions.put(groupAndArtifact, version);
+        }
+      }
+
+      // Priority 3: For compileOnly entries, look for matching testLibrary to determine min
+      // version
+      if (!versions.isEmpty()) {
+        enrichWithTestLibraryMinVersions(gradleFileContents, versions);
+      }
     }
 
+    // Priority 4: Use testLibrary as fallback only when no library() or compileOnly() found
+    if (versions.isEmpty()) {
+      extractFilteredTestLibraries(gradleFileContents, versions);
+    }
+
+    // Extract latestDepTestLibrary for upper bounds
     Matcher latestDepTestLibraryMatcher = latestDepTestLibraryPattern.matcher(gradleFileContents);
     while (latestDepTestLibraryMatcher.find()) {
       String groupAndArtifact = latestDepTestLibraryMatcher.group(1);
@@ -160,15 +211,98 @@ public class GradleParser {
     return new DependencyInfo(results, minJavaVersion);
   }
 
-  @Nullable
-  public static Integer parseMinJavaVersion(String gradleFileContents) {
+  /**
+   * For each compileOnly entry, look for matching testLibrary entries with the same
+   * groupId:artifactId to determine the minimum supported version. This handles the pattern where
+   * we compile against a newer version but support older versions.
+   *
+   * @param gradleFileContents Contents of a Gradle build file as a String
+   * @param versions Map of artifact to version (will be updated with min versions)
+   */
+  private static void enrichWithTestLibraryMinVersions(
+      String gradleFileContents, Map<String, String> versions) {
+    Matcher testLibraryMatcher = testLibraryPattern.matcher(gradleFileContents);
+
+    while (testLibraryMatcher.find()) {
+      String groupAndArtifact = testLibraryMatcher.group(1);
+      String testVersion = testLibraryMatcher.group(2);
+
+      // Check if we have a compileOnly entry for the same artifact
+      if (versions.containsKey(groupAndArtifact)) {
+        String currentVersion = versions.get(groupAndArtifact);
+        // If the test version is different and looks like a minimum version, use it
+        if (!currentVersion.equals(testVersion) && !testVersion.contains("+")) {
+          versions.put(groupAndArtifact, testVersion + "," + currentVersion);
+        }
+      }
+    }
+  }
+
+  /**
+   * Extracts testLibrary entries with smart filtering to exclude test artifacts and prefer relevant
+   * libraries. Only used as fallback when no library() or compileOnly() found.
+   *
+   * @param gradleFileContents Contents of a Gradle build file as a String
+   * @param versions Map of artifact to version (will be populated)
+   */
+  private static void extractFilteredTestLibraries(
+      String gradleFileContents, Map<String, String> versions) {
+    Matcher testLibraryMatcher = testLibraryPattern.matcher(gradleFileContents);
+
+    while (testLibraryMatcher.find()) {
+      String groupAndArtifact = testLibraryMatcher.group(1);
+      String version = testLibraryMatcher.group(2);
+
+      if (!isTestArtifact(groupAndArtifact) && !versions.containsKey(groupAndArtifact)) {
+        versions.put(groupAndArtifact, version);
+      }
+    }
+  }
+
+  /**
+   * Determines if an artifact is a test-related artifact that should be filtered out.
+   *
+   * @param groupAndArtifact The group:artifact string
+   * @return true if this is a test artifact
+   */
+  private static boolean isTestArtifact(String groupAndArtifact) {
+    String lowerCase = groupAndArtifact.toLowerCase(Locale.ROOT);
+    return lowerCase.endsWith("-test")
+        || lowerCase.endsWith("-testing")
+        || lowerCase.contains("starter-test")
+        || lowerCase.contains(":junit")
+        || lowerCase.contains(":mockito")
+        || lowerCase.contains("test-support");
+  }
+
+  /**
+   * Builds a list of excluded ranges (if blocks, testing blocks) that should be ignored during
+   * parsing.
+   *
+   * @param gradleFileContents Contents of a Gradle build file as a String
+   * @return List of [start, end] position ranges to exclude
+   */
+  private static List<int[]> buildExcludedRanges(String gradleFileContents) {
     List<int[]> excludedRanges = new ArrayList<>();
 
-    // Identify all if-block ranges so we can exclude them
+    // Exclude if blocks
     Matcher ifBlockMatcher = ifBlockPattern.matcher(gradleFileContents);
     while (ifBlockMatcher.find()) {
       excludedRanges.add(new int[] {ifBlockMatcher.start(), ifBlockMatcher.end()});
     }
+
+    // Exclude testing blocks
+    Matcher testingBlockMatcher = testingBlockPattern.matcher(gradleFileContents);
+    while (testingBlockMatcher.find()) {
+      excludedRanges.add(new int[] {testingBlockMatcher.start(), testingBlockMatcher.end()});
+    }
+
+    return excludedRanges;
+  }
+
+  @Nullable
+  public static Integer parseMinJavaVersion(String gradleFileContents) {
+    List<int[]> excludedRanges = buildExcludedRanges(gradleFileContents);
 
     Matcher otelJavaMatcher = otelJavaBlockPattern.matcher(gradleFileContents);
     while (otelJavaMatcher.find()) {

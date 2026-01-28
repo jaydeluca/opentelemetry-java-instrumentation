@@ -24,6 +24,7 @@ import io.opentelemetry.instrumentation.docs.utils.InstrumentationPath;
 import io.opentelemetry.instrumentation.docs.utils.YamlHelper;
 import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,7 +69,15 @@ class InstrumentationAnalyzer {
       module.setMetadata(metaData);
     }
 
-    module.setTargetVersions(getVersionInformation(module));
+    Map<InstrumentationType, Set<String>> versionInfo = getVersionInformation(module);
+
+    // Override library versions from metadata if present
+    if (metaData != null && !metaData.getTargetLibraryVersions().isEmpty()) {
+      versionInfo.put(
+          InstrumentationType.LIBRARY, new HashSet<>(metaData.getTargetLibraryVersions()));
+    }
+
+    module.setTargetVersions(versionInfo);
 
     // Handle telemetry merging (manual + emitted)
     setMergedTelemetry(module, metaData);

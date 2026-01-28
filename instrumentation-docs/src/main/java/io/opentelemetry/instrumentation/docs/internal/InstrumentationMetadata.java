@@ -49,6 +49,9 @@ public class InstrumentationMetadata {
 
   private List<InstrumentationFeature> features = emptyList();
 
+  @JsonProperty("target_library_versions")
+  private List<String> targetLibraryVersions = emptyList();
+
   public InstrumentationMetadata() {
     this.classification = InstrumentationClassification.LIBRARY.name();
   }
@@ -157,6 +160,14 @@ public class InstrumentationMetadata {
     this.features = Objects.requireNonNullElse(features, emptyList());
   }
 
+  public List<String> getTargetLibraryVersions() {
+    return targetLibraryVersions;
+  }
+
+  public void setTargetLibraryVersions(@Nullable List<String> targetLibraryVersions) {
+    this.targetLibraryVersions = Objects.requireNonNullElse(targetLibraryVersions, emptyList());
+  }
+
   /**
    * This class is internal and is hence not for public use. Its APIs are unstable and can change at
    * any time.
@@ -173,6 +184,7 @@ public class InstrumentationMetadata {
     private List<ManualTelemetryEntry> additionalTelemetry = emptyList();
     @Nullable private Boolean overrideTelemetry;
     private List<InstrumentationFeature> features = emptyList();
+    private List<String> targetLibraryVersions = emptyList();
 
     @CanIgnoreReturnValue
     public Builder description(@Nullable String description) {
@@ -234,6 +246,12 @@ public class InstrumentationMetadata {
       return this;
     }
 
+    @CanIgnoreReturnValue
+    public Builder targetLibraryVersions(@Nullable List<String> targetLibraryVersions) {
+      this.targetLibraryVersions = Objects.requireNonNullElse(targetLibraryVersions, emptyList());
+      return this;
+    }
+
     public InstrumentationMetadata build() {
       InstrumentationMetadata metadata =
           new InstrumentationMetadata(
@@ -249,6 +267,7 @@ public class InstrumentationMetadata {
       metadata.setAdditionalTelemetry(additionalTelemetry);
       metadata.setOverrideTelemetry(overrideTelemetry);
       metadata.setFeatures(features);
+      metadata.setTargetLibraryVersions(targetLibraryVersions);
       return metadata;
     }
   }
