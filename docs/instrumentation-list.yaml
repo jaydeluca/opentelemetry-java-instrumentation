@@ -3411,6 +3411,47 @@ libraries:
         Configures the instrumentation to recognize an alternative set of HTTP request methods. All other methods will be treated as `_OTHER`.
       type: list
       default: CONNECT,DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT,TRACE
+    telemetry:
+    - when: default
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.system
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
+    - when: otel.semconv-stability.opt-in=database
+      metrics:
+      - name: db.client.operation.duration
+        description: Duration of database client operations.
+        type: HISTOGRAM
+        unit: s
+        attributes:
+        - name: db.system.name
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+      spans:
+      - span_kind: CLIENT
+        attributes:
+        - name: db.system.name
+          type: STRING
+        - name: http.request.method
+          type: STRING
+        - name: server.address
+          type: STRING
+        - name: server.port
+          type: LONG
+        - name: url.full
+          type: STRING
   - name: elasticsearch-rest-7.0
     description: This instrumentation enables database client spans and database client
       metrics for Elasticsearch REST clients.
@@ -8184,6 +8225,8 @@ libraries:
           type: STRING
         - name: db.system.name
           type: STRING
+        - name: error.type
+          type: STRING
         - name: network.peer.address
           type: STRING
         - name: network.peer.port
@@ -9685,26 +9728,6 @@ libraries:
         - name: db.system
           type: STRING
     - when: otel.semconv-stability.opt-in=database
-      metrics:
-      - name: db.client.operation.duration
-        description: Duration of database client operations.
-        type: HISTOGRAM
-        unit: s
-        attributes:
-        - name: db.operation.name
-          type: STRING
-        - name: db.system.name
-          type: STRING
-      spans:
-      - span_kind: CLIENT
-        attributes:
-        - name: db.operation.name
-          type: STRING
-        - name: db.query.text
-          type: STRING
-        - name: db.system.name
-          type: STRING
-    - when: otel.semconv-stability.opt-in=database,service.peer
       metrics:
       - name: db.client.operation.duration
         description: Duration of database client operations.
