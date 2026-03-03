@@ -2837,42 +2837,6 @@ libraries:
           type: STRING
         - name: server.port
           type: LONG
-    - when: otel.semconv-stability.opt-in=database
-      metrics:
-      - name: db.client.operation.duration
-        description: Duration of database client operations.
-        type: HISTOGRAM
-        unit: s
-        attributes:
-        - name: db.namespace
-          type: STRING
-        - name: db.query.summary
-          type: STRING
-        - name: db.system.name
-          type: STRING
-        - name: server.address
-          type: STRING
-        - name: server.port
-          type: LONG
-      spans:
-      - span_kind: CLIENT
-        attributes:
-        - name: db.namespace
-          type: STRING
-        - name: db.query.summary
-          type: STRING
-        - name: db.query.text
-          type: STRING
-        - name: db.response.status_code
-          type: STRING
-        - name: db.system.name
-          type: STRING
-        - name: error.type
-          type: STRING
-        - name: server.address
-          type: STRING
-        - name: server.port
-          type: LONG
   couchbase:
   - name: couchbase-2.0
     description: |
@@ -9791,26 +9755,6 @@ libraries:
           type: STRING
         - name: db.system.name
           type: STRING
-    - when: otel.semconv-stability.opt-in=database,service.peer
-      metrics:
-      - name: db.client.operation.duration
-        description: Duration of database client operations.
-        type: HISTOGRAM
-        unit: s
-        attributes:
-        - name: db.operation.name
-          type: STRING
-        - name: db.system.name
-          type: STRING
-      spans:
-      - span_kind: CLIENT
-        attributes:
-        - name: db.operation.name
-          type: STRING
-        - name: db.query.text
-          type: STRING
-        - name: db.system.name
-          type: STRING
   oracle:
   - name: oracle-ucp-11.2
     display_name: Oracle UCP
@@ -12468,20 +12412,6 @@ libraries:
           type: STRING
         - name: messaging.system
           type: STRING
-    - when: otel.instrumentation.pulsar.experimental-span-attributes=true
-      spans:
-      - span_kind: CONSUMER
-        attributes:
-        - name: messaging.destination.name
-          type: STRING
-        - name: messaging.message.body.size
-          type: LONG
-        - name: messaging.message.id
-          type: STRING
-        - name: messaging.operation
-          type: STRING
-        - name: messaging.system
-          type: STRING
   - name: spring-rabbit-1.0
     display_name: Spring Rabbit
     description: This instrumentation enables consumer messaging spans for Spring
@@ -13006,6 +12936,15 @@ libraries:
       description: Enables the creation of experimental controller spans.
       type: boolean
       default: false
+    telemetry:
+    - when: otel.instrumentation.common.experimental.controller-telemetry.enabled=true
+      spans:
+      - span_kind: INTERNAL
+        attributes:
+        - name: code.function
+          type: STRING
+        - name: code.namespace
+          type: STRING
   spymemcached:
   - name: spymemcached-2.12
     display_name: Spymemcached
@@ -13590,8 +13529,6 @@ libraries:
           type: STRING
         - name: db.query.text
           type: STRING
-        - name: db.response.status_code
-          type: STRING
         - name: error.type
           type: STRING
         - name: server.address
@@ -13651,8 +13588,6 @@ libraries:
         - name: db.query.summary
           type: STRING
         - name: db.query.text
-          type: STRING
-        - name: db.response.status_code
           type: STRING
         - name: error.type
           type: STRING
