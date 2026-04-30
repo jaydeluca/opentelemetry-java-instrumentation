@@ -20,6 +20,7 @@ import io.opentelemetry.instrumentation.api.internal.InstrumenterContext;
 import io.opentelemetry.instrumentation.api.internal.InstrumenterUtil;
 import io.opentelemetry.instrumentation.api.internal.SupportabilityMetrics;
 import java.time.Instant;
+import java.util.function.BiConsumer;
 import javax.annotation.Nullable;
 
 /**
@@ -82,6 +83,7 @@ public class Instrumenter<REQUEST, RESPONSE> {
   private final AttributesExtractor<? super REQUEST, ? super RESPONSE>[]
       operationListenerAttributesExtractors;
   private final ErrorCauseExtractor errorCauseExtractor;
+  private final BiConsumer<Span, Throwable> spanExceptionRecorder;
   private final boolean propagateOperationListenersToOnEnd;
   private final boolean enabled;
   private final SpanSuppressor spanSuppressor;
@@ -101,6 +103,7 @@ public class Instrumenter<REQUEST, RESPONSE> {
     this.operationListenerAttributesExtractors =
         builder.operationListenerAttributesExtractors.toArray(new AttributesExtractor[0]);
     this.errorCauseExtractor = builder.errorCauseExtractor;
+    this.spanExceptionRecorder = builder.spanExceptionRecorder;
     this.propagateOperationListenersToOnEnd = builder.propagateOperationListenersToOnEnd;
     this.enabled = builder.enabled;
     this.spanSuppressor = builder.buildSpanSuppressor();
@@ -260,7 +263,7 @@ public class Instrumenter<REQUEST, RESPONSE> {
 
     if (error != null) {
       error = errorCauseExtractor.extract(error);
-      span.recordException(error);
+      spanExceptionRecorder.accept(span, error);
     }
 
     UnsafeAttributes attributes = new UnsafeAttributes();

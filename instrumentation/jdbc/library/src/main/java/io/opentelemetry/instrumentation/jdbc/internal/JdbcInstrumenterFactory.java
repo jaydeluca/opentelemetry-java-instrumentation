@@ -8,6 +8,7 @@ package io.opentelemetry.instrumentation.jdbc.internal;
 import static java.util.Collections.emptyList;
 
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.instrumentation.api.incubator.config.internal.DbConfig;
 import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
 import io.opentelemetry.instrumentation.api.incubator.semconv.code.CodeAttributesExtractor;
@@ -84,6 +85,8 @@ public final class JdbcInstrumenterFactory {
         .addAttributesExtractors(extractors)
         .addOperationMetrics(DbClientMetrics.get())
         .setEnabled(enabled)
+        .setSpanExceptionRecorder(
+            querySanitizationEnabled ? JdbcExceptionRecorder.SANITIZING : Span::recordException)
         .buildInstrumenter(SpanKindExtractor.alwaysClient());
   }
 
@@ -127,6 +130,7 @@ public final class JdbcInstrumenterFactory {
         .addAttributesExtractor(new TransactionAttributeExtractor())
         .addAttributesExtractors(extractors)
         .setEnabled(enabled)
+        .setSpanExceptionRecorder(JdbcExceptionRecorder.SANITIZING)
         .buildInstrumenter(SpanKindExtractor.alwaysClient());
   }
 

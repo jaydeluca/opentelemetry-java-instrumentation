@@ -16,6 +16,7 @@ import io.opentelemetry.api.incubator.ExtendedOpenTelemetry;
 import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.metrics.MeterBuilder;
+import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
@@ -37,6 +38,7 @@ import io.opentelemetry.instrumentation.api.internal.SpanKeyProvider;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.UnaryOperator;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
@@ -71,6 +73,7 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
   SpanStatusExtractor<? super REQUEST, ? super RESPONSE> spanStatusExtractor =
       SpanStatusExtractor.getDefault();
   ErrorCauseExtractor errorCauseExtractor = ErrorCauseExtractor.getDefault();
+  BiConsumer<Span, Throwable> spanExceptionRecorder = Span::recordException;
   boolean propagateOperationListenersToOnEnd = false;
   boolean enabled = true;
 
@@ -193,6 +196,17 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
   public InstrumenterBuilder<REQUEST, RESPONSE> setErrorCauseExtractor(
       ErrorCauseExtractor errorCauseExtractor) {
     this.errorCauseExtractor = requireNonNull(errorCauseExtractor, "errorCauseExtractor");
+    return this;
+  }
+
+  /**
+   * Sets a custom recorder for span exception events, replacing the default {@code
+   * span.recordException(error)}.
+   */
+  @CanIgnoreReturnValue
+  public InstrumenterBuilder<REQUEST, RESPONSE> setSpanExceptionRecorder(
+      BiConsumer<Span, Throwable> spanExceptionRecorder) {
+    this.spanExceptionRecorder = requireNonNull(spanExceptionRecorder, "spanExceptionRecorder");
     return this;
   }
 

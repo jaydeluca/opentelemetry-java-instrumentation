@@ -38,6 +38,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.junit.jupiter.api.Test;
@@ -345,6 +346,29 @@ class InstrumenterTest {
             trace ->
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("span").hasStatus(StatusData.error())));
+  }
+
+  @Test
+  void customSpanExceptionRecorderIsUsed() {
+    Instrumenter<Map<String, String>, Map<String, String>> instrumenter =
+        Instrumenter.<Map<String, String>, Map<String, String>>builder(
+                otelTesting.getOpenTelemetry(), "test", unused -> "span")
+            .setSpanExceptionRecorder(
+                (BiConsumer<Span, Throwable>) (span, err) -> span.addEvent("custom-exception"))
+            .buildInstrumenter();
+
+    Context context = instrumenter.start(Context.root(), REQUEST);
+    instrumenter.end(context, REQUEST, RESPONSE, new IllegalStateException("test"));
+
+    otelTesting
+        .assertTraces()
+        .hasTracesSatisfyingExactly(
+            trace ->
+                trace.hasSpansSatisfyingExactly(
+                    span ->
+                        span.hasName("span")
+                            .hasEventsSatisfyingExactly(
+                                event -> event.hasName("custom-exception"))));
   }
 
   @Test
