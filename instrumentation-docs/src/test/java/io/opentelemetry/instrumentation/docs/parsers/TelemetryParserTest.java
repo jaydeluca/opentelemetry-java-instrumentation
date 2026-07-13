@@ -7,9 +7,22 @@ package io.opentelemetry.instrumentation.docs.parsers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.opentelemetry.instrumentation.docs.internal.TelemetryCondition;
 import org.junit.jupiter.api.Test;
 
 class TelemetryParserTest {
+
+  @Test
+  void classifyWhenReturnsTypedCondition() {
+    assertThat(TelemetryParser.classifyWhen("default").getKind())
+        .isEqualTo(TelemetryCondition.Kind.DEFAULT);
+    assertThat(TelemetryParser.classifyWhen("Java21").getKind())
+        .isEqualTo(TelemetryCondition.Kind.RUNTIME);
+    assertThat(TelemetryParser.classifyWhen("otel.semconv-stability.opt-in=database").getKind())
+        .isEqualTo(TelemetryCondition.Kind.SEMCONV);
+    assertThat(TelemetryParser.classifyWhen("otel.instrumentation.foo.enabled=true").getKind())
+        .isEqualTo(TelemetryCondition.Kind.CONFIG);
+  }
 
   @Test
   void normalizeWhenConditionStripsQuotes() {

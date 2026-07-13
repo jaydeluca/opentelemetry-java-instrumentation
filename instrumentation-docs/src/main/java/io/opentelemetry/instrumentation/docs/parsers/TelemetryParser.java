@@ -9,6 +9,7 @@ import static java.util.Collections.emptySet;
 import static java.util.Collections.singleton;
 import static java.util.Map.entry;
 
+import io.opentelemetry.instrumentation.docs.internal.TelemetryCondition;
 import java.util.Map;
 import java.util.Set;
 
@@ -95,6 +96,18 @@ class TelemetryParser {
       whenCondition = whenCondition.substring(1, whenCondition.length() - 1);
     }
     return whenCondition;
+  }
+
+  /**
+   * Classifies a raw {@code when} string into a typed {@link TelemetryCondition}. This is the
+   * canonical place where the meaning of a {@code when} value is derived, so downstream code can
+   * reason about the runtime/semconv/config axes instead of re-parsing raw strings.
+   *
+   * @param when the normalized when string (see {@link #normalizeWhenCondition})
+   * @return the typed condition
+   */
+  static TelemetryCondition classifyWhen(String when) {
+    return TelemetryCondition.parse(when);
   }
 
   private TelemetryParser() {}
