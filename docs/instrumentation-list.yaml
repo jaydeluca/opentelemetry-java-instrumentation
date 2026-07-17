@@ -6205,7 +6205,63 @@ libraries:
     name: io.opentelemetry.hbase-client-1.4
   has_javaagent: true
   javaagent_target_versions:
-  - org.apache.hbase:hbase-client:[1.4.0, 2.0.0)
+  - org.apache.hbase:hbase-client:[1.4.0,2.0.0)
+  telemetry:
+  - when: default
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: db.name
+        type: STRING
+      - name: db.operation
+        type: STRING
+      - name: db.system
+        type: STRING
+      - name: db.user
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+  - when: otel.semconv-stability.opt-in=database
+    metrics:
+    - name: db.client.operation.duration
+      description: Duration of database client operations.
+      instrument: histogram
+      data_type: HISTOGRAM
+      unit: s
+      attributes:
+      - name: db.collection.name
+        type: STRING
+      - name: db.namespace
+        type: STRING
+      - name: db.operation.name
+        type: STRING
+      - name: db.system.name
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: db.collection.name
+        type: STRING
+      - name: db.namespace
+        type: STRING
+      - name: db.operation.batch.size
+        type: LONG
+      - name: db.operation.name
+        type: STRING
+      - name: db.system.name
+        type: STRING
+      - name: error.type
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
 - name: hbase-client-2.0
   display_name: HBase Client
   description: |
@@ -7296,6 +7352,17 @@ libraries:
       log attributes.
     type: boolean
     default: false
+  - name: otel.instrumentation.java-util-logging.experimental.capture-template
+    declarative_name: java.java_util_logging.capture_template/development
+    description: Enables the capture of the log message template (if arguments are
+      provided).
+    type: boolean
+    default: false
+  - name: otel.instrumentation.java-util-logging.experimental.capture-arguments
+    declarative_name: java.java_util_logging.capture_arguments/development
+    description: Enables the capture of the log message arguments.
+    type: boolean
+    default: false
 - name: javalin-5.0
   display_name: Javalin
   description: This instrumentation enriches existing HTTP server spans with route
@@ -7834,6 +7901,18 @@ libraries:
     declarative_name: java.jboss_logmanager.experimental_log_attributes/development
     description: |
       Enables the capture of experimental log attributes, including thread name and thread ID.
+    type: boolean
+    default: false
+  - name: otel.instrumentation.jboss-logmanager.experimental.capture-template
+    declarative_name: java.jboss_logmanager.capture_template/development
+    description: |
+      Enables the capture of the log message template (if arguments are provided).
+    type: boolean
+    default: false
+  - name: otel.instrumentation.jboss-logmanager.experimental.capture-arguments
+    declarative_name: java.jboss_logmanager.capture_arguments/development
+    description: |
+      Enables the capture of the log message arguments.
     type: boolean
     default: false
   - name: otel.instrumentation.jboss-logmanager.experimental.capture-mdc-attributes
@@ -10604,13 +10683,11 @@ libraries:
         type: STRING
       - name: db.system
         type: STRING
-      - name: peer.service
-        type: STRING
       - name: server.address
         type: STRING
       - name: server.port
         type: LONG
-  - when: otel.instrumentation.lettuce.experimental-span-attributes=true
+  - when: otel.instrumentation.lettuce.connection-telemetry.enabled=true
     spans:
     - span_kind: CLIENT
       attributes:
@@ -10618,15 +10695,13 @@ libraries:
         type: STRING
       - name: db.system
         type: STRING
-      - name: lettuce.command.cancelled
-        type: BOOLEAN
       - name: peer.service
         type: STRING
       - name: server.address
         type: STRING
       - name: server.port
         type: LONG
-  - when: otel.semconv-stability.opt-in=database,service.peer
+  - when: otel.instrumentation.lettuce.connection-telemetry.enabled=true,otel.semconv-stability.opt-in=database,service.peer
     metrics:
     - name: db.client.operation.duration
       description: Duration of database client operations.
@@ -10638,6 +10713,10 @@ libraries:
         type: STRING
       - name: db.system.name
         type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
     spans:
     - span_kind: CLIENT
       attributes:
@@ -10655,6 +10734,51 @@ libraries:
         type: LONG
       - name: service.peer.name
         type: STRING
+  - when: otel.instrumentation.lettuce.experimental-span-attributes=true
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: db.operation
+        type: STRING
+      - name: db.system
+        type: STRING
+      - name: lettuce.command.cancelled
+        type: BOOLEAN
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+  - when: otel.semconv-stability.opt-in=database,service.peer
+    metrics:
+    - name: db.client.operation.duration
+      description: Duration of database client operations.
+      instrument: histogram
+      data_type: HISTOGRAM
+      unit: s
+      attributes:
+      - name: db.operation.name
+        type: STRING
+      - name: db.system.name
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: db.operation.batch.size
+        type: LONG
+      - name: db.operation.name
+        type: STRING
+      - name: db.system.name
+        type: STRING
+      - name: error.type
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
 - name: lettuce-5.0
   display_name: Lettuce
   description: |
@@ -10716,8 +10840,6 @@ libraries:
         type: STRING
       - name: db.system
         type: STRING
-      - name: peer.service
-        type: STRING
       - name: server.address
         type: STRING
       - name: server.port
@@ -10734,6 +10856,10 @@ libraries:
         type: STRING
       - name: db.system.name
         type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
     spans:
     - span_kind: CLIENT
       attributes:
@@ -10747,13 +10873,11 @@ libraries:
         type: STRING
       - name: error.type
         type: STRING
-      - name: peer.service
-        type: STRING
       - name: server.address
         type: STRING
       - name: server.port
         type: LONG
-  - when: otel.instrumentation.lettuce.experimental-span-attributes=true
+  - when: otel.instrumentation.lettuce.connection-telemetry.enabled=true
     spans:
     - span_kind: CLIENT
       attributes:
@@ -10763,17 +10887,13 @@ libraries:
         type: STRING
       - name: db.system
         type: STRING
-      - name: lettuce.command.cancelled
-        type: BOOLEAN
-      - name: lettuce.command.results.count
-        type: LONG
       - name: peer.service
         type: STRING
       - name: server.address
         type: STRING
       - name: server.port
         type: LONG
-  - when: otel.semconv-stability.opt-in=database,service.peer
+  - when: otel.instrumentation.lettuce.connection-telemetry.enabled=true,otel.semconv-stability.opt-in=database,service.peer
     metrics:
     - name: db.client.operation.duration
       description: Duration of database client operations.
@@ -10785,6 +10905,10 @@ libraries:
         type: STRING
       - name: db.system.name
         type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
     spans:
     - span_kind: CLIENT
       attributes:
@@ -10804,6 +10928,57 @@ libraries:
         type: LONG
       - name: service.peer.name
         type: STRING
+  - when: otel.instrumentation.lettuce.experimental-span-attributes=true
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: db.operation
+        type: STRING
+      - name: db.statement
+        type: STRING
+      - name: db.system
+        type: STRING
+      - name: lettuce.command.cancelled
+        type: BOOLEAN
+      - name: lettuce.command.results.count
+        type: LONG
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+  - when: otel.semconv-stability.opt-in=database,service.peer
+    metrics:
+    - name: db.client.operation.duration
+      description: Duration of database client operations.
+      instrument: histogram
+      data_type: HISTOGRAM
+      unit: s
+      attributes:
+      - name: db.operation.name
+        type: STRING
+      - name: db.system.name
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: db.operation.batch.size
+        type: LONG
+      - name: db.operation.name
+        type: STRING
+      - name: db.query.text
+        type: STRING
+      - name: db.system.name
+        type: STRING
+      - name: error.type
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
 - name: lettuce-5.1
   display_name: Lettuce
   description: |
@@ -11045,6 +11220,18 @@ libraries:
     declarative_name: java.log4j_appender.capture_marker_attribute/development
     description: |
       Enables the capture of the Log4j marker attribute.
+    type: boolean
+    default: false
+  - name: otel.instrumentation.log4j-appender.experimental.capture-template
+    declarative_name: java.log4j_appender.capture_template/development
+    description: |
+      Enables the capture of the log message template (if arguments are provided).
+    type: boolean
+    default: false
+  - name: otel.instrumentation.log4j-appender.experimental.capture-arguments
+    declarative_name: java.log4j_appender.capture_arguments/development
+    description: |
+      Enables the capture of the log message arguments.
     type: boolean
     default: false
   - name: otel.instrumentation.log4j-appender.experimental.capture-mdc-attributes
