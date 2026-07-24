@@ -5,12 +5,9 @@
 
 package io.opentelemetry.javaagent.instrumentation.clickhouse.clientv2.v0_8;
 
-import com.clickhouse.client.api.Client;
 import com.clickhouse.client.api.ServerException;
 import io.opentelemetry.instrumentation.api.incubator.semconv.net.internal.UrlParser;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
-import io.opentelemetry.instrumentation.api.semconv.network.internal.AddressAndPort;
-import io.opentelemetry.instrumentation.api.util.VirtualField;
 import io.opentelemetry.javaagent.instrumentation.clickhouse.client.common.v0_5.ClickHouseDbRequest;
 import io.opentelemetry.javaagent.instrumentation.clickhouse.client.common.v0_5.ClickHouseInstrumenterFactory;
 import javax.annotation.Nullable;
@@ -19,8 +16,6 @@ public class ClickHouseClientV2Singletons {
 
   private static final String INSTRUMENTER_NAME = "io.opentelemetry.clickhouse-client-v2-0.8";
   private static final Instrumenter<ClickHouseDbRequest, Void> instrumenter;
-  private static final VirtualField<Client, AddressAndPort> ADDRESS_AND_PORT =
-      VirtualField.find(Client.class, AddressAndPort.class);
 
   static {
     instrumenter =
@@ -38,21 +33,16 @@ public class ClickHouseClientV2Singletons {
     return instrumenter;
   }
 
-  @Nullable
-  public static AddressAndPort getAddressAndPort(Client client) {
-    return ADDRESS_AND_PORT.get(client);
-  }
-
-  public static AddressAndPort setAddressAndPort(Client client, @Nullable String endpoint) {
-    AddressAndPort addressAndPort = new AddressAndPort();
-
-    if (endpoint != null) {
-      addressAndPort.setAddress(UrlParser.getHost(endpoint));
-      addressAndPort.setPort(UrlParser.getPort(endpoint));
-    }
-    ADDRESS_AND_PORT.set(client, addressAndPort);
-
-    return addressAndPort;
+  /**
+   * Builds a request seeded with a best-effort endpoint. On clients that support failover the
+   * {@code ClientNodeSelector} advice overrides this with the endpoint actually selected before the
+   * span ends; on older clients it remains the reported endpoint.
+   */
+  public static ClickHouseDbRequest createRequest(
+      @Nullable String endpoint, @Nullable String database, String sqlQuery) {
+    String host = endpoint == null ? null : UrlParser.getHost(endpoint);
+    Integer port = endpoint == null ? null : UrlParser.getPort(endpoint);
+    return ClickHouseDbRequest.create(host, port, database, sqlQuery);
   }
 
   private ClickHouseClientV2Singletons() {}

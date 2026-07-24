@@ -37,6 +37,10 @@ public class ClickHouseInstrumenterFactory {
                         DbConfig.isQuerySanitizationEnabled(
                             GlobalOpenTelemetry.get(), "clickhouse"))
                     .build())
+            // records the endpoint actually used (which may change under failover) and the failover
+            // count; must run after SqlClientAttributesExtractor so its end-time server.address /
+            // server.port override the best-effort values captured at span start.
+            .addAttributesExtractor(new ClickHouseEndpointAttributesExtractor())
             .addOperationMetrics(DbClientMetrics.get());
     setDbClientExceptionEventExtractor(builder);
     return builder.buildInstrumenter(SpanKindExtractor.alwaysClient());

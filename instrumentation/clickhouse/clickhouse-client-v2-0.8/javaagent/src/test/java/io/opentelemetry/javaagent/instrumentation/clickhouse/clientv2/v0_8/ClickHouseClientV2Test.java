@@ -41,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.testcontainers.containers.GenericContainer;
@@ -137,6 +138,57 @@ class ClickHouseClientV2Test {
         DB_NAMESPACE,
         SERVER_ADDRESS,
         SERVER_PORT);
+  }
+
+  // Disabled until a stable client-v2 release ships ClientNodeSelector. The only published
+  // failover-capable artifact (0.10.0-rc2) diverges from its own source: its jar has no
+  // ClientNodeSelector (failover lives in private Client methods), so the endpoint-tracking advice
+  // cannot match and this test cannot pass. Re-enable once 0.10.0/0.11.0 stable is on Maven
+  // Central.
+  // See https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/19306
+  @Disabled("client-v2 0.10.0-rc2 artifact lacks ClientNodeSelector; awaiting stable release")
+  @Test
+  void testMultipleEndpointsRecordsSelectedEndpoint() throws Exception {
+    // With multiple endpoints the span must report the endpoint the client actually selected (the
+    // live primary here), not an arbitrary one picked from the configured set. The second, dead
+    // endpoint (nothing listens on port 1) is never used because the primary is healthy.
+    Client multiEndpointClient =
+        new Client.Builder()
+            .addEndpoint(Protocol.HTTP, host, port, false) // primary (live)
+            .addEndpoint("http://127.0.0.1:1") // secondary (dead)
+            .setDefaultDatabase(DATABASE_NAME)
+            .setUsername(USERNAME)
+            .setPassword(PASSWORD)
+            .setOption("compress", "false")
+            .build();
+    cleanup.deferCleanup(multiEndpointClient);
+
+    QueryResponse response = multiEndpointClient.query("select * from " + TABLE_NAME).join();
+    response.close();
+
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span ->
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "select test_table"
+                                : "SELECT " + DATABASE_NAME)
+                        .hasKind(SpanKind.CLIENT)
+                        .hasNoParent()
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), CLICKHOUSE),
+                            equalTo(maybeStable(DB_NAME), DATABASE_NAME),
+                            // the endpoint actually used, not the cached/primary one
+                            equalTo(SERVER_ADDRESS, host),
+                            equalTo(SERVER_PORT, port),
+                            equalTo(maybeStable(DB_STATEMENT), "select * from " + TABLE_NAME),
+                            equalTo(
+                                DB_QUERY_SUMMARY,
+                                emitStableDatabaseSemconv() ? "select test_table" : null),
+                            equalTo(
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv() ? null : "SELECT"))));
   }
 
   @Test

@@ -14,7 +14,6 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
 
 import com.clickhouse.client.api.Client;
 import io.opentelemetry.context.Context;
-import io.opentelemetry.instrumentation.api.semconv.network.internal.AddressAndPort;
 import io.opentelemetry.javaagent.bootstrap.CallDepth;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
@@ -43,7 +42,10 @@ class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
         getClass().getName() + "$QueryAdvice");
   }
 
-  @SuppressWarnings("unused")
+  // getEndpoints() is deprecated in 0.10.0+ but is still the only public way to obtain a seed
+  // endpoint before the query runs; the ClientNodeSelector advice overrides it with the endpoint
+  // actually used.
+  @SuppressWarnings({"unused", "OtelDeprecatedApiUsage"})
   public static class QueryAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     @Nullable
@@ -54,21 +56,16 @@ class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
         return null;
       }
 
-      // https://clickhouse.com/docs/integrations/language-clients/java/client#client-configuration
-      // Currently, clientv2 supports only one endpoint. Since the endpoint is not going to change
-      // we'll cache it in a virtual field.
-      AddressAndPort addressAndPort = ClickHouseClientV2Singletons.getAddressAndPort(client);
-      if (addressAndPort == null) {
-        String endpoint = client.getEndpoints().stream().findFirst().orElse(null);
-        addressAndPort = ClickHouseClientV2Singletons.setAddressAndPort(client, endpoint);
-      }
-
+      // Seed a best-effort endpoint. clientv2 may fail over between endpoints while the query is in
+      // flight, so the endpoint actually used is reported by the ClientNodeSelector advice (on
+      // clients that support failover) and finalized when the span ends.
+      String endpoint = client.getEndpoints().stream().findFirst().orElse(null);
       String database = client.getConfiguration().get("database");
-      Context parentContext = currentContext();
       ClickHouseDbRequest request =
-          ClickHouseDbRequest.create(
-              addressAndPort.getAddress(), addressAndPort.getPort(), database, sqlQuery);
+          ClickHouseClientV2Singletons.createRequest(endpoint, database, sqlQuery);
+      ClickHouseEndpointTracker.set(request);
 
+      Context parentContext = currentContext();
       return ClickHouseScope.start(instrumenter(), parentContext, request);
     }
 
@@ -77,11 +74,14 @@ class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable ClickHouseScope scope) {
       CallDepth callDepth = CallDepth.forClass(Client.class);
-      if (callDepth.decrementAndGet() > 0 || scope == null) {
+      if (callDepth.decrementAndGet() > 0) {
         return;
       }
 
-      scope.end(throwable);
+      ClickHouseEndpointTracker.clear();
+      if (scope != null) {
+        scope.end(throwable);
+      }
     }
   }
 }
