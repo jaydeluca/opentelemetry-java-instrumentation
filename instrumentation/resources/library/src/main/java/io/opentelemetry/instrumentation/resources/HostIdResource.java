@@ -9,7 +9,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.logging.Level.FINE;
 
 import io.opentelemetry.api.common.AttributeKey;
@@ -271,36 +270,22 @@ public final class HostIdResource {
       // for input sees EOF and exits instead of running until the timeout
       process.getOutputStream().close();
 
-      long deadlineNanos = System.nanoTime() + MILLISECONDS.toNanos(timeoutMillis);
-      // the output has to be drained on another thread: reading to EOF on this thread is unbounded,
-      // and not draining at all lets a chatty command deadlock on a full pipe buffer
-      InputStream processOutput = process.getInputStream();
-      FutureTask<List<String>> readOutput = new FutureTask<>(() -> getProcessOutput(processOutput));
-      Thread readerThread = new Thread(readOutput, "otel-host-id-lookup");
+      // reading the output to EOF and waiting for the process to exit are both unbounded, so they
+      // run on another thread that the timeout below can walk away from. draining the output also
+      // has to happen before waiting for exit, otherwise a chatty command deadlocks on a full pipe
+      // buffer.
+      Process startedProcess = process;
+      FutureTask<List<String>> commandOutput =
+          new FutureTask<>(() -> getCommandOutput(startedProcess, command));
+      Thread readerThread = new Thread(commandOutput, "otel-host-id-lookup");
       readerThread.setDaemon(true);
       readerThread.start();
 
-      List<String> output = readOutput.get(timeoutMillis, MILLISECONDS);
-      if (!process.waitFor(remainingMillis(deadlineNanos), MILLISECONDS)) {
-        logger.log(FINE, "Timed out running command {0}", command);
-        return emptyList();
-      }
-
-      int exitedValue = process.exitValue();
-      if (exitedValue != 0) {
-        logger.fine(
-            "Failed to run command "
-                + command
-                + ". Exit code: "
-                + exitedValue
-                + " Output: "
-                + String.join("\n", output));
-
-        return emptyList();
-      }
-
-      return output;
-    } catch (IOException | ExecutionException | TimeoutException e) {
+      return commandOutput.get(timeoutMillis, MILLISECONDS);
+    } catch (TimeoutException e) {
+      logger.log(FINE, "Timed out running command {0}", command);
+      return emptyList();
+    } catch (IOException | ExecutionException e) {
       logger.log(FINE, "Failed to run command " + command, e);
       return emptyList();
     } catch (InterruptedException e) {
@@ -316,8 +301,24 @@ public final class HostIdResource {
     }
   }
 
-  private static long remainingMillis(long deadlineNanos) {
-    return Math.max(0, NANOSECONDS.toMillis(deadlineNanos - System.nanoTime()));
+  private static List<String> getCommandOutput(Process process, List<String> command)
+      throws IOException, InterruptedException {
+    List<String> output = getProcessOutput(process.getInputStream());
+
+    int exitedValue = process.waitFor();
+    if (exitedValue != 0) {
+      logger.fine(
+          "Failed to run command "
+              + command
+              + ". Exit code: "
+              + exitedValue
+              + " Output: "
+              + String.join("\n", output));
+
+      return emptyList();
+    }
+
+    return output;
   }
 
   private static List<String> getProcessOutput(InputStream processOutput) throws IOException {
