@@ -28,6 +28,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
@@ -262,6 +263,9 @@ public final class HostIdResource {
   // Visible for testing
   static List<String> runCommand(List<String> command, long timeoutMillis) {
     Process process = null;
+    // set once this method stops caring about the result, so that the thread below can tell a
+    // command that failed on its own from one that was killed on the way out
+    AtomicBoolean abandoned = new AtomicBoolean();
     try {
       ProcessBuilder processBuilder = new ProcessBuilder(command);
       processBuilder.redirectErrorStream(true);
@@ -276,7 +280,7 @@ public final class HostIdResource {
       // buffer.
       Process startedProcess = process;
       FutureTask<List<String>> commandOutput =
-          new FutureTask<>(() -> getCommandOutput(startedProcess, command));
+          new FutureTask<>(() -> getCommandOutput(startedProcess, command, abandoned));
       Thread readerThread = new Thread(commandOutput, "otel-host-id-lookup");
       readerThread.setDaemon(true);
       readerThread.start();
@@ -293,6 +297,7 @@ public final class HostIdResource {
       logger.log(FINE, "Interrupted running command " + command, e);
       return emptyList();
     } finally {
+      abandoned.set(true);
       if (process != null) {
         // no-op if the process already exited, otherwise this both stops the stray child and
         // unblocks the reader thread
@@ -301,11 +306,23 @@ public final class HostIdResource {
     }
   }
 
-  private static List<String> getCommandOutput(Process process, List<String> command)
+  private static List<String> getCommandOutput(
+      Process process, List<String> command, AtomicBoolean abandoned)
       throws IOException, InterruptedException {
     List<String> output = getProcessOutput(process.getInputStream());
 
     int exitedValue = process.waitFor();
+    if (abandoned.get()) {
+      // the timeout has already been reported, but whatever the command managed to print before it
+      // was killed is the most useful clue about where it got stuck
+      if (!output.isEmpty()) {
+        logger.fine(
+            "Output of command " + command + " before it was killed: " + String.join("\n", output));
+      }
+
+      return emptyList();
+    }
+
     if (exitedValue != 0) {
       logger.fine(
           "Failed to run command "
