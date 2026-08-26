@@ -40,6 +40,15 @@ public class MicrometerSingletons {
             .setPrometheusMode(config.get("prometheus_mode").getBoolean("enabled", false))
             .setBaseTimeUnit(TimeUnitParser.parseConfigValue(config.getString("base_time_unit")));
     Experimental.setMicrometerHistogramGaugesEnabled(builder, getHistogramGaugesEnabled(config));
+
+    MetricsMode mode =
+        MetricsMode.parseConfigValue(config.get("metrics/development").getString("mode"));
+    Experimental.setSuppressionPredicate(builder, mode.suppressionPredicate());
+    // spike lever only -- see MetricsMode
+    Experimental.setMarkSuppressedInstruments(
+        builder, !Boolean.getBoolean("otel.javaagent.micrometer.spike.unmarked-suppression"));
+    logger.fine("micrometer bridge metrics mode: " + mode);
+
     meterRegistry = builder.build();
   }
 

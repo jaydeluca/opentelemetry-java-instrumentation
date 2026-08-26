@@ -5,8 +5,10 @@
 
 package io.opentelemetry.instrumentation.micrometer.v1_5.internal;
 
+import io.micrometer.core.instrument.Meter;
 import io.opentelemetry.instrumentation.micrometer.v1_5.OpenTelemetryMeterRegistryBuilder;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 /**
@@ -44,6 +46,50 @@ public final class Experimental {
   public static void internalSetMicrometerHistogramGaugesEnabled(
       BiConsumer<OpenTelemetryMeterRegistryBuilder, Boolean> setMicrometerHistogramGaugesEnabled) {
     Experimental.setMicrometerHistogramGaugesEnabled = setMicrometerHistogramGaugesEnabled;
+  }
+
+  @Nullable
+  private static volatile BiConsumer<OpenTelemetryMeterRegistryBuilder, Predicate<Meter.Id>>
+      setSuppressionPredicate;
+
+  /**
+   * Sets the predicate deciding which meters the bridge declines to bridge. A meter the predicate
+   * accepts creates no OpenTelemetry instrument and records nothing.
+   *
+   * <p>The predicate is resolved by the caller -- the bridge itself has no view of which
+   * instrumentations are enabled or which semantic-convention gates are satisfied.
+   */
+  public static void setSuppressionPredicate(
+      OpenTelemetryMeterRegistryBuilder builder, Predicate<Meter.Id> predicate) {
+    if (setSuppressionPredicate != null) {
+      setSuppressionPredicate.accept(builder, predicate);
+    }
+  }
+
+  public static void internalSetSuppressionPredicate(
+      BiConsumer<OpenTelemetryMeterRegistryBuilder, Predicate<Meter.Id>> setSuppressionPredicate) {
+    Experimental.setSuppressionPredicate = setSuppressionPredicate;
+  }
+
+  @Nullable
+  private static volatile BiConsumer<OpenTelemetryMeterRegistryBuilder, Boolean>
+      setMarkSuppressedInstruments;
+
+  /**
+   * Spike lever, not a proposed setting. When {@code false}, suppressed meters are plain Micrometer
+   * noops rather than marked instruments -- reproducing what a {@code MeterFilter} DENY leaves in a
+   * composite registry, so the two can be compared under one agent build.
+   */
+  public static void setMarkSuppressedInstruments(
+      OpenTelemetryMeterRegistryBuilder builder, boolean marked) {
+    if (setMarkSuppressedInstruments != null) {
+      setMarkSuppressedInstruments.accept(builder, marked);
+    }
+  }
+
+  public static void internalSetMarkSuppressedInstruments(
+      BiConsumer<OpenTelemetryMeterRegistryBuilder, Boolean> setMarkSuppressedInstruments) {
+    Experimental.setMarkSuppressedInstruments = setMarkSuppressedInstruments;
   }
 
   private Experimental() {}
