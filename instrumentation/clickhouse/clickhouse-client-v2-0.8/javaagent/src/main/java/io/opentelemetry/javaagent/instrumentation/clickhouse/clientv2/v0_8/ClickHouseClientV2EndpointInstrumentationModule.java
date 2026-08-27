@@ -18,7 +18,8 @@ import net.bytebuddy.matcher.ElementMatcher;
  * Tracks which endpoint the client selects for a query, so that spans report the endpoint that was
  * actually used rather than an arbitrary one from the configured set. Kept separate from the base
  * module because it needs {@code Endpoint#getHost()} / {@code Endpoint#getPort()} (added in
- * client-v2 0.9.7), while the base query instrumentation still applies to older versions.
+ * client-v2 0.9.7), while the base query instrumentation still applies to older versions. Muzzle
+ * disables this module on the versions that don't have them.
  */
 @AutoService(InstrumentationModule.class)
 public class ClickHouseClientV2EndpointInstrumentationModule extends InstrumentationModule {

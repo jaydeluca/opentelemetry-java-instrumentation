@@ -9,13 +9,14 @@ import javax.annotation.Nullable;
 
 /**
  * Carries the state of a single ClickHouse query. The host/port are mutable because the endpoint
- * actually used is only known once the client selects (and possibly fails over between) endpoints
- * while the query is in flight.
+ * that is actually used is only known once the client has selected it, which happens after the
+ * query has already started.
  */
 public final class ClickHouseDbRequest {
 
-  @Nullable private volatile String host;
-  @Nullable private volatile Integer port;
+  // mutated and read on the thread that runs the query, see ClickHouseEndpointTracker
+  @Nullable private String host;
+  @Nullable private Integer port;
   @Nullable private final String namespace;
   private final String sql;
 

@@ -8,19 +8,45 @@ muzzle {
     module.set("client-v2")
     versions.set("[0.6.4,)")
     assertInverse.set(true)
-    // The endpoint-tracking module needs Endpoint#getHost()/#getPort(), added in 0.9.7, so it is
-    // expected to fail muzzle on the lower half of this range. A second pass over "[0.9.7,)" cannot
-    // assert it there: muzzle derives its task names from group/module/version alone, so two passes
-    // over the same artifact with overlapping ranges collide. The runtime muzzle check gates the
-    // module on older versions instead, and the tests cover the supported range.
+    // endpoint selection tracking needs Endpoint#getHost()/#getPort(), added in 0.9.7, it is
+    // verified by the directive below
     excludeInstrumentationName("clickhouse-client-v2-endpoint")
+  }
+
+  pass {
+    // named so that the tasks of this directive don't clash with the ones of the directive above,
+    // which covers the same artifact
+    name.set("endpoint selection")
+    group.set("com.clickhouse")
+    module.set("client-v2")
+    versions.set("[0.9.7,)")
+    // no assertInverse, below 0.9.7 only the endpoint selection instrumentation fails muzzle while
+    // a fail directive expects all instrumentations to fail
   }
 }
 
 dependencies {
   implementation(project(":instrumentation:clickhouse:clickhouse-client-common-0.5:javaagent"))
-  library("com.clickhouse:client-v2:0.10.0")
+  library("com.clickhouse:client-v2:0.8.0")
+
+  // Endpoint#getHost() and Endpoint#getPort() were added in 0.9.7.
+  // Don't use library to make sure base test is run with the floor version.
+  // Endpoint selection is tested separately in testEndpointSelection.
+  compileOnly("com.clickhouse:client-v2:0.9.7")
+
   testInstrumentation(project(":instrumentation:clickhouse:clickhouse-client-v1-0.5:javaagent"))
+}
+
+testing {
+  suites {
+    register<JvmTestSuite>("testEndpointSelection") {
+      dependencies {
+        // first version that exposes Endpoint#getHost() and Endpoint#getPort()
+        implementation("com.clickhouse:client-v2:${baseVersion("0.9.7").orLatest()}")
+        implementation("org.testcontainers:testcontainers")
+      }
+    }
+  }
 }
 
 tasks {
@@ -38,6 +64,6 @@ tasks {
   }
 
   check {
-    dependsOn(testStableSemconv)
+    dependsOn(testStableSemconv, testing.suites)
   }
 }

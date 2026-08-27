@@ -60,7 +60,6 @@ class ClickHouseClientV2Test {
   private static final String TABLE_NAME = "test_table";
   private static final String USERNAME = "default";
   private static final String PASSWORD = "";
-  private static final String SECOND_SERVER_HOSTNAME = "clickhouse-secondary";
   private static int port;
   private static String host;
   private static Client client;
@@ -137,46 +136,6 @@ class ClickHouseClientV2Test {
         DB_NAMESPACE,
         SERVER_ADDRESS,
         SERVER_PORT);
-  }
-
-  @Test
-  void testMultipleEndpointsRecordsSelectedEndpoint() throws Exception {
-    // client-v2 keeps the configured endpoints in an unordered set and picks one of them for the
-    // whole query, so the endpoint it uses is not necessarily the first one registered. The span
-    // must report the endpoint that actually served the query, identified here by asking the
-    // server for its hostname.
-    try (GenericContainer<?> secondServer =
-        new GenericContainer<>("clickhouse/clickhouse-server:24.4.2")
-            .withExposedPorts(8123)
-            .withCreateContainerCmdModifier(cmd -> cmd.withHostName(SECOND_SERVER_HOSTNAME))) {
-      secondServer.start();
-      int secondPort = secondServer.getMappedPort(8123);
-      String secondHost = secondServer.getHost();
-
-      Client multiEndpointClient =
-          new Client.Builder()
-              .addEndpoint(Protocol.HTTP, host, port, false)
-              .addEndpoint(Protocol.HTTP, secondHost, secondPort, false)
-              .setDefaultDatabase(DATABASE_NAME)
-              .setUsername(USERNAME)
-              .setPassword(PASSWORD)
-              .setOption("compress", "false")
-              .build();
-      cleanup.deferCleanup(multiEndpointClient);
-
-      List<GenericRecord> records = multiEndpointClient.queryAll("select hostName()");
-      boolean usedSecondServer = SECOND_SERVER_HOSTNAME.equals(records.get(0).getString(1));
-
-      testing.waitAndAssertTraces(
-          trace ->
-              trace.hasSpansSatisfyingExactly(
-                  span ->
-                      span.hasKind(SpanKind.CLIENT)
-                          .hasNoParent()
-                          .hasAttributesSatisfying(
-                              equalTo(SERVER_ADDRESS, usedSecondServer ? secondHost : host),
-                              equalTo(SERVER_PORT, usedSecondServer ? secondPort : port))));
-    }
   }
 
   @Test

@@ -5776,6 +5776,7 @@ libraries:
   has_javaagent: true
   javaagent_target_versions:
   - com.clickhouse:client-v2:[0.6.4,)
+  - com.clickhouse:client-v2:[0.9.7,)
   configuration_refs:
   - common.db.query-sanitization.enabled
   telemetry:

@@ -19,8 +19,9 @@ import net.bytebuddy.matcher.ElementMatcher;
 
 /**
  * Reports the endpoint the client actually selected for the in-flight query. {@code
- * getNextAliveNode()} is called once when the query starts and again after every retryable failure,
- * so the last value it returns is the endpoint that served the query.
+ * getNextAliveNode()} is where the client picks an endpoint, it is called when the query starts and
+ * again when the query is retried, so the last value it returns is the endpoint that served the
+ * query.
  */
 class ClickHouseEndpointSelectionInstrumentation implements TypeInstrumentation {
 
