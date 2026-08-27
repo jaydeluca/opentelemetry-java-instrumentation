@@ -9,10 +9,11 @@ import io.opentelemetry.javaagent.instrumentation.clickhouse.client.common.v0_5.
 import javax.annotation.Nullable;
 
 /**
- * Publishes the in-flight query's request so the {@code ClientNodeSelector} advice can report the
- * endpoint actually selected. Endpoint selection happens synchronously on the calling thread (the
- * default; {@code useAsyncRequests} is off), so a thread local is sufficient to bridge the query
- * advice and the selector advice.
+ * Publishes the in-flight query's request so the endpoint-selection advice can report the endpoint
+ * actually selected. Endpoint selection happens synchronously on the calling thread (the default;
+ * {@code useAsyncRequests} is off), so a thread local is sufficient to bridge the query advice and
+ * the selection advice. With async requests enabled the selection runs on another thread, the
+ * tracker yields nothing there, and the seeded endpoint is reported instead.
  */
 public final class ClickHouseEndpointTracker {
 

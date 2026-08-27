@@ -43,7 +43,7 @@ class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
   }
 
   // getEndpoints() is deprecated in 0.10.0+ but is still the only public way to obtain a seed
-  // endpoint before the query runs; the ClientNodeSelector advice overrides it with the endpoint
+  // endpoint before the query runs; the endpoint-selection advice overrides it with the endpoint
   // actually used.
   @SuppressWarnings({"unused", "OtelDeprecatedApiUsage"})
   public static class QueryAdvice {
@@ -56,9 +56,10 @@ class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
         return null;
       }
 
-      // Seed a best-effort endpoint. clientv2 may fail over between endpoints while the query is in
-      // flight, so the endpoint actually used is reported by the ClientNodeSelector advice (on
-      // clients that support failover) and finalized when the span ends.
+      // Seed a best-effort endpoint. getEndpoints() returns an unordered set, and clientv2 may
+      // fail over between endpoints while the query is in flight, so the endpoint actually used is
+      // reported by ClickHouseEndpointSelectionInstrumentation (on clients that expose it) and
+      // finalized when the span ends.
       String endpoint = client.getEndpoints().stream().findFirst().orElse(null);
       String database = client.getConfiguration().get("database");
       ClickHouseDbRequest request =

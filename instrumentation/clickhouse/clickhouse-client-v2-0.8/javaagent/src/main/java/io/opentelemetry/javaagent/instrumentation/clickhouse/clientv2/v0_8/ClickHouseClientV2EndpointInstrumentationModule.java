@@ -15,16 +15,17 @@ import java.util.List;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
- * Instruments the endpoint selection / failover path, which only exists on clients with multiple
- * endpoint support ({@code ClientNodeSelector}, added in client-v2 0.10.0). Kept separate from the
- * base module so the base query instrumentation continues to apply to older versions.
+ * Tracks which endpoint the client selects for a query, so that spans report the endpoint that was
+ * actually used rather than an arbitrary one from the configured set. Kept separate from the base
+ * module because it needs {@code Endpoint#getHost()} / {@code Endpoint#getPort()} (added in
+ * client-v2 0.9.7), while the base query instrumentation still applies to older versions.
  */
 @AutoService(InstrumentationModule.class)
-public class ClickHouseClientV2FailoverInstrumentationModule extends InstrumentationModule {
+public class ClickHouseClientV2EndpointInstrumentationModule extends InstrumentationModule {
 
-  public ClickHouseClientV2FailoverInstrumentationModule() {
+  public ClickHouseClientV2EndpointInstrumentationModule() {
     super(
-        "clickhouse-client-v2-failover",
+        "clickhouse-client-v2-endpoint",
         "clickhouse-client-v2",
         "clickhouse-client-v2-0.8",
         "clickhouse",
@@ -33,11 +34,11 @@ public class ClickHouseClientV2FailoverInstrumentationModule extends Instrumenta
 
   @Override
   public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
-    return hasClassesNamed("com.clickhouse.client.api.transport.ClientNodeSelector");
+    return hasClassesNamed("com.clickhouse.client.api.transport.Endpoint");
   }
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return singletonList(new ClientNodeSelectorInstrumentation());
+    return singletonList(new ClickHouseEndpointSelectionInstrumentation());
   }
 }

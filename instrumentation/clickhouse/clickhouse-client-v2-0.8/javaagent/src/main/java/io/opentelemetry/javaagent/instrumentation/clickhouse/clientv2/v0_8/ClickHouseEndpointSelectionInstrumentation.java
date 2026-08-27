@@ -5,9 +5,8 @@
 
 package io.opentelemetry.javaagent.instrumentation.clickhouse.clientv2.v0_8;
 
-import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
-import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
+import static net.bytebuddy.matcher.ElementMatchers.returns;
 
 import com.clickhouse.client.api.transport.Endpoint;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
@@ -19,26 +18,30 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
- * Reports the endpoint the client actually selected for the in-flight query. {@code getEndpoint()}
- * returns the initial endpoint and, since {@code getNextAliveNode()} ends by delegating to it, also
- * the endpoint chosen after a failover; capturing it here covers both cases.
+ * Reports the endpoint the client actually selected for the in-flight query. {@code
+ * getNextAliveNode()} is called once when the query starts and again after every retryable failure,
+ * so the last value it returns is the endpoint that served the query.
  */
-class ClientNodeSelectorInstrumentation implements TypeInstrumentation {
+class ClickHouseEndpointSelectionInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
-    return named("com.clickhouse.client.api.transport.ClientNodeSelector");
+    return named("com.clickhouse.client.api.Client");
   }
 
   @Override
   public void transform(TypeTransformer transformer) {
+    // matched by return type rather than arity: the method is package-private/private and its
+    // signature has changed across versions (no-arg in 0.9.x/0.10.0, taking the failed endpoint in
+    // later ones).
     transformer.applyAdviceToMethod(
-        isPublic().and(named("getEndpoint")).and(takesArguments(0)),
-        getClass().getName() + "$GetEndpointAdvice");
+        named("getNextAliveNode")
+            .and(returns(named("com.clickhouse.client.api.transport.Endpoint"))),
+        getClass().getName() + "$GetNextAliveNodeAdvice");
   }
 
   @SuppressWarnings("unused")
-  public static class GetEndpointAdvice {
+  public static class GetNextAliveNodeAdvice {
     @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
     public static void onExit(@Advice.Return @Nullable Endpoint endpoint) {
       ClickHouseDbRequest request = ClickHouseEndpointTracker.get();

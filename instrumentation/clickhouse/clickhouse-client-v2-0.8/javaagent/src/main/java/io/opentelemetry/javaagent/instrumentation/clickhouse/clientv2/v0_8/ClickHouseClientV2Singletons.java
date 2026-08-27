@@ -35,9 +35,9 @@ public class ClickHouseClientV2Singletons {
   }
 
   /**
-   * Builds a request seeded with a best-effort endpoint. On clients that support failover the
-   * {@code ClientNodeSelector} advice overrides this with the endpoint actually selected before the
-   * span ends; on older clients it remains the reported endpoint.
+   * Builds a request seeded with a best-effort endpoint. On clients that expose endpoint selection
+   * the selection advice overrides this with the endpoint actually selected before the span ends;
+   * on older clients it remains the reported endpoint.
    */
   public static ClickHouseDbRequest createRequest(
       @Nullable String endpoint, @Nullable String database, String sqlQuery) {

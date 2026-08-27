@@ -41,7 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.testcontainers.containers.GenericContainer;
@@ -61,6 +60,7 @@ class ClickHouseClientV2Test {
   private static final String TABLE_NAME = "test_table";
   private static final String USERNAME = "default";
   private static final String PASSWORD = "";
+  private static final String SECOND_SERVER_HOSTNAME = "clickhouse-secondary";
   private static int port;
   private static String host;
   private static Client client;
@@ -139,55 +139,44 @@ class ClickHouseClientV2Test {
         SERVER_PORT);
   }
 
-  // Disabled until a stable client-v2 release ships ClientNodeSelector. The only published
-  // failover-capable artifact (0.10.0-rc2) diverges from its own source: its jar has no
-  // ClientNodeSelector (failover lives in private Client methods), so the endpoint-tracking advice
-  // cannot match and this test cannot pass. Re-enable once 0.10.0/0.11.0 stable is on Maven
-  // Central.
-  // See https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/19306
-  @Disabled("client-v2 0.10.0-rc2 artifact lacks ClientNodeSelector; awaiting stable release")
   @Test
   void testMultipleEndpointsRecordsSelectedEndpoint() throws Exception {
-    // With multiple endpoints the span must report the endpoint the client actually selected (the
-    // live primary here), not an arbitrary one picked from the configured set. The second, dead
-    // endpoint (nothing listens on port 1) is never used because the primary is healthy.
-    Client multiEndpointClient =
-        new Client.Builder()
-            .addEndpoint(Protocol.HTTP, host, port, false) // primary (live)
-            .addEndpoint("http://127.0.0.1:1") // secondary (dead)
-            .setDefaultDatabase(DATABASE_NAME)
-            .setUsername(USERNAME)
-            .setPassword(PASSWORD)
-            .setOption("compress", "false")
-            .build();
-    cleanup.deferCleanup(multiEndpointClient);
+    // client-v2 keeps the configured endpoints in an unordered set and picks one of them for the
+    // whole query, so the endpoint it uses is not necessarily the first one registered. The span
+    // must report the endpoint that actually served the query, identified here by asking the
+    // server for its hostname.
+    try (GenericContainer<?> secondServer =
+        new GenericContainer<>("clickhouse/clickhouse-server:24.4.2")
+            .withExposedPorts(8123)
+            .withCreateContainerCmdModifier(cmd -> cmd.withHostName(SECOND_SERVER_HOSTNAME))) {
+      secondServer.start();
+      int secondPort = secondServer.getMappedPort(8123);
+      String secondHost = secondServer.getHost();
 
-    QueryResponse response = multiEndpointClient.query("select * from " + TABLE_NAME).join();
-    response.close();
+      Client multiEndpointClient =
+          new Client.Builder()
+              .addEndpoint(Protocol.HTTP, host, port, false)
+              .addEndpoint(Protocol.HTTP, secondHost, secondPort, false)
+              .setDefaultDatabase(DATABASE_NAME)
+              .setUsername(USERNAME)
+              .setPassword(PASSWORD)
+              .setOption("compress", "false")
+              .build();
+      cleanup.deferCleanup(multiEndpointClient);
 
-    testing.waitAndAssertTraces(
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span ->
-                    span.hasName(
-                            emitStableDatabaseSemconv()
-                                ? "select test_table"
-                                : "SELECT " + DATABASE_NAME)
-                        .hasKind(SpanKind.CLIENT)
-                        .hasNoParent()
-                        .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), CLICKHOUSE),
-                            equalTo(maybeStable(DB_NAME), DATABASE_NAME),
-                            // the endpoint actually used, not the cached/primary one
-                            equalTo(SERVER_ADDRESS, host),
-                            equalTo(SERVER_PORT, port),
-                            equalTo(maybeStable(DB_STATEMENT), "select * from " + TABLE_NAME),
-                            equalTo(
-                                DB_QUERY_SUMMARY,
-                                emitStableDatabaseSemconv() ? "select test_table" : null),
-                            equalTo(
-                                maybeStable(DB_OPERATION),
-                                emitStableDatabaseSemconv() ? null : "SELECT"))));
+      List<GenericRecord> records = multiEndpointClient.queryAll("select hostName()");
+      boolean usedSecondServer = SECOND_SERVER_HOSTNAME.equals(records.get(0).getString(1));
+
+      testing.waitAndAssertTraces(
+          trace ->
+              trace.hasSpansSatisfyingExactly(
+                  span ->
+                      span.hasKind(SpanKind.CLIENT)
+                          .hasNoParent()
+                          .hasAttributesSatisfying(
+                              equalTo(SERVER_ADDRESS, usedSecondServer ? secondHost : host),
+                              equalTo(SERVER_PORT, usedSecondServer ? secondPort : port))));
+    }
   }
 
   @Test
