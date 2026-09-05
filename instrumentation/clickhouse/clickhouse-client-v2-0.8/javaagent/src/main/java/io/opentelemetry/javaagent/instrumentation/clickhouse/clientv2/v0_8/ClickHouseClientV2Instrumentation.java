@@ -57,8 +57,8 @@ class ClickHouseClientV2Instrumentation implements TypeInstrumentation {
 
       // Seed a best-effort endpoint. getEndpoints() returns the configured endpoints as an
       // unordered set, so it doesn't tell which one the client picks for this query. On clients
-      // that expose endpoint selection ClickHouseEndpointSelectionInstrumentation replaces this
-      // with the endpoint that is actually used, before the span ends.
+      // that expose the endpoint ClickHouseEndpointUsageInstrumentation replaces this with the
+      // endpoint that is actually contacted, before the span ends.
       String endpoint = client.getEndpoints().stream().findFirst().orElse(null);
       String database = client.getConfiguration().get("database");
       ClickHouseDbRequest request =

@@ -40,6 +40,6 @@ public class ClickHouseClientV2EndpointInstrumentationModule extends Instrumenta
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return singletonList(new ClickHouseEndpointSelectionInstrumentation());
+    return singletonList(new ClickHouseEndpointUsageInstrumentation());
   }
 }

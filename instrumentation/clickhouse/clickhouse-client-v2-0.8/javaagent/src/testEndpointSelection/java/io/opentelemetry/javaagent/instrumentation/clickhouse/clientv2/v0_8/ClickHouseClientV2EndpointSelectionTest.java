@@ -83,7 +83,7 @@ class ClickHouseClientV2EndpointSelectionTest {
             .setPassword(PASSWORD)
             .setOption("compress", "false")
             .build();
-    cleanup.deferCleanup(client);
+    cleanup.deferAfterAll(client);
 
     client.queryAll("create table " + TABLE_NAME + "(value String) engine=Memory");
     client.queryAll("insert into " + TABLE_NAME + " values('" + value + "')");

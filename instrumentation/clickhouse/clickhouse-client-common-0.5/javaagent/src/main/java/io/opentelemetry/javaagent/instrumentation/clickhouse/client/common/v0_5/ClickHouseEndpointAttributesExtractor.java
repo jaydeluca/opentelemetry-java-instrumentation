@@ -14,10 +14,10 @@ import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import javax.annotation.Nullable;
 
 /**
- * Records the endpoint that was actually used to serve the query, overriding the best-effort value
- * captured when the span started. The client selects the endpoint after the query has started, and
- * may select another one when it retries, so the definitive endpoint is only known at the end of
- * the operation.
+ * Records the endpoint that was actually contacted to serve the query, overriding the best-effort
+ * value captured when the span started. The client picks the endpoint after the query has started,
+ * so the endpoint is not known yet when the span is created. If a query ever contacts more than one
+ * endpoint, the last one contacted is the one reported.
  */
 final class ClickHouseEndpointAttributesExtractor
     implements AttributesExtractor<ClickHouseDbRequest, Void> {
