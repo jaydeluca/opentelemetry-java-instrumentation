@@ -15,7 +15,9 @@ import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.AttributeType;
 import io.opentelemetry.api.internal.InternalAttributeKeyImpl;
+import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.instrumentation.testing.internal.CollectedEvent;
 import io.opentelemetry.instrumentation.testing.util.TelemetryDataUtil;
 import io.opentelemetry.instrumentation.testing.util.ThrowingRunnable;
 import io.opentelemetry.instrumentation.testing.util.ThrowingSupplier;
@@ -54,6 +56,10 @@ import org.awaitility.core.ConditionTimeoutException;
  */
 public abstract class InstrumentationTestRunner {
 
+  private static final String EVENT_NAME_ATTRIBUTE_KEY = "event.name";
+  private static final AttributeKey<String> EVENT_NAME_ATTRIBUTE =
+      AttributeKey.stringKey(EVENT_NAME_ATTRIBUTE_KEY);
+
   private final OpenTelemetry openTelemetry;
   // Lazy initialized so that test runners can load without triggering Instrumenter construction
   // in the OpenTelemetry API bridging tests where some of the newer OpenTelemetry APIs used by
@@ -69,6 +75,13 @@ public abstract class InstrumentationTestRunner {
   protected Map<
           InstrumentationScopeInfo, Map<SpanKind, Map<InternalAttributeKeyImpl<?>, AttributeType>>>
       tracesByScope = new HashMap<>();
+
+  /**
+   * Stores events by scope, where each scope contains a map of event names to the accumulated shape
+   * of that event. This is used to collect metadata about the events emitted during tests.
+   */
+  protected Map<InstrumentationScopeInfo, Map<String, CollectedEvent>> eventsByScope =
+      new HashMap<>();
 
   protected InstrumentationTestRunner(OpenTelemetry openTelemetry) {
     this.openTelemetry = openTelemetry;
@@ -278,6 +291,70 @@ public abstract class InstrumentationTestRunner {
         }
       }
     }
+  }
+
+  /**
+   * Collects the events emitted so far, if telemetry metadata collection is enabled. Called after
+   * every test, so that events are captured whether or not the test asserted on them.
+   */
+  public void collectEmittedEventsIfEnabled() {
+    if (Boolean.getBoolean("collectMetadata")) {
+      collectEmittedEvents(getExportedLogRecords());
+    }
+  }
+
+  private void collectEmittedEvents(List<LogRecordData> logRecords) {
+    for (LogRecordData logRecord : logRecords) {
+      String eventName = eventName(logRecord);
+      if (eventName == null) {
+        // Not an event, just an ordinary log record (for example from a logging library bridge).
+        continue;
+      }
+
+      Map<String, CollectedEvent> scopeMap =
+          this.eventsByScope.computeIfAbsent(
+              logRecord.getInstrumentationScopeInfo(), s -> new HashMap<>());
+      CollectedEvent event = scopeMap.computeIfAbsent(eventName, e -> new CollectedEvent());
+
+      Severity severity = logRecord.getSeverity();
+      if (severity != null && severity != Severity.UNDEFINED_SEVERITY_NUMBER) {
+        event.setSeverityIfAbsent(severity.name());
+      }
+
+      for (AttributeKey<?> key : logRecord.getAttributes().asMap().keySet()) {
+        if (!(key instanceof InternalAttributeKeyImpl)) {
+          // We only collect internal attributes, so skip any non-internal attributes.
+          continue;
+        }
+        if (EVENT_NAME_ATTRIBUTE_KEY.equals(key.getKey())) {
+          // This attribute carries the event's identity, it is not one of its attributes.
+          continue;
+        }
+        event.addAttributeKey((InternalAttributeKeyImpl<?>) key);
+      }
+
+      InstrumentationScopeInfo scopeInfo = logRecord.getInstrumentationScopeInfo();
+      if (!scopeInfo.getName().equals("test")) {
+        instrumentationScopes.add(scopeInfo);
+      }
+    }
+  }
+
+  /**
+   * Returns the name of the event the given log record represents, or {@code null} if it is not an
+   * event.
+   *
+   * <p>Instrumentation names events in one of two ways: newer code calls {@code
+   * LogRecordBuilder.setEventName(String)}, while older code sets an {@code event.name} attribute.
+   * Both are recognized here.
+   */
+  @Nullable
+  private static String eventName(LogRecordData logRecord) {
+    String eventName = logRecord.getEventName();
+    if (eventName == null || eventName.isEmpty()) {
+      eventName = logRecord.getAttributes().get(EVENT_NAME_ATTRIBUTE);
+    }
+    return eventName == null || eventName.isEmpty() ? null : eventName;
   }
 
   public List<LogRecordData> waitForLogRecords(int numberOfLogRecords) {
