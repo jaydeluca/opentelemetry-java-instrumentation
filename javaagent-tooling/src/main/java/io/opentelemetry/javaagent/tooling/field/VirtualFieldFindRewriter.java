@@ -16,6 +16,8 @@ import io.opentelemetry.javaagent.extension.instrumentation.internal.AsmApi;
 import io.opentelemetry.javaagent.tooling.TransformSafeLogger;
 import io.opentelemetry.javaagent.tooling.muzzle.VirtualFieldMappings;
 import java.lang.reflect.Method;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import net.bytebuddy.asm.AsmVisitorWrapper;
 import net.bytebuddy.description.field.FieldDescription;
 import net.bytebuddy.description.field.FieldList;
@@ -52,6 +54,10 @@ final class VirtualFieldFindRewriter implements AsmVisitorWrapper {
     }
   }
 
+  // these notices are emitted while transforming classes; without deduplication the same notice
+  // would be repeated for every transformed class that contains the call
+  private static final Set<String> emittedWarnings = ConcurrentHashMap.newKeySet();
+
   private final Class<?> instrumentationModuleClass;
   private final VirtualFieldMappings virtualFieldMappings;
   private final VirtualFieldImplementations virtualFieldImplementations;
@@ -63,6 +69,11 @@ final class VirtualFieldFindRewriter implements AsmVisitorWrapper {
     this.instrumentationModuleClass = instrumentationModuleClass;
     this.virtualFieldMappings = virtualFieldMappings;
     this.virtualFieldImplementations = virtualFieldImplementations;
+  }
+
+  /** Returns {@code true} the first time it is called with this {@code kind} for this module. */
+  private boolean warnOnce(String kind) {
+    return emittedWarnings.add(kind + ":" + instrumentationModuleClass.getName());
   }
 
   @Override
@@ -122,6 +133,16 @@ final class VirtualFieldFindRewriter implements AsmVisitorWrapper {
                   && (stack[0] instanceof Type && stack[1] instanceof Type)) {
                 String fieldTypeName = ((Type) stack[0]).getClassName();
                 String typeName = ((Type) stack[1]).getClassName();
+                // this check must come before virtualFieldImplementations.find(), which throws a
+                // much less actionable exception for the same root cause - implementation classes
+                // are generated from the mappings, so a missing implementation means a missing
+                // mapping
+                if (!virtualFieldMappings.hasUnnamedMapping(typeName, fieldTypeName)) {
+                  throw new IllegalStateException(
+                      String.format(
+                          "Incorrect VirtualField usage detected. Cannot find mapping for VirtualField<%s, %s>. Was that field registered in %s#registerMuzzleVirtualFields()?",
+                          typeName, fieldTypeName, instrumentationModuleClass.getName()));
+                }
                 TypeDescription virtualFieldImplementationClass =
                     virtualFieldImplementations.find(
                         RuntimeVirtualFieldSupplier.DEFAULT_FIELD_NAME, typeName, fieldTypeName);
@@ -131,13 +152,7 @@ final class VirtualFieldFindRewriter implements AsmVisitorWrapper {
                       "Rewriting VirtualField#find() for instrumenter {0}: {1} -> {2}",
                       new Object[] {instrumentationModuleClass.getName(), typeName, fieldTypeName});
                 }
-                if (!virtualFieldMappings.hasMapping(typeName, fieldTypeName)) {
-                  throw new IllegalStateException(
-                      String.format(
-                          "Incorrect VirtualField usage detected. Cannot find mapping for VirtualField<%s, %s>. Was that field registered in %s#registerMuzzleVirtualFields()?",
-                          typeName, fieldTypeName, instrumentationModuleClass.getName()));
-                }
-                if (SemconvStability.v3Preview()) {
+                if (SemconvStability.v3Preview() && warnOnce("rewrite")) {
                   logger.log(
                       WARNING,
                       "Rewriting VirtualField#find(Class, Class) access in {0}. This rewriting is deprecated and may be removed in a future version.",
@@ -158,8 +173,8 @@ final class VirtualFieldFindRewriter implements AsmVisitorWrapper {
             if (Type.getInternalName(FIND_VIRTUAL_FIELD_WITH_NAME_METHOD.getDeclaringClass())
                     .equals(owner)
                 && FIND_VIRTUAL_FIELD_WITH_NAME_METHOD.getName().equals(name)
-                && Type.getMethodDescriptor(FIND_VIRTUAL_FIELD_WITH_NAME_METHOD)
-                    .equals(descriptor)) {
+                && Type.getMethodDescriptor(FIND_VIRTUAL_FIELD_WITH_NAME_METHOD).equals(descriptor)
+                && warnOnce("named-find")) {
               logger.log(
                   WARNING,
                   "Found VirtualField#find(String, Class, Class) access in {0}. Unlike calls to VirtualField#find(Class, Class) the call to this method is not rewritten and may have a performance impact.",

@@ -38,9 +38,25 @@ final class RuntimeFieldBasedImplementationSupplier
       VirtualField<U, V> field = (VirtualField<U, V>) method.invoke(null, type, fieldType);
       return field;
     } catch (ClassNotFoundException e) {
-      throw new IllegalStateException("VirtualField not found", e);
+      // unlike VirtualField#find(Class, Class), calls to the named overload are not rewritten, so
+      // this is the only place a missing registration is reported - name the field to make that
+      // actionable
+      throw new IllegalStateException(
+          String.format(
+              "VirtualField not found. Cannot find implementation for %s. Was that field registered"
+                  + " in the instrumentation module?",
+              describe(fieldName, type, fieldType)),
+          e);
     } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-      throw new IllegalStateException("Failed to get VirtualField", e);
+      throw new IllegalStateException("Failed to get " + describe(fieldName, type, fieldType), e);
     }
+  }
+
+  private static String describe(String fieldName, Class<?> type, Class<?> fieldType) {
+    return String.format(
+        "VirtualField<%s, %s>%s",
+        type.getTypeName(),
+        fieldType.getTypeName(),
+        fieldName.isEmpty() ? "" : " named '" + fieldName + "'");
   }
 }

@@ -28,28 +28,18 @@ final class GeneratedVirtualFieldNames {
       String fieldName, String typeName, String fieldTypeName) {
     return DYNAMIC_CLASSES_PACKAGE
         + "VirtualFieldImpl$"
-        + (!fieldName.isEmpty() ? fieldName + "$" : "")
-        + sanitizeClassName(typeName)
-        + "$"
-        + sanitizeClassName(fieldTypeName);
+        + suffix(fieldName, typeName, fieldTypeName);
   }
 
   static String getFieldAccessorInterfaceName(
       String fieldName, String typeName, String fieldTypeName) {
     return DYNAMIC_CLASSES_PACKAGE
         + "VirtualFieldAccessor$"
-        + (!fieldName.isEmpty() ? fieldName + "$" : "")
-        + sanitizeClassName(typeName)
-        + "$"
-        + sanitizeClassName(fieldTypeName);
+        + suffix(fieldName, typeName, fieldTypeName);
   }
 
   static String getRealFieldName(String fieldName, String typeName, String fieldTypeName) {
-    return "__opentelemetryVirtualField$"
-        + (!fieldName.isEmpty() ? fieldName + "$" : "")
-        + sanitizeClassName(typeName)
-        + "$"
-        + sanitizeClassName(fieldTypeName);
+    return "__opentelemetryVirtualField$" + suffix(fieldName, typeName, fieldTypeName);
   }
 
   static String getRealGetterName(String fieldName, String typeName, String fieldTypeName) {
@@ -58,6 +48,21 @@ final class GeneratedVirtualFieldNames {
 
   static String getRealSetterName(String fieldName, String typeName, String fieldTypeName) {
     return "__set" + getRealFieldName(fieldName, typeName, fieldTypeName);
+  }
+
+  /**
+   * Builds the {@code <fieldName>$<typeName>$<fieldTypeName>} part that all generated names share.
+   *
+   * <p>The field name segment is always emitted, even when it is empty (the unnamed virtual field).
+   * Skipping it for unnamed fields would make this encoding ambiguous, because {@link
+   * #sanitizeClassName} also turns package separators into {@code $}: field {@code "a"} on type
+   * {@code b.X} and the unnamed field on type {@code a.b.X} would both produce {@code a$b$X}, and
+   * the two distinct virtual fields would end up sharing one injected field. Field names containing
+   * {@code $} are rejected when the mapping is registered, so the first {@code $} here always
+   * terminates the field name.
+   */
+  private static String suffix(String fieldName, String typeName, String fieldTypeName) {
+    return fieldName + "$" + sanitizeClassName(typeName) + "$" + sanitizeClassName(fieldTypeName);
   }
 
   private static String sanitizeClassName(String className) {

@@ -486,14 +486,27 @@ private static final VirtualField<Runnable, Context> RUNNABLE_CONTEXT =
 
 The first argument is the carrier type and the second is the attached value type. In normal
 javaagent instrumentation, both should be class literals so muzzle can discover and register the
-mapping. Bytecode transformation rewrites calls with class-literal arguments in inlined `@Advice`
-methods. Lookups made outside advice execute at runtime and should be cached.
+mapping. Lookups execute at runtime and should be cached in a `static final` field.
 A rare lookup that resolves carrier types at runtime must run outside advice in an `@NoMuzzle`
 method. The instrumentation module must implement `ExperimentalInstrumentationModule` and override
-`registerVirtualFields(...)` to register every possible carrier/value pair. The `(carrier class,
-value class)` pair identifies the virtual field across instrumentations, so use a dedicated holder
-class when common value types such as `Object`, `Boolean`, `String`, or `Map` could give unrelated
-state the same pair.
+`registerVirtualFields(...)` to register every possible carrier/value pair.
+
+A virtual field is identified by the `(name, carrier class, value class)` triple, and the two-argument
+`find(...)` above leaves the name empty. When the carrier is a type that other instrumentations could
+also attach state to and the value type is a common one such as `Object`, `Boolean`, `String`, or
+`Map`, name the field so unrelated state cannot land in the same slot:
+
+```java
+private static final VirtualField<MessageConsumer, String> CONSUMER_SUBSCRIPTION_NAME =
+    VirtualField.find("subscriptionName", MessageConsumer.class, String.class);
+```
+
+The name must be a java identifier that does not contain `$`, because it becomes part of generated
+class, field, and method names; an invalid name fails muzzle code generation. Names are not
+namespaced, so when the carrier is a JDK type prefer a name specific to the instrumentation over a
+generic one like `context` or `state`. A dedicated holder type for the value works too, and is still
+the better choice when the value has behavior of its own rather than being a bare `String` or
+`Boolean`.
 
 When a shared bootstrap or common helper cannot name the library carrier type, keep the
 `VirtualField` lookup with the instrumentation-specific caller. Pass the typed handle, or a small
@@ -509,12 +522,14 @@ public static <T> void attachContext(
 Do not generalize this pattern with `VirtualField.find(Object.class, ...)`. The caller should select
 the narrow class or interface that identifies the library objects that can carry the state.
 
-Inside an inlined `@Advice` method, call `VirtualField.find(...)` directly where the virtual field
-is used. The call is rewritten during bytecode transformation and does not need to be cached. A
-non-inlined advice method (`inline = false`) must not call `VirtualField.find(...)` because the call
-is not rewritten. For non-inlined advice, put the handle in a `static final` field on a non-advice
-helper or singleton and reference that handle from the advice method. Use the same caching pattern
-for other lookups outside advice.
+Do not call `VirtualField.find(...)` from an advice method, inlined or not. Put the handle in a
+`static final` field on a non-advice helper or singleton and reference that handle from the advice
+method. Use the same caching pattern for other lookups outside advice.
+
+Bytecode transformation does rewrite two-argument `find(...)` calls with class-literal arguments
+inside *inlined* advice, which is why older instrumentation calls it there directly. That rewriting
+is deprecated and may be removed in a future release; it never applied to non-inlined advice
+(`inline = false`) or to the named three-argument overload, so do not rely on it in new code.
 
 The javaagent normally injects field-backed storage into eligible carrier implementations. It falls
 back to a weak-key, strong-value map when field injection is unavailable. Avoid storing a value that

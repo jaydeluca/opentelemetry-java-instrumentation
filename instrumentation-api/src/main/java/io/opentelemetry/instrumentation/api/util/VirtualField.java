@@ -28,10 +28,10 @@ public abstract class VirtualField<T, F> {
    *
    * <p>In runtime, when using the javaagent, the <em>calls</em> to this method are rewritten to
    * something more performant while injecting <em>inline</em> advice into a method. This rewriting
-   * is not performed for <em>non-inline</em> advice. Users are advised not to rely on agent
-   * automatically rewriting the virtual field usages and instead look up {@link VirtualField} once
-   * and stored in a field to avoid repeatedly calling this method. Rewriting calls to this method
-   * may be removed in a future agent release.
+   * is not performed for <em>non-inline</em> advice. Users are advised not to rely on the agent
+   * automatically rewriting the virtual field usages, and to instead look up the {@link
+   * VirtualField} once and store it in a field to avoid repeatedly calling this method. Rewriting
+   * calls to this method may be removed in a future agent release.
    *
    * @param type The type that will contain the new virtual field.
    * @param fieldType The field type that will be added to {@code type}.
@@ -51,13 +51,20 @@ public abstract class VirtualField<T, F> {
    * object of type {@code type} is associated with another map where they key is composed of {@code
    * fieldName} and {@code fieldType} and the value is the value of the virtual field.
    *
+   * <p>Naming a virtual field keeps two instrumentations from accidentally sharing one field when
+   * they attach unrelated state of a common type - such as {@link String} or {@link Boolean} - to
+   * the same {@code type}. When {@code type} is a JDK type that many instrumentations could use as
+   * a carrier, prefer a name that is specific to the instrumentation over a generic one.
+   *
    * <p>Calls to this method may be expensive, caller should keep the returned {@link VirtualField}
    * and reuse it instead of repeatedly calling this method.
    *
    * <p>Unlike calls to {@link VirtualField#find(Class, Class)} calls to this method are never
    * rewritten.
    *
-   * @param fieldName The name of the virtual field.
+   * @param fieldName The name of the virtual field. Must be a java identifier that does not contain
+   *     {@code $}, because the name is used as a part of generated class, field and method names.
+   *     In the javaagent an invalid name fails the muzzle code generation for the instrumentation.
    * @param type The type that will contain the new virtual field.
    * @param fieldType The field type that will be added to {@code type}.
    */

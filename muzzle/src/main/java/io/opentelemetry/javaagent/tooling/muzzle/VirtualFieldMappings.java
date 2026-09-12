@@ -5,6 +5,7 @@
 
 package io.opentelemetry.javaagent.tooling.muzzle;
 
+import io.opentelemetry.instrumentation.api.internal.RuntimeVirtualFieldSupplier;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -12,7 +13,8 @@ import java.util.function.Consumer;
 public final class VirtualFieldMappings {
   private final Set<Mapping> mappings;
 
-  public VirtualFieldMappings(Set<Mapping> mappings) {
+  // Mapping has a package private constructor, so only this package can build the argument
+  VirtualFieldMappings(Set<Mapping> mappings) {
     this.mappings = mappings;
   }
 
@@ -24,8 +26,12 @@ public final class VirtualFieldMappings {
     return mappings.isEmpty();
   }
 
-  public boolean hasMapping(String typeName, String fieldTypeName) {
-    return mappings.contains(new Mapping("", typeName, fieldTypeName));
+  /**
+   * Returns {@code true} if the <em>unnamed</em> virtual field for this type pair is registered.
+   */
+  public boolean hasUnnamedMapping(String typeName, String fieldTypeName) {
+    return mappings.contains(
+        new Mapping(RuntimeVirtualFieldSupplier.DEFAULT_FIELD_NAME, typeName, fieldTypeName));
   }
 
   public Set<Mapping> getMappings() {
