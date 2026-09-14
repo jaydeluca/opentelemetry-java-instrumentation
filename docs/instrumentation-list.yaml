@@ -4,7 +4,7 @@
 # each module references them by id via `metric_refs` and `configuration_refs`.
 # For more information see: https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/13468
 
-file_format: 0.6
+file_format: 0.7
 
 definitions:
   configurations:
@@ -1423,6 +1423,24 @@ definitions:
       description: Enables collection of JMX metrics.
       type: boolean
       default: true
+    otel.jmx.metrics.excluded:
+      name: otel.jmx.metrics.excluded
+      declarative_name: java.jmx.metrics.excluded
+      description: |
+        Comma-separated list of case-sensitive glob patterns for metric names not to collect. "*" matches any number of characters and "?" matches one character. Excluded patterns take precedence over included patterns. When no included patterns are configured, all metrics that are not excluded are collected. With neither selector property configured, all metrics are collected.
+      type: list
+      default: ''
+      examples:
+      - jvm.memory.limit,kafka.connect.*
+    otel.jmx.metrics.included:
+      name: otel.jmx.metrics.included
+      declarative_name: java.jmx.metrics.included
+      description: |
+        Comma-separated list of case-sensitive glob patterns for metric names to collect. "*" matches any number of characters and "?" matches one character. Excluded patterns take precedence over included patterns. When no included patterns are configured, all metrics that are not excluded are collected. With neither selector property configured, all metrics are collected.
+      type: list
+      default: ''
+      examples:
+      - jvm.memory.*,jvm.thread.count
     otel.jmx.target.system:
       name: otel.jmx.target.system
       declarative_name: java.jmx.target.system
@@ -5192,6 +5210,122 @@ definitions:
         type: STRING
       - name: direction
         type: STRING
+  events:
+    db.client.operation.exception-83d4cffb:
+      name: db.client.operation.exception
+      severity: WARN
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
+    exception-72108ed3:
+      name: exception
+      severity: WARN
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
+    faas.invocation.exception-55d44725:
+      name: faas.invocation.exception
+      severity: ERROR
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
+    gen_ai.assistant.message-186a3e5f:
+      name: gen_ai.assistant.message
+      attributes:
+      - name: gen_ai.provider.name
+        type: STRING
+    gen_ai.choice-c87a79de:
+      name: gen_ai.choice
+      attributes:
+      - name: gen_ai.provider.name
+        type: STRING
+    gen_ai.client.operation.exception-44609dc2:
+      name: gen_ai.client.operation.exception
+      severity: WARN
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
+    gen_ai.system.message-88bf24ac:
+      name: gen_ai.system.message
+      attributes:
+      - name: gen_ai.provider.name
+        type: STRING
+    gen_ai.tool.message-ebf6809d:
+      name: gen_ai.tool.message
+      attributes:
+      - name: gen_ai.provider.name
+        type: STRING
+    gen_ai.user.message-443462e0:
+      name: gen_ai.user.message
+      attributes:
+      - name: gen_ai.provider.name
+        type: STRING
+    http.client.request.exception-ca66bc45:
+      name: http.client.request.exception
+      severity: WARN
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
+    http.server.request.exception-55205eb6:
+      name: http.server.request.exception
+      severity: ERROR
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
+    messaging.receive.exception-da0a5a7e:
+      name: messaging.receive.exception
+      severity: WARN
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
+    rpc.client.call.exception-fadee4e0:
+      name: rpc.client.call.exception
+      severity: WARN
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
+    rpc.server.call.exception-738e89fe:
+      name: rpc.server.call.exception
+      severity: ERROR
+      attributes:
+      - name: exception.message
+        type: STRING
+      - name: exception.stacktrace
+        type: STRING
+      - name: exception.type
+        type: STRING
 libraries:
 - name: activej-http-6.0
   display_name: ActiveJ
@@ -6469,6 +6603,14 @@ libraries:
       attributes:
       - name: faas.invocation_id
         type: STRING
+  - when: otel.semconv.exception.signal.preview=logs
+    spans:
+    - span_kind: SERVER
+      attributes:
+      - name: faas.invocation_id
+        type: STRING
+    event_refs:
+    - faas.invocation.exception-55d44725
 - name: aws-lambda-events-2.2
   display_name: AWS Lambda Events
   description: |
@@ -7332,6 +7474,11 @@ libraries:
         type: LONG
       - name: url.full
         type: STRING
+    event_refs:
+    - gen_ai.assistant.message-186a3e5f
+    - gen_ai.choice-c87a79de
+    - gen_ai.tool.message-ebf6809d
+    - gen_ai.user.message-443462e0
   - when: otel.semconv-stability.opt-in=database
     metric_refs:
     - db.client.operation.duration-556e77d6
@@ -9216,6 +9363,8 @@ libraries:
         type: LONG
       - name: server.address
         type: STRING
+      - name: server.port
+        type: LONG
 - name: executors
   display_name: Java Executors
   description: |
@@ -9715,6 +9864,52 @@ libraries:
         type: STRING
       - name: server.port
         type: LONG
+  - when: otel.semconv.exception.signal.preview=logs
+    metric_refs:
+    - rpc.client.duration-599bf562
+    - rpc.client.request.size-0d8f967b
+    - rpc.client.response.size-d0124e0e
+    - rpc.server.duration-83a39fb3
+    - rpc.server.request.size-75ef4f8e
+    - rpc.server.response.size-fb45af0b
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: rpc.grpc.status_code
+        type: LONG
+      - name: rpc.method
+        type: STRING
+      - name: rpc.service
+        type: STRING
+      - name: rpc.system
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+    - span_kind: SERVER
+      attributes:
+      - name: network.peer.address
+        type: STRING
+      - name: network.peer.port
+        type: LONG
+      - name: network.type
+        type: STRING
+      - name: rpc.grpc.status_code
+        type: LONG
+      - name: rpc.method
+        type: STRING
+      - name: rpc.service
+        type: STRING
+      - name: rpc.system
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+    event_refs:
+    - rpc.client.call.exception-fadee4e0
+    - rpc.server.call.exception-738e89fe
 - name: guava-10.0
   display_name: Guava
   description: |
@@ -9912,6 +10107,24 @@ libraries:
         type: LONG
       - name: server.address
         type: STRING
+  - when: otel.semconv.exception.signal.preview=logs
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: db.name
+        type: STRING
+      - name: db.operation
+        type: STRING
+      - name: db.system
+        type: STRING
+      - name: db.user
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+    event_refs:
+    - db.client.operation.exception-83d4cffb
 - name: helidon-4.3
   display_name: Helidon
   description: This instrumentation enables HTTP server spans and HTTP server metrics
@@ -10985,6 +11198,44 @@ libraries:
         type: STRING
       - name: db.system.name
         type: STRING
+  - when: otel.semconv.exception.signal.preview=logs
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: db.connection_string
+        type: STRING
+      - name: db.name
+        type: STRING
+      - name: db.operation
+        type: STRING
+      - name: db.sql.table
+        type: STRING
+      - name: db.statement
+        type: STRING
+      - name: db.system
+        type: STRING
+      - name: db.user
+        type: STRING
+      - name: peer.service
+        type: STRING
+      - name: server.address
+        type: STRING
+    - span_kind: INTERNAL
+      attributes:
+      - name: code.function
+        type: STRING
+      - name: code.namespace
+        type: STRING
+      - name: db.connection_string
+        type: STRING
+      - name: db.name
+        type: STRING
+      - name: db.system
+        type: STRING
+      - name: db.user
+        type: STRING
+    event_refs:
+    - db.client.operation.exception-83d4cffb
 - name: jedis-1.4
   display_name: Jedis
   description: This instrumentation enables database client spans and database client
@@ -12561,6 +12812,48 @@ libraries:
         type: STRING
       - name: messaging.system
         type: STRING
+  - when: otel.semconv.exception.signal.preview=logs
+    spans:
+    - span_kind: CONSUMER
+      attributes:
+      - name: kafka.record.queue_time_ms
+        type: LONG
+      - name: messaging.batch.message_count
+        type: LONG
+      - name: messaging.client_id
+        type: STRING
+      - name: messaging.destination.name
+        type: STRING
+      - name: messaging.destination.partition.id
+        type: STRING
+      - name: messaging.kafka.consumer.group
+        type: STRING
+      - name: messaging.kafka.message.offset
+        type: LONG
+      - name: messaging.message.body.size
+        type: LONG
+      - name: messaging.operation
+        type: STRING
+      - name: messaging.system
+        type: STRING
+    - span_kind: PRODUCER
+      attributes:
+      - name: messaging.client_id
+        type: STRING
+      - name: messaging.destination.name
+        type: STRING
+      - name: messaging.destination.partition.id
+        type: STRING
+      - name: messaging.kafka.bootstrap.servers
+        type: STRING
+      - name: messaging.kafka.message.offset
+        type: LONG
+      - name: messaging.operation
+        type: STRING
+      - name: messaging.system
+        type: STRING
+    event_refs:
+    - messaging.receive.exception-da0a5a7e
 - name: kafka-connect-2.6
   display_name: Apache Kafka Connect
   description: This instrumentation enables messaging spans for Kafka Connect sink
@@ -14641,6 +14934,64 @@ libraries:
         type: LONG
       - name: gen_ai.usage.reasoning.output_tokens
         type: LONG
+    event_refs:
+    - gen_ai.assistant.message-186a3e5f
+    - gen_ai.choice-c87a79de
+    - gen_ai.system.message-88bf24ac
+    - gen_ai.tool.message-ebf6809d
+    - gen_ai.user.message-443462e0
+  - when: otel.semconv.exception.signal.preview=logs
+    metric_refs:
+    - gen_ai.client.operation.duration-32ef946d
+    - gen_ai.client.token.usage-c5ff244f
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: gen_ai.operation.name
+        type: STRING
+      - name: gen_ai.provider.name
+        type: STRING
+      - name: gen_ai.request.encoding_formats
+        type: STRING_ARRAY
+      - name: gen_ai.request.frequency_penalty
+        type: DOUBLE
+      - name: gen_ai.request.max_tokens
+        type: LONG
+      - name: gen_ai.request.model
+        type: STRING
+      - name: gen_ai.request.presence_penalty
+        type: DOUBLE
+      - name: gen_ai.request.seed
+        type: LONG
+      - name: gen_ai.request.stop_sequences
+        type: STRING_ARRAY
+      - name: gen_ai.request.stream
+        type: BOOLEAN
+      - name: gen_ai.request.temperature
+        type: DOUBLE
+      - name: gen_ai.request.top_p
+        type: DOUBLE
+      - name: gen_ai.response.finish_reasons
+        type: STRING_ARRAY
+      - name: gen_ai.response.id
+        type: STRING
+      - name: gen_ai.response.model
+        type: STRING
+      - name: gen_ai.usage.cache_read.input_tokens
+        type: LONG
+      - name: gen_ai.usage.input_tokens
+        type: LONG
+      - name: gen_ai.usage.output_tokens
+        type: LONG
+      - name: gen_ai.usage.reasoning.output_tokens
+        type: LONG
+    event_refs:
+    - gen_ai.assistant.message-186a3e5f
+    - gen_ai.choice-c87a79de
+    - gen_ai.client.operation.exception-44609dc2
+    - gen_ai.system.message-88bf24ac
+    - gen_ai.tool.message-ebf6809d
+    - gen_ai.user.message-443462e0
 - name: opensearch-java-3.0
   display_name: OpenSearch Java Client
   description: |
@@ -17863,6 +18214,37 @@ libraries:
         type: STRING
       - name: code.namespace
         type: STRING
+  - when: otel.instrumentation.common.experimental.controller-telemetry.enabled=true,otel.semconv.exception.signal.preview=logs
+    metric_refs:
+    - http.client.request.duration-a64b5297
+    spans:
+    - span_kind: CLIENT
+      attributes:
+      - name: error.type
+        type: STRING
+      - name: http.request.method
+        type: STRING
+      - name: http.response.status_code
+        type: LONG
+      - name: network.protocol.version
+        type: STRING
+      - name: peer.service
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+      - name: url.full
+        type: STRING
+    - span_kind: INTERNAL
+      attributes:
+      - name: code.function
+        type: STRING
+      - name: code.namespace
+        type: STRING
+    event_refs:
+    - exception-72108ed3
+    - http.client.request.exception-ca66bc45
   - when: otel.semconv-stability.opt-in=service.peer
     metric_refs:
     - http.client.request.duration-a64b5297
@@ -18665,6 +19047,42 @@ libraries:
         type: STRING
       - name: user_agent.original
         type: STRING
+  - when: otel.semconv.exception.signal.preview=logs
+    metric_refs:
+    - http.server.request.duration-639e2d0b
+    spans:
+    - span_kind: SERVER
+      attributes:
+      - name: client.address
+        type: STRING
+      - name: error.type
+        type: STRING
+      - name: http.request.method
+        type: STRING
+      - name: http.request.method_original
+        type: STRING
+      - name: http.response.status_code
+        type: LONG
+      - name: network.peer.address
+        type: STRING
+      - name: network.peer.port
+        type: LONG
+      - name: network.protocol.version
+        type: STRING
+      - name: server.address
+        type: STRING
+      - name: server.port
+        type: LONG
+      - name: url.path
+        type: STRING
+      - name: url.query
+        type: STRING
+      - name: url.scheme
+        type: STRING
+      - name: user_agent.original
+        type: STRING
+    event_refs:
+    - http.server.request.exception-55205eb6
 - name: vaadin-14.2
   display_name: Vaadin
   description: |
@@ -19405,7 +19823,7 @@ custom:
 - name: jmx-metrics
   display_name: JMX Metrics
   description: |
-    Collects and reports metrics exposed through Java Management Extensions (JMX). It can be configured to extract JVM and application-level telemetry data from JMX MBeans such as memory usage, thread counts, and garbage collection statistics, and translate these measurements into OpenTelemetry metrics.
+    Collects and reports metrics exposed through Java Management Extensions (JMX). It can be configured to extract JVM and application-level telemetry data from JMX MBeans such as memory usage, thread counts, and garbage collection statistics, and translate these measurements into OpenTelemetry metrics. Collected metrics can be filtered by name using include and exclude patterns.
   source_path: instrumentation/jmx-metrics
   scope:
     name: io.opentelemetry.jmx-metrics
@@ -19415,6 +19833,8 @@ custom:
   - otel.jmx.config
   - otel.jmx.discovery.delay
   - otel.jmx.enabled
+  - otel.jmx.metrics.excluded
+  - otel.jmx.metrics.included
   - otel.jmx.target.system
 - name: methods
   display_name: Methods
