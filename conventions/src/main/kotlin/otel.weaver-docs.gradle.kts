@@ -1,7 +1,7 @@
 import java.io.File
 
 // Weaver documentation generation convention plugin
-// Recursively finds all instrumentation modules with models/ directories
+// Recursively finds all instrumentation modules with model/ directories
 // and creates Gradle tasks to generate documentation using the OpenTelemetry Weaver tool
 
 /**
@@ -63,7 +63,9 @@ fun createWeaverDocTask(instrumentationName: String, modelsDir: File, docsDir: F
     }
 
     val weaverArgs = listOf(
-      "otel/weaver:v0.18.0@sha256:5425ade81dc22ddd840902b0638b4b6a9186fb654c5b50c1d1ccd31299437390",
+      // Keep in sync with the weaver version pinned by
+      // instrumentation/jmx-metrics/library/src/test/java/.../WeaverContainer.java.
+      "otel/weaver:v0.26.1",
       "registry", "generate",
       "--registry=/source",
       "--templates=${templatesSource}",
@@ -83,38 +85,38 @@ fun createWeaverDocTask(instrumentationName: String, modelsDir: File, docsDir: F
 }
 
 /**
- * Recursively searches for all models/ directories under a given directory.
+ * Recursively searches for all model/ directories under a given directory.
  *
  * @param dir The directory to search
  * @param baseDir The base directory for calculating relative paths
  * @return List of pairs containing (task-suffix, module-directory)
  */
-fun findModelsDirectories(dir: File, baseDir: File = dir): List<Pair<String, File>> {
+fun findModelDirectories(dir: File, baseDir: File = dir): List<Pair<String, File>> {
   val results = mutableListOf<Pair<String, File>>()
 
   dir.listFiles()?.forEach { file ->
     if (file.isDirectory) {
-      val modelsDir = File(file, "models")
-      if (modelsDir.exists() && modelsDir.isDirectory) {
+      val modelDir = File(file, "model")
+      if (modelDir.exists() && modelDir.isDirectory) {
         val relativePath = file.relativeTo(baseDir).path.replace(File.separatorChar, '-')
         results.add(Pair(relativePath, file))
       }
       // Recursively search subdirectories
-      results.addAll(findModelsDirectories(file, baseDir))
+      results.addAll(findModelDirectories(file, baseDir))
     }
   }
 
   return results
 }
 
-// Find all instrumentation modules with models directories and register tasks
+// Find all instrumentation modules with model directories and register tasks
 val weaverDocTasks = mutableListOf<TaskProvider<Exec>>()
 val instrumentationDir = file("instrumentation")
 if (instrumentationDir.exists() && instrumentationDir.isDirectory) {
-  findModelsDirectories(instrumentationDir).forEach { (taskSuffix, moduleDir) ->
-    val modelsDir = File(moduleDir, "models")
+  findModelDirectories(instrumentationDir).forEach { (taskSuffix, moduleDir) ->
+    val modelDir = File(moduleDir, "model")
     val docsDir = File(moduleDir, "docs")
-    val taskProvider = createWeaverDocTask(taskSuffix, modelsDir, docsDir)
+    val taskProvider = createWeaverDocTask(taskSuffix, modelDir, docsDir)
     weaverDocTasks.add(taskProvider)
   }
 }

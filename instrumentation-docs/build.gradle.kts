@@ -11,6 +11,10 @@ dependencies {
   implementation("org.yaml:snakeyaml:2.7")
   implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml")
   implementation("io.opentelemetry:opentelemetry-sdk-common")
+  // Used by WeaverModelGenerator to recognize known upstream semantic-convention attributes
+  // (emitted as `ref:`) vs. instrumentation-specific ones (defined locally in the model).
+  implementation("io.opentelemetry.semconv:opentelemetry-semconv")
+  implementation("io.opentelemetry.semconv:opentelemetry-semconv-incubating")
 
   testImplementation(project(":declarative-config-bridge"))
   testImplementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure-spi")

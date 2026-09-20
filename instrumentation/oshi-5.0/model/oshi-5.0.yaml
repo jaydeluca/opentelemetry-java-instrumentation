@@ -1,0 +1,106 @@
+# This file is generated and should not be manually edited.
+groups:
+  - id: registry.oshi-5.0
+    type: attribute_group
+    brief: Attributes specific to the OSHI instrumentation.
+    attributes:
+      - id: device
+        type: string
+        stability: development
+        brief: "device" attribute emitted by the OSHI instrumentation.
+      - id: direction
+        type: string
+        stability: development
+        brief: "direction" attribute emitted by the OSHI instrumentation.
+      - id: type
+        type: string
+        stability: development
+        brief: "type" attribute emitted by the OSHI instrumentation.
+  - id: metric.runtime.java.cpu_time
+    type: metric
+    metric_name: runtime.java.cpu_time
+    stability: development
+    brief: "Runtime Java CPU time"
+    instrument: gauge
+    unit: "ms"
+    note: "Only emitted when `otel.instrumentation.oshi.experimental-metrics.enabled=true` (Enable the experimental `runtime.java.memory` and `runtime.java.cpu_time` metrics.)."
+    attributes:
+      - ref: type
+  - id: metric.runtime.java.memory
+    type: metric
+    metric_name: runtime.java.memory
+    stability: development
+    brief: "Runtime Java memory"
+    instrument: updowncounter
+    unit: "By"
+    note: "Only emitted when `otel.instrumentation.oshi.experimental-metrics.enabled=true` (Enable the experimental `runtime.java.memory` and `runtime.java.cpu_time` metrics.)."
+    attributes:
+      - ref: type
+  - id: metric.system.disk.io
+    type: metric
+    metric_name: system.disk.io
+    stability: development
+    brief: "System disk IO"
+    instrument: counter
+    unit: "By"
+    attributes:
+      - ref: direction
+      - ref: device
+  - id: metric.system.disk.operations
+    type: metric
+    metric_name: system.disk.operations
+    stability: development
+    brief: "System disk operations"
+    instrument: counter
+    unit: "{operations}"
+    attributes:
+      - ref: direction
+      - ref: device
+  - id: metric.system.memory.usage
+    type: metric
+    metric_name: system.memory.usage
+    stability: development
+    brief: "System memory usage"
+    instrument: updowncounter
+    unit: "By"
+    attributes:
+      - ref: state
+  - id: metric.system.memory.utilization
+    type: metric
+    metric_name: system.memory.utilization
+    stability: development
+    brief: "System memory utilization"
+    instrument: gauge
+    unit: "1"
+    attributes:
+      - ref: state
+  - id: metric.system.network.errors
+    type: metric
+    metric_name: system.network.errors
+    stability: development
+    brief: "System network errors"
+    instrument: counter
+    unit: "{errors}"
+    attributes:
+      - ref: direction
+      - ref: device
+  - id: metric.system.network.io
+    type: metric
+    metric_name: system.network.io
+    stability: development
+    brief: "System network IO"
+    instrument: counter
+    unit: "By"
+    attributes:
+      - ref: direction
+      - ref: device
+  - id: metric.system.network.packets
+    type: metric
+    metric_name: system.network.packets
+    stability: development
+    brief: "System network packets"
+    instrument: counter
+    unit: "{packets}"
+    attributes:
+      - ref: direction
+      - ref: device

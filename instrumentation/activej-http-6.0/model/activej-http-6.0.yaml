@@ -1,0 +1,32 @@
+# This file is generated and should not be manually edited.
+groups:
+  - id: metric.http.server.request.duration
+    type: metric
+    metric_name: http.server.request.duration
+    stability: development
+    brief: "Duration of HTTP server requests."
+    instrument: histogram
+    unit: "s"
+    attributes:
+      - ref: http.request.method
+      - ref: url.scheme
+      - ref: network.protocol.version
+      - ref: http.response.status_code
+  - id: span.activej-http-6.0.server
+    type: span
+    span_kind: server
+    stability: development
+    brief: ActiveJ server span.
+    attributes:
+      - ref: error.type
+      - ref: network.peer.address
+      - ref: user_agent.original
+      - ref: server.address
+      - ref: http.request.method
+      - ref: url.scheme
+      - ref: url.path
+      - ref: server.port
+      - ref: network.protocol.version
+      - ref: http.response.status_code
+      - ref: client.address
+      - ref: url.query
