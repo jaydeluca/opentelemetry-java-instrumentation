@@ -6,7 +6,6 @@
 package io.opentelemetry.javaagent.instrumentation.rmi.client;
 
 import static io.opentelemetry.javaagent.instrumentation.rmi.client.RmiClientSingletons.instrumenter;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
 
@@ -20,7 +19,7 @@ import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
-public class UnicastRefInstrumentation implements TypeInstrumentation {
+class UnicastRefInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -30,11 +29,10 @@ public class UnicastRefInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("invoke"))
+        named("invoke")
             .and(takesArgument(0, named("java.rmi.Remote")))
             .and(takesArgument(1, Method.class)),
-        this.getClass().getName() + "$InvokeAdvice");
+        getClass().getName() + "$InvokeAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -44,9 +42,9 @@ public class UnicastRefInstrumentation implements TypeInstrumentation {
       private final Context context;
       private final Scope scope;
 
-      private AdviceScope(Context context, Scope scope) {
+      private AdviceScope(Context context) {
         this.context = context;
-        this.scope = scope;
+        this.scope = context.makeCurrent();
       }
 
       @Nullable
@@ -56,7 +54,7 @@ public class UnicastRefInstrumentation implements TypeInstrumentation {
           return null;
         }
         Context context = instrumenter().start(parentContext, method);
-        return new AdviceScope(context, context.makeCurrent());
+        return new AdviceScope(context);
       }
 
       public void end(Method method, @Nullable Throwable throwable) {
@@ -66,12 +64,12 @@ public class UnicastRefInstrumentation implements TypeInstrumentation {
     }
 
     @Nullable
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static AdviceScope onEnter(@Advice.Argument(value = 1) Method method) {
       return AdviceScope.start(method);
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Argument(value = 1) Method method,
         @Advice.Thrown @Nullable Throwable throwable,

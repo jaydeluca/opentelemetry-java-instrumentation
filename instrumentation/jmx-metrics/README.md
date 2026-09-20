@@ -12,13 +12,13 @@ To control the time interval between MBean detection attempts, one can use the `
 
 ## Predefined metrics
 
-JMX is a popular metrics technology used throughout the JVM (see [runtime metrics](../runtime-telemetry/runtime-telemetry-java8/library/README.md)), application servers, third-party libraries, and applications.
+JMX is a popular metrics technology used throughout the JVM (see [runtime metrics](../runtime-telemetry/library/README.md)), application servers, third-party libraries, and applications.
 JMX Metric Insight comes with a number of predefined configurations containing curated sets of JMX metrics for frequently used application servers or frameworks.
 To enable collection of the predefined metrics, specify a list of targets as the value for the `otel.jmx.target.system` property. For example
 
 ```bash
 $ java -javaagent:path/to/opentelemetry-javaagent.jar \
-     -Dotel.jmx.target.system=jetty,kafka-broker \
+     -Dotel.jmx.target.system=jetty,experimental-kafka-broker \
      ... \
      -jar myapp.jar
 ```
@@ -26,17 +26,45 @@ $ java -javaagent:path/to/opentelemetry-javaagent.jar \
 No targets are enabled by default. The supported target environments are listed below.
 
 - [activemq](library/activemq.md)
-- [camel](javaagent/camel.md)
+- [camel](library/camel.md)
 - [jetty](library/jetty.md)
-- [kafka-broker](javaagent/kafka-broker.md)
+- [experimental-kafka-broker](library/kafka-broker.md)
+- [experimental-kafka-connect](library/kafka-connect.md)
 - [tomcat](library/tomcat.md)
 - [wildfly](library/wildfly.md)
 - [hadoop](library/hadoop.md)
+- [experimental-cassandra](library/cassandra.md)
 
 The [jvm](library/jvm.md) metrics definitions are also included in the [jmx-metrics library](./library)
 to allow reusing them without instrumentation. When using instrumentation, the [runtime-telemetry](../runtime-telemetry)
 instrumentation is used and recommended as it provides more metrics attributes that can't be captured
 through the YAML-based metric definitions.
+
+Metric filters apply to all loaded metric definitions, including predefined targets, custom YAML
+rules, and metric handlers:
+
+```properties
+otel.jmx.metrics.included=jvm.memory.*,jvm.thread.coun?
+otel.jmx.metrics.excluded=jvm.memory.limit
+```
+
+Matching is case-sensitive. `?` matches one character and `*` matches zero or more characters.
+Excluded patterns take precedence over included patterns. If included is not configured, all
+non-excluded metrics are collected. With neither property configured, all metrics are collected.
+
+The equivalent declarative configuration is:
+
+```yaml
+instrumentation/development:
+  java:
+    jmx:
+      metrics:
+        included:
+          - jvm.memory.*
+          - jvm.thread.coun?
+        excluded:
+          - jvm.memory.limit
+```
 
 ## Configuration Files
 
@@ -334,7 +362,7 @@ If such a conversion is not available, then an error is reported during JMX metr
 Currently available unit conversions:
 
 | `sourceUnit` | `unit` |
-|--------------|--------|
+| ------------ | ------ |
 | ms           | s      |
 | us           | s      |
 | ns           | s      |
@@ -360,7 +388,7 @@ rules:
 ### Filtering negative values
 
 Sometimes a negative value is returned by the MBean implementation when a metric is not available or not supported.
-For example, [`OperatingSystemMXBean.getProcessCpuLoad`](https://docs.oracle.com/javase/7/docs/jre/api/management/extension/com/sun/management/OperatingSystemMXBean.html#getProcessCpuLoad()) can return a negative value.
+For example, [`OperatingSystemMXBean.getProcessCpuLoad`](<https://docs.oracle.com/javase/7/docs/jre/api/management/extension/com/sun/management/OperatingSystemMXBean.html#getProcessCpuLoad()>) can return a negative value.
 
 In this case, it is recommended to filter out the negative values by setting the `dropNegativeValues` metric (or rule) property to `true`, it is set to `false` by default.
 
@@ -459,9 +487,9 @@ rules:                                # start of list of configuration rules
 The following table explains the used terms with more details.
 
 | Syntactic Element  | Description                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | OBJECTNAME         | A syntactically valid string representing an [ObjectName](https://docs.oracle.com/javase/8/docs/api/javax/management/ObjectName.html#ObjectName-java.lang.String-).                                                                                                                                                                                                                                                                                 |
-| ATTRIBUTE          | Any well-formed string that can be used as a metric [attribute](https://opentelemetry.io/docs/reference/specification/common/#attribute) key.                                                                                                                                                                                                                                                                                                       |
+| ATTRIBUTE          | Any well-formed string that can be used as a metric [attribute](https://opentelemetry.io/docs/specs/otel/common/#attribute).                                                                                                                                                                                                                                                                                                                        |
 | ATTR               | A non-empty string used as a name of the MBean attribute. The MBean attribute value must be a String, otherwise the specified metric attribute will not be used.                                                                                                                                                                                                                                                                                    |
 | PARAM              | A non-empty string used as a property key in the ObjectName identifying the MBean which provides the metric value. If the ObjectName does not have a property with the given key, the specified metric attribute will not be used.                                                                                                                                                                                                                  |
 | METRIC_NAME_PREFIX | Any non-empty string which will be prepended to the specified metric (instrument) names.                                                                                                                                                                                                                                                                                                                                                            |
@@ -480,3 +508,41 @@ This version of JMX Metric Insight has a number of limitations.
 - MBean attributes with the same name but belonging to different MBeans described by a single metric rule must have the same type (long or double).
 - All MBeans which are described by the specified ObjectNames in a single rule must be registered with the same MBeanServer instance.
 - While MBeanServers and MBeans can be created dynamically by the application, it is assumed that they will live indefinitely. Their disappearance may not be recognized properly, and may lead to some memory leaks.
+
+## JMX metrics definitions recommendations
+
+The goals of pre-defined metrics-definitions are:
+
+- to provide a set of commonly used metrics for some known target systems, hence allowing users to capture essential metrics without configuration.
+- to provide a set of consistent and well-known metrics for some known target systems.
+- to serve as examples for users to extend those metric definitions.
+
+The pre-defined metrics definitions are not meant to be exhaustive and thus should focus on a limited set of essential metrics for each target system.
+
+To contribute to pre-defined metrics definitions or extend them through custom configuration, we recommend following the following guidelines:
+
+- align and reuse [semantic conventions metrics recommendations and definitions](https://opentelemetry.io/docs/specs/semconv/general/metrics/) when possible.
+- namespace metric names and metric attributes with the target system as prefix.
+- metrics measuring time should prefer to use `duration` over `time`, also the metric value should use seconds as unit (following [semantic conventions recommendations](https://opentelemetry.io/docs/specs/semconv/general/metrics/#instrument-units)), using unit conversion if needed.
+- metric name should not be the prefix of another metric, for example `request.duration` and `request.duration.last` should be avoided.
+- when a metric is exposed in JMX as "current value", only capture the "current value" and ignore any pre-aggregation (for example mean, min, max, ...) as it is better handled by a backend, for example
+  - `threadpool.thread.count`
+- when a metric is not exposed as "current value" and only exposed in JMX as aggregate values, capture those aggregate values with `.{aggregation}` suffix, examples:
+  - `request.duration.mean` or `request.duration.average`: choice should ideally align with the underlying implementation (MBean attribute name) to preserve implementation semantics.
+  - `request.duration.min`
+  - `request.duration.max`
+  - `request.duration.sum` : for the cumulative value, prefer "sum" over "total" for consistency.
+  - `request.duration.last` : for the last request duration
+  - For those pre-aggregated metrics:
+    - if pre-aggregation is `sum`, the metric type should be `counter` as metric can be aggregated
+    - otherwise, the metric type should be `gauge` as the metric can't be aggregated automatically:
+      - without knowledge of the metric pre-aggregation (encoded in name), for example: min and max.
+      - it will likely produce meaningless results: mean of mean, or mean across multiple instances.
+- when a metric represents an upper limit of a resource, use the `.limit` suffix, for example:
+  - `threadpool.thread.limit` to represent the upper limit of `threadpool.thread.count`
+- when metrics represent an upper and lower bounds or a resource, use the `.limit.upper` and `.limit.lower`suffixes, for example:
+  - `pool.limit.upper` to represent the upper limit of the pool size (maximum capacity)
+  - `pool.limit.lower` to represent the minimum number of threads that should be kept in the pool, even if there is no load.
+- when a metric represents a percentile, use the `.pXX` suffix where `XX` is the percentile value, for example:
+  - `request.duration.p50` for the 50th percentile (median)
+  - `request.duration.p99` for the 99th percentile

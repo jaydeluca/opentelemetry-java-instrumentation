@@ -13,49 +13,33 @@ import org.springframework.web.server.WebFilter;
 
 /** Entrypoint for instrumenting Spring Webflux HTTP services. */
 public final class SpringWebfluxServerTelemetry {
+  // We use ServerWebExchange (which holds both the request and response)
+  // because we need it to get the HTTP route while instrumenting.
+  private final Instrumenter<ServerWebExchange, ServerWebExchange> serverInstrumenter;
 
-  /**
-   * Returns a new {@link SpringWebfluxServerTelemetry} configured with the given {@link
-   * OpenTelemetry}.
-   */
+  /** Returns a new instance configured with the given {@link OpenTelemetry} instance. */
   public static SpringWebfluxServerTelemetry create(OpenTelemetry openTelemetry) {
     return builder(openTelemetry).build();
   }
 
-  /**
-   * Returns a new {@link SpringWebfluxServerTelemetryBuilder} configured with the given {@link
-   * OpenTelemetry}.
-   */
+  /** Returns a builder configured with the given {@link OpenTelemetry} instance. */
   public static SpringWebfluxServerTelemetryBuilder builder(OpenTelemetry openTelemetry) {
     return new SpringWebfluxServerTelemetryBuilder(openTelemetry);
   }
-
-  // We use ServerWebExchange (which holds both the request and response)
-  // because we need it to get the HTTP route while instrumenting.
-  private final Instrumenter<ServerWebExchange, ServerWebExchange> serverInstrumenter;
 
   SpringWebfluxServerTelemetry(
       Instrumenter<ServerWebExchange, ServerWebExchange> serverInstrumenter) {
     this.serverInstrumenter = serverInstrumenter;
   }
 
-  /**
-   * Returns an OpenTelemetry telemetry producing {@link WebFilter} that can be registered with
-   * Spring Webflux to instrument HTTP server requests.
-   *
-   * @return OpenTelemetry telemetry producing {@link WebFilter}
-   */
+  /** Returns a {@link WebFilter} that instruments HTTP server requests. */
   public WebFilter createWebFilter() {
     return new TelemetryProducingWebFilter(serverInstrumenter);
   }
 
   /**
-   * Returns an OpenTelemetry telemetry producing {@link WebFilter} that can be registered with
-   * Spring Webflux to instrument HTTP server requests. Also registers the Reactor context
-   * propagation hook {@link ContextPropagationOperator} for propagating OpenTelemetry context into
-   * reactive pipelines.
-   *
-   * @return OpenTelemetry telemetry producing {@link WebFilter}
+   * Returns a {@link WebFilter} that instruments HTTP server requests. Also registers the Reactor
+   * context propagation hook for reactive pipelines.
    */
   public WebFilter createWebFilterAndRegisterReactorHook() {
     registerReactorHook();

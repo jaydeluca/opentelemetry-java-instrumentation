@@ -5,16 +5,21 @@
 
 package io.opentelemetry.javaagent.instrumentation.opensearch.v3_0;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
+
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesGetter;
-import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.internal.DbServerTarget;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues;
+import java.util.concurrent.CompletionException;
 import javax.annotation.Nullable;
+import org.opensearch.client.opensearch._types.OpenSearchException;
 
 final class OpenSearchAttributesGetter
     implements DbClientAttributesGetter<OpenSearchRequest, Void> {
 
   @Override
-  public String getDbSystem(OpenSearchRequest request) {
-    return DbIncubatingAttributes.DbSystemNameIncubatingValues.OPENSEARCH;
+  public String getDbSystemName(OpenSearchRequest request) {
+    return DbSystemNameIncubatingValues.OPENSEARCH;
   }
 
   @Override
@@ -26,7 +31,11 @@ final class OpenSearchAttributesGetter
   @Override
   @Nullable
   public String getDbQueryText(OpenSearchRequest request) {
-    return request.getMethod() + " " + request.getOperation();
+    String body = request.getBody();
+    if (body != null || emitStableDatabaseSemconv()) {
+      return body;
+    }
+    return request.getMethod() + " " + request.getEndpoint();
   }
 
   @Override
@@ -35,9 +44,39 @@ final class OpenSearchAttributesGetter
     return request.getMethod();
   }
 
-  @Nullable
   @Override
-  public String getResponseStatus(@Nullable Void response, @Nullable Throwable error) {
-    return null; // Response status is handled by HTTP instrumentation
+  @Nullable
+  public String getErrorType(
+      OpenSearchRequest request, @Nullable Void response, @Nullable Throwable error) {
+    if (error instanceof CompletionException) {
+      error = error.getCause();
+    }
+    if (error instanceof OpenSearchException) {
+      int statusCode = ((OpenSearchException) error).status();
+      if (statusCode >= 400 || statusCode < 100) {
+        return Integer.toString(statusCode);
+      }
+    }
+    return null;
+  }
+
+  @Override
+  @Nullable
+  public String getServerAddress(OpenSearchRequest request) {
+    if (!emitStableDatabaseSemconv()) {
+      return null;
+    }
+    DbServerTarget target = request.getServerTarget();
+    return target != null ? target.getAddress() : null;
+  }
+
+  @Override
+  @Nullable
+  public Integer getServerPort(OpenSearchRequest request) {
+    if (!emitStableDatabaseSemconv()) {
+      return null;
+    }
+    DbServerTarget target = request.getServerTarget();
+    return target != null ? target.getPort() : null;
   }
 }

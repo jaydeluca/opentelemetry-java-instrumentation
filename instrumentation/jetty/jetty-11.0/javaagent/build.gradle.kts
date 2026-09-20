@@ -7,13 +7,14 @@ muzzle {
     group.set("org.eclipse.jetty")
     module.set("jetty-server")
     versions.set("[11, 12)")
+    assertInverse.set(true)
   }
 }
 
 dependencies {
   library("org.eclipse.jetty:jetty-server:11.0.0")
 
-  implementation(project(":instrumentation:jetty:jetty-common:javaagent"))
+  implementation(project(":instrumentation:jetty:jetty-common-8.0:javaagent"))
   implementation(project(":instrumentation:servlet:servlet-5.0:javaagent"))
   bootstrap(project(":instrumentation:servlet:servlet-common:bootstrap"))
 
@@ -30,5 +31,5 @@ otelJava {
 }
 
 tasks.test {
-  systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+  systemProperty("collectMetadata", otelProps.collectMetadata)
 }

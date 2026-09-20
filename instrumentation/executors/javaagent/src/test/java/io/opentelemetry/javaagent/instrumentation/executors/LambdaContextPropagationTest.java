@@ -5,18 +5,17 @@
 
 package io.opentelemetry.javaagent.instrumentation.executors;
 
+import static java.util.Collections.singletonList;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.opentelemetry.api.baggage.Baggage;
 import io.opentelemetry.context.Scope;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,7 +45,7 @@ class LambdaContextPropagationTest {
     }
 
     executor.shutdown();
-    executor.awaitTermination(30, TimeUnit.SECONDS);
+    executor.awaitTermination(30, SECONDS);
 
     assertThat(failureCounter).hasValue(0);
   }
@@ -63,7 +62,7 @@ class LambdaContextPropagationTest {
     }
 
     executor.shutdown();
-    executor.awaitTermination(30, TimeUnit.SECONDS);
+    executor.awaitTermination(30, SECONDS);
 
     assertThat(failureCounter).hasValue(0);
   }
@@ -80,7 +79,7 @@ class LambdaContextPropagationTest {
     }
 
     executor.shutdown();
-    executor.awaitTermination(30, TimeUnit.SECONDS);
+    executor.awaitTermination(30, SECONDS);
 
     assertThat(failureCounter).hasValue(0);
   }
@@ -102,7 +101,7 @@ class LambdaContextPropagationTest {
     }
 
     executor.shutdown();
-    executor.awaitTermination(30, TimeUnit.SECONDS);
+    executor.awaitTermination(30, SECONDS);
 
     assertThat(failureCounter).hasValue(0);
   }
@@ -128,13 +127,13 @@ class LambdaContextPropagationTest {
     }
 
     executor.shutdown();
-    executor.awaitTermination(30, TimeUnit.SECONDS);
+    executor.awaitTermination(30, SECONDS);
 
     assertThat(failureCounter).hasValue(0);
   }
 
   @Test
-  void propagateContextInvokeAny() throws InterruptedException, ExecutionException {
+  void propagateContextInvokeAny() throws Exception {
     ExecutorService executor = Executors.newSingleThreadExecutor();
 
     Baggage baggage = Baggage.builder().put("test", "test").build();
@@ -145,12 +144,12 @@ class LambdaContextPropagationTest {
               assertBaggage();
               return null;
             };
-        executor.invokeAny(Collections.singletonList(callable));
+        executor.invokeAny(singletonList(callable));
       }
     }
 
     executor.shutdown();
-    executor.awaitTermination(30, TimeUnit.SECONDS);
+    executor.awaitTermination(30, SECONDS);
 
     assertThat(failureCounter).hasValue(0);
   }

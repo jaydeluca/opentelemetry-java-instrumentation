@@ -20,7 +20,7 @@ import org.springframework.jms.listener.MessageListenerContainer;
 import org.springframework.jms.listener.SessionAwareMessageListener;
 
 @EnableJms
-public class ManualListenerConfig extends AbstractConfig implements JmsListenerConfigurer {
+class ManualListenerConfig extends AbstractConfig implements JmsListenerConfigurer {
 
   private static final Logger logger = LoggerFactory.getLogger(ManualListenerConfig.class);
 
@@ -42,6 +42,7 @@ public class ManualListenerConfig extends AbstractConfig implements JmsListenerC
             AbstractMessageListenerContainer container =
                 (AbstractMessageListenerContainer) listenerContainer;
             container.setDestinationName("SpringListenerJms2");
+            container.setSubscriptionName("durable-subscription");
             container.setupMessageListener(
                 (SessionAwareMessageListener<Message>)
                     (message, session) -> logger.info("received: {}", message));

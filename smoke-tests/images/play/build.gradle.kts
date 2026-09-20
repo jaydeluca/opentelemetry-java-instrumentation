@@ -9,7 +9,7 @@ plugins {
   id("otel.spotless-conventions")
 
   id("com.google.cloud.tools.jib")
-  id("org.playframework.play") version "3.1.0-M4"
+  id("org.playframework.play") version "3.1.0-M9"
 }
 
 play {
@@ -17,7 +17,7 @@ play {
 }
 
 dependencies {
-  val playVersion = "3.1.0-M4"
+  val playVersion = "3.1.0-M9"
   val scalaVersion = "2.13"
 
   implementation("org.playframework:play-guice_$scalaVersion:$playVersion")
@@ -25,7 +25,7 @@ dependencies {
   implementation("org.playframework:play-filters-helpers_$scalaVersion:$playVersion")
   runtimeOnly("org.playframework:play-server_$scalaVersion:$playVersion")
   runtimeOnly("org.playframework:play-pekko-http-server_$scalaVersion:$playVersion")
-  runtimeOnly("org.apache.pekko:pekko-http_$scalaVersion:1.3.0")
+  runtimeOnly("org.apache.pekko:pekko-http_$scalaVersion:1.4.0")
 }
 
 val targetJDK = (project.findProperty("targetJDK") as String?) ?: "17"

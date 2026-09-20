@@ -15,7 +15,7 @@ import reactor.netty.Connection;
 import reactor.netty.http.client.HttpClientRequest;
 import reactor.netty.http.client.HttpClientResponse;
 
-public final class DecoratorFunctions {
+public class DecoratorFunctions {
 
   // ignore already decorated functions
   public static boolean shouldDecorate(Class<?> callbackClass) {
@@ -25,7 +25,7 @@ public final class DecoratorFunctions {
         && callbackClass != OnResponseErrorDecorator.class;
   }
 
-  private abstract static class OnMessageDecorator<M> implements BiConsumer<M, Connection> {
+  protected abstract static class OnMessageDecorator<M> implements BiConsumer<M, Connection> {
     private final BiConsumer<? super M, ? super Connection> delegate;
     private final boolean forceParentContext;
 
@@ -38,7 +38,7 @@ public final class DecoratorFunctions {
     @Override
     public final void accept(M message, Connection connection) {
       Channel channel = connection.channel();
-      // don't try to get the client span from the netty channel when forceParentSpan is true
+      // don't try to get the client span from the netty channel when forceParentContext is true
       // this way the parent context will always be propagated
       if (forceParentContext) {
         channel = null;
@@ -80,7 +80,7 @@ public final class DecoratorFunctions {
     }
   }
 
-  private abstract static class OnMessageErrorDecorator<M> implements BiConsumer<M, Throwable> {
+  protected abstract static class OnMessageErrorDecorator<M> implements BiConsumer<M, Throwable> {
     private final BiConsumer<? super M, ? super Throwable> delegate;
 
     OnMessageErrorDecorator(BiConsumer<? super M, ? super Throwable> delegate) {

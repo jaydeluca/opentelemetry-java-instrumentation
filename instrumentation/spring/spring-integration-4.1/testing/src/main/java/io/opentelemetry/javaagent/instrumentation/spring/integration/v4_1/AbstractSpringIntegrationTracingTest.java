@@ -5,18 +5,30 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.instrumentation.testing.junit.message.MessageHeaderUtil.headerAttributeKey;
+import static io.opentelemetry.instrumentation.testing.util.TestLatestDeps.testLatestDeps;
+import static io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1.SpringIntegrationTestHelper.assertNoMetrics;
+import static io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1.SpringIntegrationTestHelper.assertProcessMetrics;
+import static io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1.SpringIntegrationTestHelper.messagingAttributes;
+import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static java.util.Collections.singletonList;
+import static java.util.Collections.singletonMap;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.boot.SpringApplication;
@@ -35,20 +47,22 @@ import org.springframework.messaging.support.MessageBuilder;
 
 abstract class AbstractSpringIntegrationTracingTest {
 
-  protected final InstrumentationExtension testing;
+  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
+
+  private final InstrumentationExtension testing;
 
   private final Class<?> additionalContextClass;
 
-  ConfigurableApplicationContext applicationContext;
+  private ConfigurableApplicationContext applicationContext;
 
-  public AbstractSpringIntegrationTracingTest(
+  AbstractSpringIntegrationTracingTest(
       InstrumentationExtension testing, Class<?> additionalContextClass) {
     this.testing = testing;
     this.additionalContextClass = additionalContextClass;
   }
 
   @BeforeEach
-  public void setUp() {
+  void setUp() {
     List<Class<?>> contextClasses = new ArrayList<>();
     contextClasses.add(MessageChannelsConfig.class);
     if (additionalContextClass != null) {
@@ -57,25 +71,16 @@ abstract class AbstractSpringIntegrationTracingTest {
     SpringApplication springApplication =
         new SpringApplication(contextClasses.toArray(new Class<?>[0]));
     springApplication.setDefaultProperties(
-        Collections.singletonMap("spring.main.web-application-type", "none"));
+        singletonMap("spring.main.web-application-type", "none"));
     applicationContext = springApplication.run();
-  }
-
-  @AfterEach
-  public void tearDown() {
-    if (applicationContext != null) {
-      applicationContext.close();
-    }
+    cleanup.deferCleanup(applicationContext);
   }
 
   @ParameterizedTest
   @CsvSource(
-      value = {
-        "directChannel,application.directChannel process",
-        "executorChannel,executorChannel process"
-      },
+      value = {"directChannel,application.directChannel", "executorChannel,executorChannel"},
       delimiter = ',')
-  public void shouldPropagateContext(String channelName, String interceptorSpanName) {
+  void shouldPropagateContext(String channelName, String destinationName) {
     SubscribableChannel channel =
         applicationContext.getBean(channelName, SubscribableChannel.class);
 
@@ -90,12 +95,41 @@ abstract class AbstractSpringIntegrationTracingTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span -> {
-                  span.hasName(interceptorSpanName).hasKind(SpanKind.CONSUMER);
+                  span.hasName(
+                          emitStableMessagingSemconv()
+                              ? "process " + destinationName
+                              : destinationName + " process")
+                      .hasKind(SpanKind.CONSUMER)
+                      .hasAttributesSatisfyingExactly(
+                          messagingAttributes("process", destinationName));
                   verifyCorrectSpanWasPropagated(capturedMessage, trace.getSpan(0));
                 },
                 span -> span.hasName("handler").hasParent(trace.getSpan(0))));
 
+    if (emitStableMessagingSemconv()) {
+      assertProcessMetrics(testing, destinationName, false);
+    } else {
+      assertNoMetrics(testing);
+    }
+
     channel.unsubscribe(messageHandler);
+  }
+
+  @Test
+  void shouldRecordFailedProcessMetrics() {
+    assumeTrue(emitStableMessagingSemconv());
+
+    SubscribableChannel channel =
+        applicationContext.getBean("directChannel", SubscribableChannel.class);
+    channel.subscribe(
+        message -> {
+          throw new IllegalStateException("test");
+        });
+
+    assertThatThrownBy(() -> channel.send(MessageBuilder.withPayload("test").build()))
+        .isInstanceOf(RuntimeException.class);
+
+    assertProcessMetrics(testing, "application.directChannel", true);
   }
 
   @Test
@@ -114,7 +148,13 @@ abstract class AbstractSpringIntegrationTracingTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span -> {
-                  span.hasName("application.directChannel2 process").hasKind(SpanKind.CONSUMER);
+                  span.hasName(
+                          emitStableMessagingSemconv()
+                              ? "process application.directChannel2"
+                              : "application.directChannel2 process")
+                      .hasKind(SpanKind.CONSUMER)
+                      .hasAttributesSatisfyingExactly(
+                          messagingAttributes("process", "application.directChannel2"));
                   verifyCorrectSpanWasPropagated(capturedMessage, trace.getSpan(0));
                 },
                 span -> span.hasName("handler").hasParent(trace.getSpan(0))));
@@ -165,7 +205,13 @@ abstract class AbstractSpringIntegrationTracingTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span -> {
-                  span.hasName("application.linkedChannel1 process").hasKind(SpanKind.CONSUMER);
+                  span.hasName(
+                          emitStableMessagingSemconv()
+                              ? "process application.linkedChannel1"
+                              : "application.linkedChannel1 process")
+                      .hasKind(SpanKind.CONSUMER)
+                      .hasAttributesSatisfyingExactly(
+                          messagingAttributes("process", "application.linkedChannel1"));
                   verifyCorrectSpanWasPropagated(capturedMessage, trace.getSpan(0));
                 },
                 span -> span.hasName("handler").hasParent(trace.getSpan(0))));
@@ -182,7 +228,10 @@ abstract class AbstractSpringIntegrationTracingTest {
     channel.subscribe(messageHandler);
 
     channel.send(
-        MessageBuilder.withPayload("test").setHeader("Test-Message-Header", "test").build());
+        MessageBuilder.withPayload("test")
+            .setHeader("Test-Message-Header", "test")
+            .setHeader("Uncaptured-Header", "password")
+            .build());
 
     Message<?> capturedMessage = messageHandler.join();
 
@@ -190,7 +239,18 @@ abstract class AbstractSpringIntegrationTracingTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span -> {
-                  span.hasName("application.directChannel process").hasKind(SpanKind.CONSUMER);
+                  span.hasName(
+                          emitStableMessagingSemconv()
+                              ? "process application.directChannel"
+                              : "application.directChannel process")
+                      .hasKind(SpanKind.CONSUMER)
+                      .hasAttributesSatisfyingExactly(
+                          messagingAttributes(
+                              "process",
+                              "application.directChannel",
+                              equalTo(
+                                  headerAttributeKey("Test-Message-Header"),
+                                  singletonList("test"))));
                   verifyCorrectSpanWasPropagated(capturedMessage, trace.getSpan(0));
                 },
                 span -> span.hasName("handler").hasParent(trace.getSpan(0))));
@@ -208,7 +268,7 @@ abstract class AbstractSpringIntegrationTracingTest {
   @EnableAutoConfiguration
   public static class MessageChannelsConfig {
 
-    SubscribableChannel problematicSharedChannel = new DirectChannel();
+    private final SubscribableChannel problematicSharedChannel = new DirectChannel();
 
     @Bean
     public SubscribableChannel directChannel() {
@@ -225,11 +285,16 @@ abstract class AbstractSpringIntegrationTracingTest {
       return problematicSharedChannel;
     }
 
+    @Bean(destroyMethod = "shutdownNow")
+    public ExecutorService executorChannelExecutor() {
+      return Executors.newSingleThreadExecutor();
+    }
+
     @Bean
     public SubscribableChannel executorChannel(GlobalChannelInterceptorWrapper otelInterceptor) {
       ExecutorSubscribableChannel channel =
-          new ExecutorSubscribableChannel(Executors.newSingleThreadExecutor());
-      if (!Boolean.getBoolean("testLatestDeps")) {
+          new ExecutorSubscribableChannel(executorChannelExecutor());
+      if (!testLatestDeps()) {
         // spring does not inject the interceptor in 4.1 because ExecutorSubscribableChannel isn't
         // ChannelInterceptorAware
         // in later versions spring injects the global interceptor into InterceptableChannel (which

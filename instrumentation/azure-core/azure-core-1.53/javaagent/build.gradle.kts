@@ -8,6 +8,19 @@ muzzle {
     module.set("azure-core")
     versions.set("[1.53.0,)")
     assertInverse.set(true)
+    // this module bridges an explicitly supplied application parent context, so it references the
+    // application's io.opentelemetry.context.{Context,Scope} and only applies when the application
+    // uses the OpenTelemetry API itself; it is verified separately below
+    excludeInstrumentationName("azure-core-1.53-context")
+  }
+
+  pass {
+    name.set("Application using the OpenTelemetry API")
+    group.set("com.azure")
+    module.set("azure-core")
+    versions.set("[1.53.0,)")
+    assertInverse.set(true)
+    extraDependency("io.opentelemetry:opentelemetry-api:1.27.0")
   }
 }
 
@@ -24,6 +37,10 @@ sourceSets {
 dependencies {
   compileOnly(project(":instrumentation:azure-core:azure-core-1.53:library-instrumentation-shaded", configuration = "shadow"))
 
+  // needed to bridge an explicitly supplied application parent context (the unshaded
+  // "application.io.opentelemetry.*" types) to the agent context inside our advice
+  compileOnly(project(":opentelemetry-api-shaded-for-instrumenting", configuration = "shadow"))
+
   library("com.azure:azure-core:1.53.0")
 
   // Ensure no cross interference
@@ -32,11 +49,9 @@ dependencies {
   testInstrumentation(project(":instrumentation:azure-core:azure-core-1.36:javaagent"))
 }
 
-val latestDepTest = findProperty("testLatestDeps") as Boolean
-
 tasks {
   withType<Test>().configureEach {
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
   }
 }
 
@@ -44,9 +59,9 @@ testing {
   suites {
     // using a test suite to ensure that classes from library-instrumentation-shaded that were
     // extracted to the output directory are not available during tests
-    val testAzure by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testAzure") {
       dependencies {
-        if (latestDepTest) {
+        if (otelProps.testLatestDeps) {
           implementation("com.azure:azure-core:latest.release")
           implementation("com.azure:azure-core-test:latest.release")
         } else {

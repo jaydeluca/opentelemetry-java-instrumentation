@@ -5,46 +5,123 @@
 
 package io.opentelemetry.javaagent.instrumentation.couchbase.v2_0;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
+
+import io.opentelemetry.api.common.AttributesBuilder;
+import io.opentelemetry.context.Context;
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesGetter;
-import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.internal.DbServerTarget;
+import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
+import io.opentelemetry.javaagent.instrumentation.couchbase.common.v2_0.CouchbaseRequestInfo;
+import io.opentelemetry.javaagent.instrumentation.couchbase.common.v2_0.CouchbaseRequestInfo.Node;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import javax.annotation.Nullable;
 
 final class CouchbaseAttributesGetter
-    implements DbClientAttributesGetter<CouchbaseRequestInfo, Void> {
+    implements DbClientAttributesGetter<CouchbaseRequestInfo, Void>,
+        AttributesExtractor<CouchbaseRequestInfo, Void> {
 
-  @SuppressWarnings("deprecation") // using deprecated DbSystemIncubatingValues
   @Override
-  public String getDbSystem(CouchbaseRequestInfo couchbaseRequest) {
-    return DbIncubatingAttributes.DbSystemIncubatingValues.COUCHBASE;
+  public String getDbSystemName(CouchbaseRequestInfo couchbaseRequest) {
+    return DbSystemNameIncubatingValues.COUCHBASE;
   }
 
   @Override
   @Nullable
   public String getDbNamespace(CouchbaseRequestInfo couchbaseRequest) {
-    return couchbaseRequest.bucket();
+    return couchbaseRequest.getBucket();
   }
 
   @Override
   @Nullable
   public String getDbQueryText(CouchbaseRequestInfo couchbaseRequest) {
-    return couchbaseRequest.statement();
+    if (couchbaseRequest.getSqlQueryWithSummary() != null) {
+      return couchbaseRequest.getSqlQueryWithSummary().getQueryText();
+    }
+    if (couchbaseRequest.getSqlQuery() != null) {
+      return couchbaseRequest.getSqlQuery().getQueryText();
+    }
+    return null;
+  }
+
+  @Override
+  @Nullable
+  public String getDbQuerySummary(CouchbaseRequestInfo couchbaseRequest) {
+    if (couchbaseRequest.getSqlQueryWithSummary() != null) {
+      return couchbaseRequest.getSqlQueryWithSummary().getQuerySummary();
+    }
+    return null;
   }
 
   @Override
   @Nullable
   public String getDbOperationName(CouchbaseRequestInfo couchbaseRequest) {
-    return couchbaseRequest.operation();
+    return couchbaseRequest.getOperation();
   }
 
   @Override
+  @Nullable
+  public String getServerAddress(CouchbaseRequestInfo couchbaseRequest) {
+    // In old-semconv mode onEnd() reports the node that answered instead of the configured target
+    if (!emitStableDatabaseSemconv()) {
+      return null;
+    }
+    DbServerTarget target = couchbaseRequest.getServerTarget();
+    return target == null ? null : target.getAddress();
+  }
+
+  @Override
+  @Nullable
+  public Integer getServerPort(CouchbaseRequestInfo couchbaseRequest) {
+    if (!emitStableDatabaseSemconv()) {
+      return null;
+    }
+    DbServerTarget target = couchbaseRequest.getServerTarget();
+    // A target that names several seeds already carries the port of each of them
+    return target == null ? null : target.getPort();
+  }
+
+  @Override
+  @Nullable
   public InetSocketAddress getNetworkPeerInetSocketAddress(
       CouchbaseRequestInfo request, @Nullable Void unused) {
-    SocketAddress address = request.getPeerAddress();
+    Node node = request.getNode();
+    if (node == null) {
+      return null;
+    }
+    SocketAddress address = node.getPeerAddress();
     if (address instanceof InetSocketAddress) {
       return (InetSocketAddress) address;
     }
     return null;
+  }
+
+  @Override
+  public void onStart(
+      AttributesBuilder attributes, Context parentContext, CouchbaseRequestInfo request) {}
+
+  @Override
+  public void onEnd(
+      AttributesBuilder attributes,
+      Context context,
+      CouchbaseRequestInfo request,
+      @Nullable Void unused,
+      @Nullable Throwable error) {
+    if (emitStableDatabaseSemconv()) {
+      return;
+    }
+    Node node = request.getNode();
+    if (node == null) {
+      return;
+    }
+    attributes.put(SERVER_ADDRESS, node.getBackendAddress());
+    int serverPort = node.getBackendPort();
+    if (serverPort > 0) {
+      attributes.put(SERVER_PORT, serverPort);
+    }
   }
 }

@@ -5,113 +5,152 @@
 
 package io.opentelemetry.instrumentation.api.incubator.config.internal;
 
-import static java.util.Collections.emptyList;
-import static java.util.Collections.emptyMap;
-
-import io.opentelemetry.api.incubator.config.ConfigProvider;
-import io.opentelemetry.api.incubator.config.InstrumentationConfigUtil;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
 import io.opentelemetry.instrumentation.api.incubator.log.LoggingContextConstants;
-import io.opentelemetry.instrumentation.api.incubator.semconv.net.PeerServiceResolver;
 import io.opentelemetry.instrumentation.api.internal.HttpConstants;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Supplier;
-import javax.annotation.Nullable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
 /**
  * This class is internal and is hence not for public use. Its APIs are unstable and can change at
  * any time.
  */
 public final class CommonConfig {
+  private static final Logger logger = Logger.getLogger(CommonConfig.class.getName());
+  private static final Set<String> warnedDeprecatedProperties = ConcurrentHashMap.newKeySet();
 
-  private final PeerServiceResolver peerServiceResolver;
   private final List<String> clientRequestHeaders;
   private final List<String> clientResponseHeaders;
   private final List<String> serverRequestHeaders;
   private final List<String> serverResponseHeaders;
   private final Set<String> knownHttpRequestMethods;
-  private final EnduserConfig enduserConfig;
-  private final boolean statementSanitizationEnabled;
-  private final boolean sqlCommenterEnabled;
+  private final UserConfig userConfig;
   private final boolean emitExperimentalHttpClientTelemetry;
   private final boolean emitExperimentalHttpServerTelemetry;
-  private final boolean redactQueryParameters;
+  private final Set<String> sensitiveQueryParameters;
   private final String loggingTraceIdKey;
   private final String loggingSpanIdKey;
   private final String loggingTraceFlagsKey;
+  private final boolean v3Preview;
 
-  interface ValueProvider<T> {
-    @Nullable
-    T get(ConfigProvider configProvider);
-  }
-
-  public CommonConfig(InstrumentationConfig config) {
-    peerServiceResolver =
-        PeerServiceResolver.create(
-            getFromConfigProviderOrFallback(
-                config,
-                InstrumentationConfigUtil::peerServiceMapping,
-                emptyMap(),
-                () ->
-                    config.getMap("otel.instrumentation.common.peer-service-mapping", emptyMap())));
+  public CommonConfig(OpenTelemetry openTelemetry) {
+    DeclarativeConfigProperties generalConfig =
+        DeclarativeConfigUtil.getGeneralInstrumentationConfig(openTelemetry);
+    DeclarativeConfigProperties commonConfig =
+        DeclarativeConfigUtil.getInstrumentationConfig(openTelemetry, "common");
 
     clientRequestHeaders =
-        getFromConfigProviderOrFallback(
-            config,
-            InstrumentationConfigUtil::httpClientRequestCapturedHeaders,
-            emptyList(),
-            () -> config.getList("otel.instrumentation.http.client.capture-request-headers"));
+        generalConfig
+            .get("http")
+            .get("client")
+            .getScalarList("request_captured_headers", String.class, new ArrayList<>());
     clientResponseHeaders =
-        getFromConfigProviderOrFallback(
-            config,
-            InstrumentationConfigUtil::httpClientResponseCapturedHeaders,
-            emptyList(),
-            () -> config.getList("otel.instrumentation.http.client.capture-response-headers"));
+        generalConfig
+            .get("http")
+            .get("client")
+            .getScalarList("response_captured_headers", String.class, new ArrayList<>());
     serverRequestHeaders =
-        getFromConfigProviderOrFallback(
-            config,
-            InstrumentationConfigUtil::httpServerRequestCapturedHeaders,
-            emptyList(),
-            () -> config.getList("otel.instrumentation.http.server.capture-request-headers"));
+        generalConfig
+            .get("http")
+            .get("server")
+            .getScalarList("request_captured_headers", String.class, new ArrayList<>());
     serverResponseHeaders =
-        getFromConfigProviderOrFallback(
-            config,
-            InstrumentationConfigUtil::httpServerResponseCapturedHeaders,
-            emptyList(),
-            () -> config.getList("otel.instrumentation.http.server.capture-response-headers"));
+        generalConfig
+            .get("http")
+            .get("server")
+            .getScalarList("response_captured_headers", String.class, new ArrayList<>());
     knownHttpRequestMethods =
         new HashSet<>(
-            config.getList(
-                "otel.instrumentation.http.known-methods",
-                new ArrayList<>(HttpConstants.KNOWN_METHODS)));
-    statementSanitizationEnabled =
-        config.getBoolean("otel.instrumentation.common.db-statement-sanitizer.enabled", true);
-    sqlCommenterEnabled =
-        config.getBoolean(
-            "otel.instrumentation.common.experimental.db-sqlcommenter.enabled", false);
+            commonConfig
+                .get("http")
+                .getScalarList(
+                    "known_methods", String.class, new ArrayList<>(HttpConstants.KNOWN_METHODS)));
     emitExperimentalHttpClientTelemetry =
-        config.getBoolean("otel.instrumentation.http.client.emit-experimental-telemetry", false);
-    redactQueryParameters =
-        config.getBoolean(
-            "otel.instrumentation.http.client.experimental.redact-query-parameters", true);
+        commonConfig
+            .get("http")
+            .get("client")
+            .getBoolean("emit_experimental_telemetry/development", false);
+
+    List<String> sensitiveQueryParameterList =
+        generalConfig
+            .get("sanitization")
+            .get("url")
+            .getScalarList("sensitive_query_parameters", String.class);
+    sensitiveQueryParameters =
+        sensitiveQueryParameterList != null
+            ? new HashSet<>(sensitiveQueryParameterList)
+            : HttpConstants.SENSITIVE_QUERY_PARAMETERS;
+
     emitExperimentalHttpServerTelemetry =
-        config.getBoolean("otel.instrumentation.http.server.emit-experimental-telemetry", false);
-    enduserConfig = new EnduserConfig(config);
+        commonConfig
+            .get("http")
+            .get("server")
+            .getBoolean("emit_experimental_telemetry/development", false);
+    v3Preview = commonConfig.getBoolean("v3_preview", false);
+    userConfig = new UserConfig(commonConfig, v3Preview);
+    DeclarativeConfigProperties logging = commonConfig.get("logging");
     loggingTraceIdKey =
-        config.getString(
-            "otel.instrumentation.common.logging.trace-id", LoggingContextConstants.TRACE_ID);
+        getConfig(
+            logging,
+            v3Preview,
+            "trace_id_key",
+            "trace_id",
+            "otel.instrumentation.common.logging.trace-id-key",
+            "otel.instrumentation.common.logging.trace-id",
+            LoggingContextConstants.TRACE_ID);
     loggingSpanIdKey =
-        config.getString(
-            "otel.instrumentation.common.logging.span-id", LoggingContextConstants.SPAN_ID);
+        getConfig(
+            logging,
+            v3Preview,
+            "span_id_key",
+            "span_id",
+            "otel.instrumentation.common.logging.span-id-key",
+            "otel.instrumentation.common.logging.span-id",
+            LoggingContextConstants.SPAN_ID);
     loggingTraceFlagsKey =
-        config.getString(
-            "otel.instrumentation.common.logging.trace-flags", LoggingContextConstants.TRACE_FLAGS);
+        getConfig(
+            logging,
+            v3Preview,
+            "trace_flags_key",
+            "trace_flags",
+            "otel.instrumentation.common.logging.trace-flags-key",
+            "otel.instrumentation.common.logging.trace-flags",
+            LoggingContextConstants.TRACE_FLAGS);
   }
 
-  public PeerServiceResolver getPeerServiceResolver() {
-    return peerServiceResolver;
+  private static String getConfig(
+      DeclarativeConfigProperties config,
+      boolean v3Preview,
+      String newDeclarativeKey,
+      String oldDeclarativeKey,
+      String newProperty,
+      String oldProperty,
+      String defaultValue) {
+    String value = config.getString(newDeclarativeKey);
+    if (value != null) {
+      return value;
+    }
+    if (!v3Preview) {
+      value = config.getString(oldDeclarativeKey);
+      if (value != null) {
+        if (warnedDeprecatedProperties.add(oldProperty)) {
+          logger.warning(
+              "The "
+                  + oldProperty
+                  + " setting and the equivalent declarative configuration property"
+                  + " are deprecated and will be removed in 3.0. Use "
+                  + newProperty
+                  + " or equivalent declarative configuration instead.");
+        }
+        return value;
+      }
+    }
+    return defaultValue;
   }
 
   public List<String> getClientRequestHeaders() {
@@ -134,16 +173,8 @@ public final class CommonConfig {
     return knownHttpRequestMethods;
   }
 
-  public EnduserConfig getEnduserConfig() {
-    return enduserConfig;
-  }
-
-  public boolean isStatementSanitizationEnabled() {
-    return statementSanitizationEnabled;
-  }
-
-  public boolean isSqlCommenterEnabled() {
-    return sqlCommenterEnabled;
+  public UserConfig getUserConfig() {
+    return userConfig;
   }
 
   public boolean shouldEmitExperimentalHttpClientTelemetry() {
@@ -154,8 +185,8 @@ public final class CommonConfig {
     return emitExperimentalHttpServerTelemetry;
   }
 
-  public boolean redactQueryParameters() {
-    return redactQueryParameters;
+  public Set<String> getSensitiveQueryParameters() {
+    return sensitiveQueryParameters;
   }
 
   public String getTraceIdKey() {
@@ -170,17 +201,7 @@ public final class CommonConfig {
     return loggingTraceFlagsKey;
   }
 
-  private static <T> T getFromConfigProviderOrFallback(
-      InstrumentationConfig config,
-      ValueProvider<T> getFromConfigProvider,
-      T defaultValue,
-      Supplier<T> fallback) {
-    ConfigProvider configProvider = config.getConfigProvider();
-    if (configProvider != null) {
-      T value = getFromConfigProvider.get(configProvider);
-      return value != null ? value : defaultValue;
-    }
-    // fallback doesn't return null, so we can safely call it
-    return fallback.get();
+  public boolean isV3Preview() {
+    return v3Preview;
   }
 }

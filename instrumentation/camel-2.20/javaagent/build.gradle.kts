@@ -8,8 +8,8 @@ muzzle {
     module.set("camel-core")
     versions.set("[2.19,3)")
     assertInverse.set(true)
-    // https://repo.maven.apache.org/maven2/org/apache/camel/core/4.12.0/core-4.12.0.pom is missing
-    skip("4.12.0")
+    extraDependency("javax.jms:jms-api:1.1-rev-1")
+    extraDependency("org.apache.kafka:kafka-clients:0.11.0.0")
   }
 }
 
@@ -19,7 +19,11 @@ description = "camel-2-20"
 
 dependencies {
   compileOnly("org.apache.camel:camel-core:$camelversion")
+  compileOnly("javax.jms:jms-api:1.1-rev-1")
+  compileOnly("org.apache.kafka:kafka-clients:0.11.0.0")
   implementation("io.opentelemetry.contrib:opentelemetry-aws-xray-propagator")
+
+  bootstrap(project(":instrumentation:kafka:kafka-clients:kafka-clients-0.11:bootstrap"))
 
   // without adding this dependency, javadoc fails:
   //   warning: unknown enum constant XmlAccessType.PROPERTY
@@ -34,6 +38,10 @@ dependencies {
   testInstrumentation(project(":instrumentation:apache-httpclient:apache-httpclient-2.0:javaagent"))
   testInstrumentation(project(":instrumentation:servlet:servlet-3.0:javaagent"))
   testInstrumentation(project(":instrumentation:aws-sdk:aws-sdk-1.11:javaagent"))
+  testInstrumentation(project(":instrumentation:jms:jms-1.1:javaagent"))
+  testInstrumentation(project(":instrumentation:kafka:kafka-clients:kafka-clients-0.11:javaagent"))
+
+  testInstrumentation(project(":instrumentation:cassandra:cassandra-3.0:javaagent"))
 
   testImplementation("org.apache.camel:camel-core:$camelversion")
   testImplementation("org.apache.camel:camel-spring-boot-starter:$camelversion")
@@ -44,6 +52,7 @@ dependencies {
   testImplementation("org.apache.camel:camel-aws:$camelversion")
   testImplementation("org.apache.camel:camel-cassandraql:$camelversion")
   testImplementation("org.apache.camel:camel-jms:$camelversion")
+  testImplementation("org.apache.camel:camel-kafka:$camelversion")
   testImplementation("org.apache.activemq:activemq-broker:5.16.5")
 
   testImplementation("org.springframework.boot:spring-boot-starter-test:1.5.17.RELEASE")
@@ -53,7 +62,7 @@ dependencies {
   testImplementation("org.elasticmq:elasticmq-rest-sqs_2.13")
 
   testImplementation("org.testcontainers:testcontainers-cassandra")
-  testImplementation("org.testcontainers:testcontainers")
+  testImplementation("org.testcontainers:testcontainers-kafka")
   testImplementation("org.testcontainers:testcontainers-junit-jupiter")
   testImplementation("com.datastax.oss:java-driver-core:4.16.0") {
     exclude(group = "io.dropwizard.metrics", module = "metrics-core")
@@ -80,12 +89,12 @@ tasks {
     jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
     jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
 
-    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
 
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
   }
 
-  val testExperimental by registering(Test::class) {
+  val testExperimental = register<Test>("testExperimental") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
@@ -93,19 +102,63 @@ tasks {
     systemProperty("metadataConfig", "otel.instrumentation.camel.experimental-span-attributes=true")
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
-    jvmArgs("-Dotel.semconv-stability.opt-in=database")
-    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+    jvmArgs("-Dotel.instrumentation.experimental.span-suppression-strategy=semconv")
+    jvmArgs("-Dotel.semconv-stability.opt-in=database,messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database,messaging")
+  }
+
+  val testStableSemconvWithReceiveTelemetry =
+    register<Test>("testStableSemconvWithReceiveTelemetry") {
+      testClassesDirs = sourceSets.test.get().output.classesDirs
+      classpath = sourceSets.test.get().runtimeClasspath
+
+      jvmArgs("-Dotel.instrumentation.experimental.span-suppression-strategy=semconv")
+      jvmArgs("-Dotel.semconv-stability.opt-in=database,messaging")
+      jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+      systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database,messaging")
+      filter {
+        includeTestsMatching("*KafkaCamelTest")
+      }
+    }
+
+  val testV3Preview = register<Test>("testV3Preview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.instrumentation.experimental.span-suppression-strategy=semconv")
+    jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+    systemProperty("metadataConfig", "otel.instrumentation.common.v3-preview=true")
+  }
+
+  val testStableSemconvNoLowerMessaging = register<Test>("testStableSemconvNoLowerMessaging") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.instrumentation.experimental.span-suppression-strategy=semconv")
+    jvmArgs("-Dotel.semconv-stability.opt-in=database,messaging")
+    jvmArgs("-Dotel.instrumentation.jms.enabled=false")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database,messaging")
+    systemProperty("testNoLowerMessaging", "true")
+    filter {
+      includeTestsMatching("*JmsCamelStandaloneTest")
+    }
   }
 
   check {
-    dependsOn(testStableSemconv, testExperimental)
+    dependsOn(
+      testStableSemconv,
+      testStableSemconvWithReceiveTelemetry,
+      testExperimental,
+      testV3Preview,
+      testStableSemconvNoLowerMessaging,
+    )
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }

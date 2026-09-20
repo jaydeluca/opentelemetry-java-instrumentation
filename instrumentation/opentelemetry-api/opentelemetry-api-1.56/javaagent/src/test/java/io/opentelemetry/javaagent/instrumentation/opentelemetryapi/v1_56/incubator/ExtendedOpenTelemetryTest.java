@@ -30,7 +30,6 @@ class ExtendedOpenTelemetryTest {
   @Test
   void getConfig() {
     assertThat(openTelemetry).isInstanceOf(ExtendedOpenTelemetry.class);
-
     DeclarativeConfigProperties instrumentationConfig =
         ((ExtendedOpenTelemetry) openTelemetry).getConfigProvider().getInstrumentationConfig();
     assertThat(instrumentationConfig).isNotNull();

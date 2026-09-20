@@ -5,56 +5,57 @@
 
 package io.opentelemetry.javaagent.instrumentation.jbosslogmanager.appender.v1_1;
 
-import static java.util.Collections.emptyList;
+import static io.opentelemetry.semconv.OtelAttributes.OTEL_EVENT_NAME;
+import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_ID;
+import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_NAME;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.stream.Collectors.toList;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
-import io.opentelemetry.api.incubator.logs.ExtendedLogRecordBuilder;
+import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
 import io.opentelemetry.api.logs.LogRecordBuilder;
 import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.SelectorConfig;
 import io.opentelemetry.instrumentation.api.internal.cache.Cache;
-import io.opentelemetry.javaagent.bootstrap.internal.AgentInstrumentationConfig;
-import io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
+import javax.annotation.Nullable;
 import org.jboss.logmanager.ExtLogRecord;
 import org.jboss.logmanager.Level;
 import org.jboss.logmanager.Logger;
 import org.jboss.logmanager.MDC;
 
-public final class LoggingEventMapper {
-
-  public static final LoggingEventMapper INSTANCE = new LoggingEventMapper();
+public class LoggingEventMapper {
 
   private static final Cache<String, AttributeKey<String>> mdcAttributeKeys = Cache.bounded(100);
 
-  // copied from EventIncubatingAttributes
-  private static final AttributeKey<String> EVENT_NAME = AttributeKey.stringKey("event.name");
+  private static final AttributeKey<String> LOG_BODY_TEMPLATE =
+      AttributeKey.stringKey("log.body.template");
+  private static final AttributeKey<List<String>> LOG_BODY_PARAMETERS =
+      AttributeKey.stringArrayKey("log.body.parameters");
 
-  private final List<String> captureMdcAttributes;
+  public static final LoggingEventMapper INSTANCE = new LoggingEventMapper();
 
-  private static final boolean captureExperimentalAttributes =
-      AgentInstrumentationConfig.get()
-          .getBoolean("otel.instrumentation.jboss-logmanager.experimental-log-attributes", false);
-
-  // cached as an optimization
-  private final boolean captureAllMdcAttributes;
-
-  private final boolean captureEventName =
-      AgentInstrumentationConfig.get()
-          .getBoolean(
-              "otel.instrumentation.jboss-logmanager.experimental.capture-event-name", false);
+  private final boolean captureExperimentalAttributes;
+  private final boolean captureTemplate;
+  private final boolean captureArguments;
+  @Nullable private final Predicate<String> mdcAttributes;
 
   private LoggingEventMapper() {
-    this.captureMdcAttributes =
-        AgentInstrumentationConfig.get()
-            .getList(
-                "otel.instrumentation.jboss-logmanager.experimental.capture-mdc-attributes",
-                emptyList());
-    this.captureAllMdcAttributes =
-        captureMdcAttributes.size() == 1 && captureMdcAttributes.get(0).equals("*");
+    DeclarativeConfigProperties config =
+        DeclarativeConfigUtil.getInstrumentationConfig(
+            GlobalOpenTelemetry.get(), "jboss_logmanager");
+    captureExperimentalAttributes =
+        config.getBoolean("experimental_log_attributes/development", false);
+    captureTemplate = config.getBoolean("capture_template/development", false);
+    captureArguments = config.getBoolean("capture_arguments/development", false);
+    mdcAttributes =
+        SelectorConfig.resolveLegacyLiteral(config, "jboss-logmanager", "mdc-attributes");
   }
 
   public void capture(Logger logger, ExtLogRecord record) {
@@ -75,6 +76,17 @@ public final class LoggingEventMapper {
       builder.setBody(message);
     }
 
+    Object[] parameters = record.getParameters();
+    if (parameters != null && parameters.length > 0) {
+      if (captureTemplate) {
+        builder.setAttribute(LOG_BODY_TEMPLATE, record.getMessage());
+      }
+      if (captureArguments) {
+        builder.setAttribute(
+            LOG_BODY_PARAMETERS, Arrays.stream(parameters).map(String::valueOf).collect(toList()));
+      }
+    }
+
     java.util.logging.Level level = record.getLevel();
     if (level != null) {
       builder.setSeverity(levelToSeverity(level));
@@ -83,15 +95,14 @@ public final class LoggingEventMapper {
 
     Throwable throwable = record.getThrown();
     if (throwable != null) {
-      // this cast is safe within java agent instrumentation
-      ((ExtendedLogRecordBuilder) builder).setException(throwable);
+      builder.setException(throwable);
     }
     captureMdcAttributes(builder);
 
     if (captureExperimentalAttributes) {
       Thread currentThread = Thread.currentThread();
-      builder.setAttribute(ThreadIncubatingAttributes.THREAD_NAME, currentThread.getName());
-      builder.setAttribute(ThreadIncubatingAttributes.THREAD_ID, currentThread.getId());
+      builder.setAttribute(THREAD_NAME, currentThread.getName());
+      builder.setAttribute(THREAD_ID, currentThread.getId());
     }
 
     builder.setContext(Context.current());
@@ -103,35 +114,29 @@ public final class LoggingEventMapper {
   private void captureMdcAttributes(LogRecordBuilder builder) {
 
     Map<String, String> context = MDC.copy();
-
-    if (captureAllMdcAttributes) {
-      if (context != null) {
-        for (Map.Entry<String, String> entry : context.entrySet()) {
-          setAttributeOrEventName(builder, getMdcAttributeKey(entry.getKey()), entry.getValue());
-        }
-      }
+    if (context == null) {
       return;
     }
 
-    for (String key : captureMdcAttributes) {
-      Object value = context.get(key);
-      setAttributeOrEventName(builder, getMdcAttributeKey(key), value);
+    String otelEventName = context.get(OTEL_EVENT_NAME.getKey());
+    if (otelEventName != null) {
+      builder.setEventName(otelEventName);
     }
-  }
 
-  public static AttributeKey<String> getMdcAttributeKey(String key) {
-    return mdcAttributeKeys.computeIfAbsent(key, AttributeKey::stringKey);
-  }
+    if (mdcAttributes == null) {
+      return;
+    }
 
-  private void setAttributeOrEventName(
-      LogRecordBuilder builder, AttributeKey<String> key, Object value) {
-    if (value != null) {
-      if (captureEventName && key.equals(EVENT_NAME)) {
-        builder.setEventName(value.toString());
-      } else {
-        builder.setAttribute(key, value.toString());
+    for (Map.Entry<String, String> entry : context.entrySet()) {
+      String key = entry.getKey();
+      if (!OTEL_EVENT_NAME.getKey().equals(key) && mdcAttributes.test(key)) {
+        builder.setAttribute(getMdcAttributeKey(key), entry.getValue());
       }
     }
+  }
+
+  private static AttributeKey<String> getMdcAttributeKey(String key) {
+    return mdcAttributeKeys.computeIfAbsent(key, AttributeKey::stringKey);
   }
 
   private static Severity levelToSeverity(java.util.logging.Level level) {

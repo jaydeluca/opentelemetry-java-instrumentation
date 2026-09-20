@@ -65,20 +65,46 @@ dependencies {
 
 testing {
   suites {
-    val tapirTest by registering(JvmTestSuite::class) {
+    // the agent matches methods of pekko classes by name, some of them are private and scala
+    // mangles their names, run the tests against the scala 3 artifacts to catch a name that only
+    // holds for scala 2
+    register<JvmTestSuite>("scala3Test") {
       dependencies {
-        if (findProperty("testLatestDeps") as Boolean) {
-          implementation("com.typesafe.akka:akka-http_2.13:latest.release")
-          implementation("com.typesafe.akka:akka-stream_2.13:latest.release")
-          implementation("com.softwaremill.sttp.tapir:tapir-pekko-http-server_2.13:latest.release")
-        } else {
-          implementation("org.apache.pekko:pekko-http_2.12:1.0.0")
-          implementation("org.apache.pekko:pekko-stream_2.12:1.0.1")
-          implementation("com.softwaremill.sttp.tapir:tapir-pekko-http-server_2.12:1.7.0")
+        implementation("org.scala-lang:scala3-library_3:3.3.6")
+        implementation("org.apache.pekko:pekko-http_3:${baseVersion("1.0.0").orLatest()}")
+        implementation("org.apache.pekko:pekko-stream_3:${baseVersion("1.0.1").orLatest()}")
+      }
+    }
+
+    register<JvmTestSuite>("tapirTest") {
+      dependencies {
+        val scalaVersion = if (otelProps.testLatestDeps) "2.13" else "2.12"
+        implementation("org.apache.pekko:pekko-http_$scalaVersion:${baseVersion("1.0.0").orLatest()}")
+        implementation("org.apache.pekko:pekko-stream_$scalaVersion:${baseVersion("1.0.1").orLatest()}")
+        implementation("com.softwaremill.sttp.tapir:tapir-pekko-http-server_$scalaVersion:${baseVersion("1.7.0").orLatest()}")
+        if (otelProps.testLatestDeps) {
+          implementation("org.apache.pekko:pekko-slf4j_2.13:latest.release")
+          implementation("org.apache.pekko:pekko-actor_2.13:latest.release")
         }
       }
     }
   }
+}
+
+// the scala 3 suite runs the same tests as the scala 2 suite, against the _3 artifacts
+sourceSets.named("scala3Test") {
+  java.srcDir("src/test/java")
+  resources.srcDir("src/test/resources")
+  extensions.getByType(org.gradle.api.tasks.ScalaSourceDirectorySet::class.java).srcDir("src/test/scala")
+}
+
+// -target:jvm-1.8 is scala 2 syntax that the scala 3 compiler rejects, -release is how scala 3
+// targets an older jvm, without it the tests are compiled for whichever jdk runs the build and
+// can not be loaded when the tests run on java 8
+tasks.named<ScalaCompile>("compileScala3TestScala") {
+  scalaCompileOptions.additionalParameters =
+    scalaCompileOptions.additionalParameters.orEmpty().filter { it != "-target:jvm-1.8" } +
+    "-release:8"
 }
 
 tasks {
@@ -87,22 +113,22 @@ tasks {
     jvmArgs("--add-exports=java.base/sun.security.util=ALL-UNNAMED")
     jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
 
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
   check {
     dependsOn(testing.suites)
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }
   }
 }
 
-if (findProperty("testLatestDeps") as Boolean) {
+if (otelProps.testLatestDeps) {
   configurations {
     // pekko artifact name is different for regular and latest tests
     testImplementation {

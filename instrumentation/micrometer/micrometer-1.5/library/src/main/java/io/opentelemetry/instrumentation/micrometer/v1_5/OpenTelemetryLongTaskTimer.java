@@ -7,6 +7,7 @@ package io.opentelemetry.instrumentation.micrometer.v1_5;
 
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.name;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.tagsAsAttributes;
+import static java.util.Collections.emptyList;
 
 import io.micrometer.core.instrument.Clock;
 import io.micrometer.core.instrument.Measurement;
@@ -17,10 +18,11 @@ import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.metrics.ObservableDoubleUpDownCounter;
 import io.opentelemetry.api.metrics.ObservableLongUpDownCounter;
-import java.util.Collections;
+import io.opentelemetry.instrumentation.micrometer.v1_5.internal.OpenTelemetryInstrument;
 import java.util.concurrent.TimeUnit;
 
-final class OpenTelemetryLongTaskTimer extends DefaultLongTaskTimer implements RemovableMeter {
+final class OpenTelemetryLongTaskTimer extends DefaultLongTaskTimer
+    implements RemovableMeter, OpenTelemetryInstrument {
 
   private final DistributionStatisticConfig distributionStatisticConfig;
   private final ObservableLongUpDownCounter observableActiveTasks;
@@ -32,7 +34,8 @@ final class OpenTelemetryLongTaskTimer extends DefaultLongTaskTimer implements R
       Clock clock,
       TimeUnit baseTimeUnit,
       DistributionStatisticConfig distributionStatisticConfig,
-      Meter otelMeter) {
+      Meter otelMeter,
+      Bridging bridging) {
     super(id, clock, baseTimeUnit, distributionStatisticConfig, false);
 
     this.distributionStatisticConfig = distributionStatisticConfig;
@@ -43,7 +46,7 @@ final class OpenTelemetryLongTaskTimer extends DefaultLongTaskTimer implements R
     this.observableActiveTasks =
         otelMeter
             .upDownCounterBuilder(name + ".active")
-            .setDescription(Bridging.description(id))
+            .setDescription(bridging.description(name + ".active", id))
             .setUnit("{tasks}")
             .buildWithCallback(
                 new LongMeasurementRecorder<>(this, DefaultLongTaskTimer::activeTasks, attributes));
@@ -51,7 +54,7 @@ final class OpenTelemetryLongTaskTimer extends DefaultLongTaskTimer implements R
         otelMeter
             .upDownCounterBuilder(name + ".duration")
             .ofDoubles()
-            .setDescription(Bridging.description(id))
+            .setDescription(bridging.description(name + ".duration", id))
             .setUnit(TimeUnitHelper.getUnitString(baseTimeUnit))
             .buildWithCallback(
                 new DoubleMeasurementRecorder<>(
@@ -61,7 +64,7 @@ final class OpenTelemetryLongTaskTimer extends DefaultLongTaskTimer implements R
   @Override
   public Iterable<Measurement> measure() {
     UnsupportedReadLogger.logWarning();
-    return Collections.emptyList();
+    return emptyList();
   }
 
   @Override

@@ -11,6 +11,8 @@ import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satis
 import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_ADDRESS;
 import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_PORT;
 import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_TYPE;
+import static java.util.concurrent.TimeUnit.DAYS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 import com.couchbase.client.core.metrics.DefaultLatencyMetricsCollectorConfig;
 import com.couchbase.client.core.metrics.DefaultMetricsCollectorConfig;
@@ -19,24 +21,22 @@ import com.couchbase.client.java.env.DefaultCouchbaseEnvironment;
 import io.opentelemetry.sdk.testing.assertj.AttributeAssertion;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 public class Couchbase26Util {
 
-  private static final String EXPERIMENTAL_FLAG =
-      "otel.instrumentation.couchbase.experimental-span-attributes";
+  private static final boolean EXPERIMENTAL_ATTRIBUTES =
+      Boolean.getBoolean("otel.instrumentation.couchbase.experimental-span-attributes");
 
   public static DefaultCouchbaseEnvironment.Builder envBuilder(
       BucketSettings bucketSettings, int carrierDirectPort, int httpDirectPort) {
     // Couchbase seems to be really slow to start sometimes
-    long timeout = TimeUnit.SECONDS.toMillis(20);
+    long timeout = SECONDS.toMillis(20);
     return DefaultCouchbaseEnvironment.builder()
         .bootstrapCarrierDirectPort(carrierDirectPort)
         .bootstrapHttpDirectPort(httpDirectPort)
         // settings to try to reduce variability in the tests:
-        .runtimeMetricsCollectorConfig(DefaultMetricsCollectorConfig.create(0, TimeUnit.DAYS))
-        .networkLatencyMetricsCollectorConfig(
-            DefaultLatencyMetricsCollectorConfig.create(0, TimeUnit.DAYS))
+        .runtimeMetricsCollectorConfig(DefaultMetricsCollectorConfig.create(0, DAYS))
+        .networkLatencyMetricsCollectorConfig(DefaultLatencyMetricsCollectorConfig.create(0, DAYS))
         .computationPoolSize(1)
         .connectTimeout(timeout)
         .disconnectTimeout(timeout)
@@ -86,14 +86,14 @@ public class Couchbase26Util {
     }
 
     AttributeAssertionBuilder withLocalAddress() {
-      if (Boolean.getBoolean(EXPERIMENTAL_FLAG)) {
+      if (EXPERIMENTAL_ATTRIBUTES) {
         assertions.add(satisfies(stringKey("couchbase.local.address"), val -> val.isNotNull()));
       }
       return this;
     }
 
     AttributeAssertionBuilder withOperationId() {
-      if (Boolean.getBoolean(EXPERIMENTAL_FLAG)) {
+      if (EXPERIMENTAL_ATTRIBUTES) {
         assertions.add(satisfies(stringKey("couchbase.operation_id"), val -> val.isNotNull()));
       }
       return this;

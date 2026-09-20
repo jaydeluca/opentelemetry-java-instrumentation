@@ -8,41 +8,22 @@ on:
     - cron: "43 6 * * 5" # weekly at 06:43 (UTC) on Friday
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   analysis:
-    runs-on: ubuntu-latest
     permissions:
-      # Needed for Code scanning upload
-      security-events: write
-      # Needed for GitHub OIDC token if publish_results is true
-      id-token: write
-    steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-        with:
-          persist-credentials: false
+      contents: read # for actions/checkout
+      id-token: write # for Scorecard to publish results
+      security-events: write # for the SARIF upload to code scanning
+    uses: open-telemetry/shared-workflows/.github/workflows/scorecard.yml@68c7b2f0ef9cd9c1e2b71d3018f63127be189578 # v0.14.0
 
-      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
-        with:
-          results_file: results.sarif
-          results_format: sarif
-          publish_results: true
-
-      # Upload the results as artifacts (optional). Commenting out will disable
-      # uploads of run results in SARIF format to the repository Actions tab.
-      # https://docs.github.com/en/actions/advanced-guides/storing-workflow-data-as-artifacts
-      - name: "Upload artifact"
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
-        with:
-          name: SARIF file
-          path: results.sarif
-          retention-days: 5
-
-      # Upload the results to GitHub's code scanning dashboard (optional).
-      # Commenting out will disable upload of results to your repo's Code Scanning dashboard
-      - name: "Upload to code-scanning"
-        uses: github/codeql-action/upload-sarif@cf1bb45a277cb3c205638b2cd5c984db1c46a412 # v4.31.7
-        with:
-          sarif_file: results.sarif
+  workflow-notification:
+    permissions:
+      issues: write
+    needs:
+      - analysis
+    if: always()
+    uses: open-telemetry/shared-workflows/.github/workflows/workflow-failure-issue.yml@03559ef555db0eae5d85c3c6347d1530243e7aa7 # v0.13.0
+    with:
+      success: ${{ needs.analysis.result == 'success' }}

@@ -5,17 +5,19 @@
 
 package io.opentelemetry.javaagent.instrumentation.pulsar.v2_8.telemetry;
 
-import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingAttributesGetter;
-import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
-import javax.annotation.Nullable;
-import org.apache.pulsar.common.naming.TopicName;
+import static java.util.Collections.emptyList;
 
-enum PulsarBatchMessagingAttributesGetter
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingAttributesGetter;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import javax.annotation.Nullable;
+import org.apache.pulsar.client.api.Message;
+
+final class PulsarBatchMessagingAttributesGetter
     implements MessagingAttributesGetter<PulsarBatchRequest, Void> {
-  INSTANCE;
 
   @Override
   public String getSystem(PulsarBatchRequest request) {
@@ -25,7 +27,10 @@ enum PulsarBatchMessagingAttributesGetter
   @Nullable
   @Override
   public String getDestination(PulsarBatchRequest request) {
-    return request.getDestination();
+    PulsarBatchRecordAttributes batchRecordAttributes = request.getBatchRecordAttributes();
+    return batchRecordAttributes != null
+        ? batchRecordAttributes.getCommonDestination()
+        : request.getDestination();
   }
 
   @Nullable
@@ -53,10 +58,13 @@ enum PulsarBatchMessagingAttributesGetter
   @Nullable
   @Override
   public Long getMessageBodySize(PulsarBatchRequest request) {
-    return StreamSupport.stream(request.getMessages().spliterator(), false)
-        .map(message -> (long) message.size())
-        .reduce(Long::sum)
-        .orElse(null);
+    long size = 0;
+    boolean hasMessages = false;
+    for (Message<?> message : request.getMessages()) {
+      hasMessages = true;
+      size += message.size();
+    }
+    return hasMessages ? size : null;
   }
 
   @Nullable
@@ -85,18 +93,39 @@ enum PulsarBatchMessagingAttributesGetter
   @Nullable
   @Override
   public String getDestinationPartitionId(PulsarBatchRequest request) {
-    int partitionIndex = TopicName.getPartitionIndex(request.getDestination());
-    if (partitionIndex == -1) {
-      return null;
-    }
-    return String.valueOf(partitionIndex);
+    PulsarBatchRecordAttributes batchRecordAttributes = request.getBatchRecordAttributes();
+    return batchRecordAttributes != null
+        ? batchRecordAttributes.getCommonPartitionId()
+        : request.getDestinationPartitionId();
+  }
+
+  @Nullable
+  @Override
+  public String getDestinationSubscriptionName(PulsarBatchRequest request) {
+    return request.getSubscription();
   }
 
   @Override
   public List<String> getMessageHeader(PulsarBatchRequest request, String name) {
-    return StreamSupport.stream(request.getMessages().spliterator(), false)
-        .map(message -> message.getProperty(name))
-        .filter(Objects::nonNull)
-        .collect(Collectors.toList());
+    List<String> values = null;
+    for (Message<?> message : request.getMessages()) {
+      String value = message.getProperty(name);
+      if (value != null) {
+        if (values == null) {
+          values = new ArrayList<>();
+        }
+        values.add(value);
+      }
+    }
+    return values == null ? emptyList() : values;
+  }
+
+  @Override
+  public Collection<String> getMessageHeaderNames(PulsarBatchRequest request) {
+    Set<String> names = new LinkedHashSet<>();
+    for (Message<?> message : request.getMessages()) {
+      names.addAll(message.getProperties().keySet());
+    }
+    return names;
   }
 }

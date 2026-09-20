@@ -1,0 +1,13 @@
+display_name: Liberty
+description: >
+  This instrumentation enables HTTP server spans and metrics for the IBM WebSphere Liberty HTTP
+  dispatcher layer.
+library_link: https://openliberty.io/
+semantic_conventions:
+  - HTTP_SERVER_SPANS
+  - HTTP_SERVER_METRICS
+configurations:
+  - ref: http.known-methods
+  - ref: http.server.capture-request-headers
+  - ref: http.server.capture-response-headers
+  - ref: http.server.emit-experimental-telemetry

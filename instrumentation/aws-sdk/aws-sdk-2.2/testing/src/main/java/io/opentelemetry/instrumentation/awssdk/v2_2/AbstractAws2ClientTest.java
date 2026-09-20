@@ -6,6 +6,11 @@
 package io.opentelemetry.instrumentation.awssdk.v2_2;
 
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static io.opentelemetry.instrumentation.api.internal.SemconvExceptionSignal.emitExceptionAsLogs;
+import static io.opentelemetry.instrumentation.api.internal.SemconvExceptionSignal.emitExceptionAsSpanEvents;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitOldMessagingSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.instrumentation.testing.util.TestLatestDeps.testLatestDeps;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
 import static io.opentelemetry.semconv.HttpAttributes.HTTP_REQUEST_METHOD;
@@ -25,16 +30,20 @@ import static io.opentelemetry.semconv.incubating.AwsIncubatingAttributes.AWS_ST
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_NAME;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_MESSAGE_ID;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION_NAME;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION_TYPE;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_SYSTEM;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MessagingSystemIncubatingValues.AWS_SQS;
 import static io.opentelemetry.semconv.incubating.RpcIncubatingAttributes.RPC_METHOD;
 import static io.opentelemetry.semconv.incubating.RpcIncubatingAttributes.RPC_SERVICE;
 import static io.opentelemetry.semconv.incubating.RpcIncubatingAttributes.RPC_SYSTEM;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.sdk.testing.assertj.AttributeAssertion;
@@ -45,18 +54,15 @@ import io.opentelemetry.testing.internal.armeria.common.HttpStatus;
 import io.opentelemetry.testing.internal.armeria.common.MediaType;
 import io.opentelemetry.testing.internal.armeria.common.ResponseHeaders;
 import io.opentelemetry.testing.internal.armeria.testing.junit5.server.mock.RecordedRequest;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -67,6 +73,7 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.async.AsyncResponseTransformer;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.core.retry.RetryPolicy;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient;
@@ -81,8 +88,11 @@ import software.amazon.awssdk.services.lambda.LambdaAsyncClientBuilder;
 import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.lambda.LambdaClientBuilder;
 import software.amazon.awssdk.services.lambda.model.CreateEventSourceMappingRequest;
+import software.amazon.awssdk.services.lambda.model.CreateEventSourceMappingResponse;
 import software.amazon.awssdk.services.lambda.model.GetEventSourceMappingRequest;
+import software.amazon.awssdk.services.lambda.model.GetEventSourceMappingResponse;
 import software.amazon.awssdk.services.lambda.model.GetFunctionRequest;
+import software.amazon.awssdk.services.lambda.model.GetFunctionResponse;
 import software.amazon.awssdk.services.rds.RdsAsyncClient;
 import software.amazon.awssdk.services.rds.RdsAsyncClientBuilder;
 import software.amazon.awssdk.services.rds.RdsClient;
@@ -107,7 +117,9 @@ import software.amazon.awssdk.services.sfn.SfnAsyncClientBuilder;
 import software.amazon.awssdk.services.sfn.SfnClient;
 import software.amazon.awssdk.services.sfn.SfnClientBuilder;
 import software.amazon.awssdk.services.sfn.model.DescribeActivityRequest;
+import software.amazon.awssdk.services.sfn.model.DescribeActivityResponse;
 import software.amazon.awssdk.services.sfn.model.DescribeStateMachineRequest;
+import software.amazon.awssdk.services.sfn.model.DescribeStateMachineResponse;
 import software.amazon.awssdk.services.sns.SnsAsyncClient;
 import software.amazon.awssdk.services.sns.SnsAsyncClientBuilder;
 import software.amazon.awssdk.services.sns.SnsClient;
@@ -314,7 +326,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
                 // we are using an endpoint override. Previously the sdk was only doing that if
                 // endpoint had "s3" as label in the FQDN. Our test assert both cases so that we
                 // don't need to know what version is being tested.
-                satisfies(SERVER_ADDRESS, v -> v.matches("somebucket.localhost|localhost")),
+                satisfies(SERVER_ADDRESS, val -> val.matches("somebucket.localhost|localhost")),
                 equalTo(SERVER_PORT, server.httpPort()),
                 equalTo(HTTP_REQUEST_METHOD, method),
                 equalTo(HTTP_RESPONSE_STATUS_CODE, 200),
@@ -385,9 +397,15 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
               asList(
                   equalTo(AWS_SQS_QUEUE_URL, QUEUE_URL),
                   equalTo(MESSAGING_DESTINATION_NAME, "somequeue"),
-                  equalTo(MESSAGING_OPERATION, "publish"),
                   satisfies(MESSAGING_MESSAGE_ID, val -> val.isInstanceOf(String.class)),
                   equalTo(MESSAGING_SYSTEM, AWS_SQS))));
+      if (emitStableMessagingSemconv()) {
+        attributes.add(equalTo(MESSAGING_OPERATION_NAME, "send"));
+        attributes.add(equalTo(MESSAGING_OPERATION_TYPE, "send"));
+      }
+      if (emitOldMessagingSemconv()) {
+        attributes.add(equalTo(MESSAGING_OPERATION, "publish"));
+      }
     }
 
     if (service.equals("Sfn")) {
@@ -433,7 +451,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
     String evaluatedOperation;
     SpanKind operationKind;
     if (operation.equals("SendMessage")) {
-      evaluatedOperation = "somequeue publish";
+      evaluatedOperation = emitStableMessagingSemconv() ? "send somequeue" : "somequeue publish";
       operationKind = SpanKind.PRODUCER;
     } else {
       operationKind = SpanKind.CLIENT;
@@ -458,7 +476,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
             "PUT",
             (Function<S3Client, Object>)
                 c -> c.createBucket(CreateBucketRequest.builder().bucket("somebucket").build()),
-            (Function<S3AsyncClient, Future<?>>)
+            (Function<S3AsyncClient, CompletableFuture<?>>)
                 c -> c.createBucket(CreateBucketRequest.builder().bucket("somebucket").build()),
             ""),
         Arguments.of(
@@ -468,7 +486,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
                 c ->
                     c.getObject(
                         GetObjectRequest.builder().bucket("somebucket").key("somekey").build()),
-            (Function<S3AsyncClient, Future<?>>)
+            (Function<S3AsyncClient, CompletableFuture<?>>)
                 c ->
                     c.getObject(
                         GetObjectRequest.builder().bucket("somebucket").key("somekey").build(),
@@ -479,9 +497,9 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
   @ParameterizedTest
   @MethodSource("provideS3Arguments")
   void testS3Client(String operation, String method, Function<S3Client, Object> call)
-      throws Exception {
+      throws ReflectiveOperationException {
     S3ClientBuilder builder = S3Client.builder();
-    if (Boolean.getBoolean("testLatestDeps")) {
+    if (testLatestDeps()) {
       Method forcePathStyleMethod =
           S3ClientBuilder.class.getMethod("forcePathStyle", Boolean.class);
       forcePathStyleMethod.invoke(builder, true);
@@ -511,15 +529,11 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
       String operation,
       String method,
       Function<S3Client, Object> call,
-      Function<S3AsyncClient, Future<?>> asyncCall,
+      Function<S3AsyncClient, CompletableFuture<?>> asyncCall,
       String body)
-      throws ExecutionException,
-          IllegalAccessException,
-          InterruptedException,
-          InvocationTargetException,
-          NoSuchMethodException {
+      throws ReflectiveOperationException {
     S3AsyncClientBuilder builder = S3AsyncClient.builder();
-    if (Boolean.getBoolean("testLatestDeps")) {
+    if (testLatestDeps()) {
       Method forcePathStyleMethod =
           S3AsyncClientBuilder.class.getMethod("forcePathStyle", Boolean.class);
       forcePathStyleMethod.invoke(builder, true);
@@ -534,8 +548,8 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
 
     server.enqueue(HttpResponse.of(HttpStatus.OK, MediaType.PLAIN_TEXT_UTF_8, body));
 
-    Future<?> response = asyncCall.apply(client);
-    response.get();
+    CompletableFuture<?> response = asyncCall.apply(client);
+    response.join();
 
     clientAssertions("S3", operation, method, response, "UNKNOWN");
   }
@@ -568,10 +582,10 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
         Arguments.of(
             "CreateQueue",
             "7a62c49f-347e-4fc4-9331-6e8e7a96aa73",
-            (Callable<HttpResponse>)
+            (Supplier<HttpResponse>)
                 () -> {
                   String content;
-                  if (!Boolean.getBoolean("testLatestDeps")) {
+                  if (!testLatestDeps()) {
                     content =
                         "<CreateQueueResponse>"
                             + " <CreateQueueResult><QueueUrl>https://queue.amazonaws.com/123456789012/MyQueue</QueueUrl></CreateQueueResult>"
@@ -588,17 +602,17 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
                           .contentType(MediaType.PLAIN_TEXT_UTF_8)
                           .add("x-amzn-RequestId", "7a62c49f-347e-4fc4-9331-6e8e7a96aa73")
                           .build();
-                  return HttpResponse.of(headers, HttpData.of(StandardCharsets.UTF_8, content));
+                  return HttpResponse.of(headers, HttpData.of(UTF_8, content));
                 },
             (Function<SqsClient, Object>)
                 c -> c.createQueue(CreateQueueRequest.builder().queueName("somequeue").build())),
         Arguments.of(
             "SendMessage",
             "27daac76-34dd-47df-bd01-1f6e873584a0",
-            (Callable<HttpResponse>)
+            (Supplier<HttpResponse>)
                 () -> {
                   String content;
-                  if (!Boolean.getBoolean("testLatestDeps")) {
+                  if (!testLatestDeps()) {
                     content =
                         "<SendMessageResponse>"
                             + " <SendMessageResult>"
@@ -621,7 +635,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
                           .contentType(MediaType.PLAIN_TEXT_UTF_8)
                           .add("x-amzn-RequestId", "27daac76-34dd-47df-bd01-1f6e873584a0")
                           .build();
-                  return HttpResponse.of(headers, HttpData.of(StandardCharsets.UTF_8, content));
+                  return HttpResponse.of(headers, HttpData.of(UTF_8, content));
                 },
             (Function<SqsClient, Object>)
                 c ->
@@ -634,9 +648,8 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
   void testSqsClient(
       String operation,
       String requestId,
-      Callable<HttpResponse> serverResponse,
-      Function<SqsClient, Object> call)
-      throws Exception {
+      Supplier<HttpResponse> serverResponse,
+      Function<SqsClient, Object> call) {
     assumeSupportedConfig(operation);
 
     SqsClientBuilder builder = SqsClient.builder();
@@ -648,7 +661,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
             .credentialsProvider(CREDENTIALS_PROVIDER)
             .build();
 
-    server.enqueue(serverResponse.call());
+    server.enqueue(serverResponse.get());
     Object response = call.apply(client);
 
     assertThat(response)
@@ -663,9 +676,8 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
   void testSqsAsyncClient(
       String operation,
       String requestId,
-      Callable<HttpResponse> serverResponse,
-      Function<SqsClient, Object> call)
-      throws Exception {
+      Supplier<HttpResponse> serverResponse,
+      Function<SqsClient, Object> call) {
     assumeSupportedConfig(operation);
 
     SqsAsyncClientBuilder builder = SqsAsyncClient.builder();
@@ -677,7 +689,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
             .credentialsProvider(CREDENTIALS_PROVIDER)
             .build();
 
-    server.enqueue(serverResponse.call());
+    server.enqueue(serverResponse.get());
     Object response = call.apply(wrapClient(SqsClient.class, SqsAsyncClient.class, client));
 
     clientAssertions("Sqs", operation, "POST", response, requestId);
@@ -867,10 +879,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
         S3Client.builder()
             .overrideConfiguration(
                 createOverrideConfigurationBuilder()
-                    .retryPolicy(
-                        software.amazon.awssdk.core.retry.RetryPolicy.builder()
-                            .numRetries(1)
-                            .build())
+                    .retryPolicy(RetryPolicy.builder().numRetries(1).build())
                     .build())
             .endpointOverride(clientUri)
             .region(Region.AP_NORTHEAST_1)
@@ -895,7 +904,7 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
                         span.hasName("S3.GetObject")
                             .hasKind(SpanKind.CLIENT)
                             .hasStatus(StatusData.error())
-                            .hasException(thrown)
+                            .hasException(emitExceptionAsSpanEvents() ? thrown : null)
                             .hasNoParent()
                             .hasAttributesSatisfyingExactly(
                                 // Starting with AWS SDK V2 2.18.0, the s3 sdk will prefix the
@@ -906,23 +915,17 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
                                 // don't need to know what version is being tested.
                                 satisfies(
                                     SERVER_ADDRESS,
-                                    v -> v.matches("somebucket.localhost|localhost")),
+                                    val -> val.matches("somebucket.localhost|localhost")),
                                 satisfies(
                                     URL_FULL,
                                     val ->
-                                        val.satisfiesAnyOf(
-                                            v ->
-                                                assertThat(v)
-                                                    .isEqualTo(
-                                                        "http://somebucket.localhost:"
-                                                            + server.httpPort()
-                                                            + "/somekey"),
-                                            v ->
-                                                assertThat(v)
-                                                    .isEqualTo(
-                                                        "http://localhost:"
-                                                            + server.httpPort()
-                                                            + "/somebucket/somekey"))),
+                                        val.isIn(
+                                            "http://somebucket.localhost:"
+                                                + server.httpPort()
+                                                + "/somekey",
+                                            "http://localhost:"
+                                                + server.httpPort()
+                                                + "/somebucket/somekey")),
                                 equalTo(SERVER_PORT, server.httpPort()),
                                 equalTo(HTTP_REQUEST_METHOD, "GET"),
                                 equalTo(RPC_SYSTEM, "aws-api"),
@@ -930,6 +933,17 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
                                 equalTo(RPC_METHOD, "GetObject"),
                                 equalTo(stringKey("aws.agent"), "java-aws-sdk"),
                                 equalTo(AWS_S3_BUCKET, "somebucket"))));
+
+    if (emitExceptionAsLogs()) {
+      getTesting()
+          .waitAndAssertLogRecords(
+              logRecord ->
+                  logRecord
+                      .hasSeverity(Severity.WARN)
+                      .hasEventName("rpc.client.call.exception")
+                      .hasException(thrown)
+                      .hasTotalAttributeCount(3));
+    }
   }
 
   // regression test for
@@ -991,15 +1005,8 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
     Object response = call.apply(client);
     assertThat(response)
         .satisfiesAnyOf(
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.sfn.model.DescribeActivityResponse.class),
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.sfn.model.DescribeStateMachineResponse
-                            .class));
+            r -> assertThat(r).isInstanceOf(DescribeActivityResponse.class),
+            r -> assertThat(r).isInstanceOf(DescribeStateMachineResponse.class));
     clientAssertions("Sfn", operation, method, response, requestId);
   }
 
@@ -1020,15 +1027,8 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
     Object response = call.apply(wrapClient(SfnClient.class, SfnAsyncClient.class, client));
     assertThat(response)
         .satisfiesAnyOf(
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.sfn.model.DescribeActivityResponse.class),
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.sfn.model.DescribeStateMachineResponse
-                            .class));
+            r -> assertThat(r).isInstanceOf(DescribeActivityResponse.class),
+            r -> assertThat(r).isInstanceOf(DescribeStateMachineResponse.class));
     clientAssertions("Sfn", operation, method, response, requestId);
   }
 
@@ -1164,20 +1164,9 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
     Object response = call.apply(client);
     assertThat(response)
         .satisfiesAnyOf(
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.lambda.model.GetFunctionResponse.class),
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.lambda.model
-                            .CreateEventSourceMappingResponse.class),
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.lambda.model.GetEventSourceMappingResponse
-                            .class));
+            r -> assertThat(r).isInstanceOf(GetFunctionResponse.class),
+            r -> assertThat(r).isInstanceOf(CreateEventSourceMappingResponse.class),
+            r -> assertThat(r).isInstanceOf(GetEventSourceMappingResponse.class));
     clientAssertions("Lambda", operation, method, response, requestId);
   }
 
@@ -1202,20 +1191,9 @@ public abstract class AbstractAws2ClientTest extends AbstractAws2ClientCoreTest 
     Object response = call.apply(wrapClient(LambdaClient.class, LambdaAsyncClient.class, client));
     assertThat(response)
         .satisfiesAnyOf(
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.lambda.model.GetFunctionResponse.class),
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.lambda.model
-                            .CreateEventSourceMappingResponse.class),
-            r ->
-                assertThat(r)
-                    .isInstanceOf(
-                        software.amazon.awssdk.services.lambda.model.GetEventSourceMappingResponse
-                            .class));
+            r -> assertThat(r).isInstanceOf(GetFunctionResponse.class),
+            r -> assertThat(r).isInstanceOf(CreateEventSourceMappingResponse.class),
+            r -> assertThat(r).isInstanceOf(GetEventSourceMappingResponse.class));
     clientAssertions("Lambda", operation, method, response, requestId);
   }
 }

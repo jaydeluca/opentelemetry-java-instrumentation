@@ -16,6 +16,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 public class KafkaReceiveRequest extends AbstractKafkaConsumerRequest {
 
   private final ConsumerRecords<?, ?> records;
+  @Nullable private KafkaBatchRecordAttributes batchRecordAttributes;
 
   public static KafkaReceiveRequest create(
       ConsumerRecords<?, ?> records, @Nullable Consumer<?, ?> consumer) {
@@ -24,23 +25,30 @@ public class KafkaReceiveRequest extends AbstractKafkaConsumerRequest {
 
   public static KafkaReceiveRequest create(
       KafkaConsumerContext consumerContext, ConsumerRecords<?, ?> records) {
-    String consumerGroup = consumerContext != null ? consumerContext.getConsumerGroup() : null;
-    String clientId = consumerContext != null ? consumerContext.getClientId() : null;
-    return create(records, consumerGroup, clientId);
+    return create(records, consumerContext.getConsumerGroup(), consumerContext.getClientId());
   }
 
   public static KafkaReceiveRequest create(
-      ConsumerRecords<?, ?> records, String consumerGroup, String clientId) {
+      ConsumerRecords<?, ?> records, @Nullable String consumerGroup, @Nullable String clientId) {
     return new KafkaReceiveRequest(records, consumerGroup, clientId);
   }
 
   private KafkaReceiveRequest(
-      ConsumerRecords<?, ?> records, String consumerGroup, String clientId) {
+      ConsumerRecords<?, ?> records, @Nullable String consumerGroup, @Nullable String clientId) {
     super(consumerGroup, clientId);
     this.records = records;
   }
 
   public ConsumerRecords<?, ?> getRecords() {
     return records;
+  }
+
+  // both the attributes extractor and the span links extractor need this, and they are always
+  // called on the same thread while the span is being started
+  KafkaBatchRecordAttributes getBatchRecordAttributes() {
+    if (batchRecordAttributes == null) {
+      batchRecordAttributes = KafkaBatchRecordAttributes.create(records);
+    }
+    return batchRecordAttributes;
   }
 }

@@ -5,7 +5,6 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.batch.v3_0.chunk;
 
-import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
 import static io.opentelemetry.javaagent.instrumentation.spring.batch.v3_0.SpringBatchInstrumentationConfig.instrumentationName;
 import static io.opentelemetry.javaagent.instrumentation.spring.batch.v3_0.SpringBatchInstrumentationConfig.shouldCreateRootSpanForChunk;
 
@@ -21,7 +20,7 @@ import org.springframework.batch.core.step.builder.SimpleStepBuilder;
 
 public class ChunkSingletons {
 
-  private static final Instrumenter<ChunkContextAndBuilder, Void> INSTRUMENTER;
+  private static final Instrumenter<ChunkContextAndBuilder, Void> chunkInstrumenter;
 
   static {
     InstrumenterBuilder<ChunkContextAndBuilder, Void> instrumenterBuilder =
@@ -32,17 +31,17 @@ public class ChunkSingletons {
       instrumenterBuilder.addSpanLinksExtractor(ChunkSingletons::extractSpanLinks);
     }
 
-    INSTRUMENTER = instrumenterBuilder.buildInstrumenter();
+    chunkInstrumenter = instrumenterBuilder.buildInstrumenter();
   }
 
   public static Instrumenter<ChunkContextAndBuilder, Void> chunkInstrumenter() {
-    return INSTRUMENTER;
+    return chunkInstrumenter;
   }
 
   private static void extractSpanLinks(
       SpanLinksBuilder spanLinks, Context unused, ChunkContextAndBuilder request) {
     // The context passed will be Context.root() if shouldCreateRootSpanForChunk()
-    Context parentContext = currentContext();
+    Context parentContext = Context.current();
     if (shouldCreateRootSpanForChunk()) {
       SpanContext parentSpanContext = Span.fromContext(parentContext).getSpanContext();
       if (parentSpanContext.isValid()) {

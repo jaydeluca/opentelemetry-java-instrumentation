@@ -6,8 +6,6 @@
 package io.opentelemetry.javaagent.instrumentation.internal.classloader;
 
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.extendsClass;
-import static io.opentelemetry.javaagent.instrumentation.internal.classloader.AdviceUtil.applyInlineAdvice;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.isProtected;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.isStatic;
@@ -29,7 +27,7 @@ import net.bytebuddy.matcher.ElementMatcher;
  * This instrumentation inserts loading of our injected helper classes at the start of {@code
  * ClassLoader.loadClass} method.
  */
-public class LoadInjectedClassInstrumentation implements TypeInstrumentation {
+class LoadInjectedClassInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -39,8 +37,7 @@ public class LoadInjectedClassInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     ElementMatcher.Junction<MethodDescription> methodMatcher =
-        isMethod()
-            .and(named("loadClass"))
+        named("loadClass")
             .and(
                 takesArguments(1)
                     .and(takesArgument(0, String.class))
@@ -51,7 +48,7 @@ public class LoadInjectedClassInstrumentation implements TypeInstrumentation {
             .and(isPublic().or(isProtected()))
             .and(not(isStatic()));
     // Inline instrumentation to prevent problems with invokedynamic-recursion
-    applyInlineAdvice(transformer, methodMatcher, this.getClass().getName() + "$LoadClassAdvice");
+    transformer.applyAdviceToMethod(methodMatcher, getClass().getName() + "$LoadClassAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -65,9 +62,18 @@ public class LoadInjectedClassInstrumentation implements TypeInstrumentation {
     public static Class<?> onEnter(
         @Advice.This java.lang.ClassLoader classLoader,
         @Advice.This
-            io.opentelemetry.javaagent.instrumentation.internal.classloader.stub.ClassLoader
+            io.opentelemetry.javaagent.bootstrap.internal.classloader.stub.ClassLoader
                 classLoaderStub,
         @Advice.Argument(0) String name) {
+
+      // first check whether this is an exposed class and load it from the instrumentation class
+      // loader
+      Class<?> exposedClass = InjectedClassHelper.loadExposedClass(classLoader, name);
+      if (exposedClass != null) {
+        return exposedClass;
+      }
+
+      // if this class is a helper class fetch its bytes and define it
       InjectedClassHelper.HelperClassInfo helperClassInfo =
           InjectedClassHelper.getHelperClassInfo(classLoader, name);
       if (helperClassInfo != null) {
@@ -91,7 +97,7 @@ public class LoadInjectedClassInstrumentation implements TypeInstrumentation {
     }
 
     @AssignReturned.ToReturned
-    @Advice.OnMethodExit(onThrowable = Throwable.class)
+    @Advice.OnMethodExit
     public static Class<?> onExit(
         @Advice.Return Class<?> originalResult, @Advice.Enter Class<?> loadedClass) {
       return loadedClass != null ? loadedClass : originalResult;

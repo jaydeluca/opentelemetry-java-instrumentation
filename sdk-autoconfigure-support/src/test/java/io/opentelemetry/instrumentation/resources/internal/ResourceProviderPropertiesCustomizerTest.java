@@ -5,136 +5,86 @@
 
 package io.opentelemetry.instrumentation.resources.internal;
 
+import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static java.util.Collections.emptySet;
+import static java.util.Collections.singleton;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.params.provider.Arguments.argumentSet;
 
-import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk;
 import io.opentelemetry.sdk.autoconfigure.SdkAutoconfigureAccess;
 import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import io.opentelemetry.sdk.autoconfigure.spi.ResourceProvider;
 import io.opentelemetry.sdk.resources.Resource;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.assertj.core.util.Strings;
-import org.junit.jupiter.api.DynamicTest;
-import org.junit.jupiter.api.TestFactory;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class ResourceProviderPropertiesCustomizerTest {
 
-  public static final class Provider implements ResourceProvider {
+  private static final String PROVIDER_CLASS_NAME = Provider.class.getName();
+
+  public static class Provider implements ResourceProvider {
     @Override
     public Resource createResource(ConfigProperties config) {
-      return Resource.create(Attributes.of(AttributeKey.stringKey("key"), "value"));
-    }
-  }
-
-  private static class EnabledTestCase {
-    private final String name;
-    private final boolean result;
-    private final Set<String> enabledProviders;
-    private final Set<String> disabledProviders;
-    private final Boolean explicitEnabled;
-
-    private EnabledTestCase(
-        String name,
-        boolean result,
-        Set<String> enabledProviders,
-        Set<String> disabledProviders,
-        @Nullable Boolean explicitEnabled) {
-      this.name = name;
-      this.result = result;
-      this.enabledProviders = enabledProviders;
-      this.disabledProviders = disabledProviders;
-      this.explicitEnabled = explicitEnabled;
+      return Resource.create(Attributes.of(stringKey("key"), "value"));
     }
   }
 
   @SuppressWarnings("BooleanParameter")
-  @TestFactory
-  Stream<DynamicTest> enabledTestCases() {
-    String className =
-        "io.opentelemetry.instrumentation.resources.internal.ResourceProviderPropertiesCustomizerTest$Provider";
+  @ParameterizedTest
+  @MethodSource("enabledTestCases")
+  void enabled(
+      boolean expectedEnabled,
+      Set<String> enabledProviders,
+      Set<String> disabledProviders,
+      @Nullable Boolean explicitEnabled) {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        ResourceProviderPropertiesCustomizer.ENABLED_KEY, Strings.join(enabledProviders).with(","));
+    props.put(
+        ResourceProviderPropertiesCustomizer.DISABLED_KEY,
+        Strings.join(disabledProviders).with(","));
+
+    if (explicitEnabled != null) {
+      props.put("otel.resource.providers.test.enabled", Boolean.toString(explicitEnabled));
+    }
+
+    props.put("otel.traces.exporter", "none");
+    props.put("otel.metrics.exporter", "none");
+    props.put("otel.logs.exporter", "none");
+
+    Attributes attributes =
+        SdkAutoconfigureAccess.getResourceAttributes(
+            AutoConfiguredOpenTelemetrySdk.builder().addPropertiesSupplier(() -> props).build());
+
+    if (expectedEnabled) {
+      assertThat(attributes.get(stringKey("key"))).isEqualTo("value");
+    } else {
+      assertThat(attributes.get(stringKey("key"))).isNull();
+    }
+  }
+
+  private static Stream<Arguments> enabledTestCases() {
     return Stream.of(
-            new EnabledTestCase(
-                "explicitEnabled", true, Collections.emptySet(), Collections.emptySet(), true),
-            new EnabledTestCase(
-                "explicitEnabledFalse",
-                false,
-                Collections.emptySet(),
-                Collections.emptySet(),
-                false),
-            new EnabledTestCase(
-                "enabledProvidersEmpty",
-                false,
-                Collections.emptySet(),
-                Collections.emptySet(),
-                null),
-            new EnabledTestCase(
-                "enabledProvidersContains",
-                true,
-                Collections.singleton(className),
-                Collections.emptySet(),
-                null),
-            new EnabledTestCase(
-                "enabledProvidersNotContains",
-                false,
-                Collections.singleton("otherClassName"),
-                Collections.emptySet(),
-                null),
-            new EnabledTestCase(
-                "disabledProvidersContains",
-                false,
-                Collections.emptySet(),
-                Collections.singleton(className),
-                null),
-            new EnabledTestCase(
-                "disabledProvidersNotContains",
-                false,
-                Collections.emptySet(),
-                Collections.singleton("otherClassName"),
-                null),
-            new EnabledTestCase(
-                "defaultEnabledFalse", false, Collections.emptySet(), Collections.emptySet(), null))
-        .map(
-            tc ->
-                DynamicTest.dynamicTest(
-                    tc.name,
-                    () -> {
-                      Map<String, String> props = new HashMap<>();
-                      props.put(
-                          ResourceProviderPropertiesCustomizer.ENABLED_KEY,
-                          Strings.join(tc.enabledProviders).with(","));
-                      props.put(
-                          ResourceProviderPropertiesCustomizer.DISABLED_KEY,
-                          Strings.join(tc.disabledProviders).with(","));
-
-                      if (tc.explicitEnabled != null) {
-                        props.put(
-                            "otel.resource.providers.test.enabled",
-                            Boolean.toString(tc.explicitEnabled));
-                      }
-
-                      props.put("otel.traces.exporter", "none");
-                      props.put("otel.metrics.exporter", "none");
-                      props.put("otel.logs.exporter", "none");
-
-                      Attributes attributes =
-                          SdkAutoconfigureAccess.getResourceAttributes(
-                              AutoConfiguredOpenTelemetrySdk.builder()
-                                  .addPropertiesSupplier(() -> props)
-                                  .build());
-
-                      if (tc.result) {
-                        assertThat(attributes.get(AttributeKey.stringKey("key")))
-                            .isEqualTo("value");
-                      } else {
-                        assertThat(attributes.get(AttributeKey.stringKey("key"))).isNull();
-                      }
-                    }));
+        argumentSet("explicitEnabled", true, emptySet(), emptySet(), true),
+        argumentSet("explicitEnabledFalse", false, emptySet(), emptySet(), false),
+        argumentSet("enabledProvidersEmpty", false, emptySet(), emptySet(), null),
+        argumentSet(
+            "enabledProvidersContains", true, singleton(PROVIDER_CLASS_NAME), emptySet(), null),
+        argumentSet(
+            "enabledProvidersNotContains", false, singleton("otherClassName"), emptySet(), null),
+        argumentSet(
+            "disabledProvidersContains", false, emptySet(), singleton(PROVIDER_CLASS_NAME), null),
+        argumentSet(
+            "disabledProvidersNotContains", false, emptySet(), singleton("otherClassName"), null),
+        argumentSet("defaultEnabledFalse", false, emptySet(), emptySet(), null));
   }
 }

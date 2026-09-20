@@ -5,11 +5,9 @@
 
 package io.opentelemetry.javaagent.instrumentation.jedis.v1_4;
 
-import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
 import static io.opentelemetry.javaagent.instrumentation.jedis.v1_4.JedisSingletons.instrumenter;
 import static java.util.Arrays.asList;
 import static net.bytebuddy.matcher.ElementMatchers.is;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.namedOneOf;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
@@ -19,7 +17,7 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
-import io.opentelemetry.javaagent.instrumentation.jedis.JedisRequestContext;
+import io.opentelemetry.javaagent.instrumentation.jedis.common.v1_4.JedisRequestContext;
 import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
@@ -28,7 +26,7 @@ import net.bytebuddy.matcher.ElementMatcher;
 import redis.clients.jedis.Connection;
 import redis.clients.jedis.Protocol;
 
-public class JedisConnectionInstrumentation implements TypeInstrumentation {
+class JedisConnectionInstrumentation implements TypeInstrumentation {
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
     return named("redis.clients.jedis.Connection");
@@ -37,8 +35,7 @@ public class JedisConnectionInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("sendCommand"))
+        named("sendCommand")
             .and(takesArguments(1))
             .and(
                 takesArgument(
@@ -46,10 +43,9 @@ public class JedisConnectionInstrumentation implements TypeInstrumentation {
                     namedOneOf(
                         "redis.clients.jedis.Protocol$Command",
                         "redis.clients.jedis.ProtocolCommand"))),
-        this.getClass().getName() + "$SendCommandNoArgsAdvice");
+        getClass().getName() + "$SendCommandNoArgsAdvice");
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("sendCommand"))
+        named("sendCommand")
             .and(takesArguments(2))
             .and(
                 takesArgument(
@@ -58,7 +54,7 @@ public class JedisConnectionInstrumentation implements TypeInstrumentation {
                         "redis.clients.jedis.Protocol$Command",
                         "redis.clients.jedis.ProtocolCommand")))
             .and(takesArgument(1, is(byte[][].class))),
-        this.getClass().getName() + "$SendCommandWithArgsAdvice");
+        getClass().getName() + "$SendCommandWithArgsAdvice");
   }
 
   public static class AdviceScope {
@@ -74,7 +70,7 @@ public class JedisConnectionInstrumentation implements TypeInstrumentation {
 
     @Nullable
     public static AdviceScope start(JedisRequest request) {
-      Context parentContext = currentContext();
+      Context parentContext = Context.current();
       if (!instrumenter().shouldStart(parentContext, request)) {
         return null;
       }
@@ -92,7 +88,7 @@ public class JedisConnectionInstrumentation implements TypeInstrumentation {
   public static class SendCommandNoArgsAdvice {
 
     @Nullable
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static AdviceScope onEnter(
         @Advice.This Connection connection,
         @Advice.Argument(value = 0, typing = Assigner.Typing.DYNAMIC) Protocol.Command command) {
@@ -100,7 +96,7 @@ public class JedisConnectionInstrumentation implements TypeInstrumentation {
       return AdviceScope.start(request);
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable AdviceScope adviceScope) {
@@ -114,7 +110,7 @@ public class JedisConnectionInstrumentation implements TypeInstrumentation {
   public static class SendCommandWithArgsAdvice {
 
     @Nullable
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static AdviceScope onEnter(
         @Advice.This Connection connection,
         @Advice.Argument(value = 0, typing = Assigner.Typing.DYNAMIC) Protocol.Command command,
@@ -123,7 +119,7 @@ public class JedisConnectionInstrumentation implements TypeInstrumentation {
       return AdviceScope.start(request);
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable AdviceScope adviceScope) {

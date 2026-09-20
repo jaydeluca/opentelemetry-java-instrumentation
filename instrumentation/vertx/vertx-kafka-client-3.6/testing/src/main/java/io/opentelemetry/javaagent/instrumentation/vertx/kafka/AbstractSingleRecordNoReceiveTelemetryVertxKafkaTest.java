@@ -5,27 +5,30 @@
 
 package io.opentelemetry.javaagent.instrumentation.vertx.kafka;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.instrumentation.testing.junit.messaging.KafkaMessagingMetricsAssertions.assertProcessMetricsWithConsumedMessages;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.LinkData;
 import io.opentelemetry.sdk.trace.data.StatusData;
 import io.vertx.kafka.client.producer.KafkaProducerRecord;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 public abstract class AbstractSingleRecordNoReceiveTelemetryVertxKafkaTest
     extends AbstractVertxKafkaTest {
 
-  final CountDownLatch consumerReady = new CountDownLatch(1);
+  private final CountDownLatch consumerReady = new CountDownLatch(1);
 
   @BeforeAll
   void setUpTopicAndConsumer() {
     kafkaConsumer.handler(
         record -> {
           testing().runWithSpan("consumer", () -> {});
-          if (record.value().equals("error")) {
+          if ("error".equals(record.value())) {
             throw new IllegalArgumentException("boom");
           }
         });
@@ -36,13 +39,13 @@ public abstract class AbstractSingleRecordNoReceiveTelemetryVertxKafkaTest
 
   @Test
   void shouldCreateSpansForSingleRecordProcess() throws InterruptedException {
-    assertTrue(consumerReady.await(30, TimeUnit.SECONDS));
+    assertThat(consumerReady.await(30, SECONDS)).isTrue();
 
     KafkaProducerRecord<String, String> record =
         KafkaProducerRecord.create("testSingleTopic", "10", "testSpan");
     CountDownLatch sent = new CountDownLatch(1);
     testing().runWithSpan("producer", () -> sendRecord(record, result -> sent.countDown()));
-    assertTrue(sent.await(30, TimeUnit.SECONDS));
+    assertThat(sent.await(30, SECONDS)).isTrue();
 
     testing()
         .waitAndAssertTraces(
@@ -50,27 +53,40 @@ public abstract class AbstractSingleRecordNoReceiveTelemetryVertxKafkaTest
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("producer"),
                     span ->
-                        span.hasName("testSingleTopic publish")
+                        span.hasName(spanName("testSingleTopic", "publish", "send"))
                             .hasKind(SpanKind.PRODUCER)
                             .hasParent(trace.getSpan(0))
                             .hasAttributesSatisfyingExactly(sendAttributes(record)),
-                    span ->
-                        span.hasName("testSingleTopic process")
-                            .hasKind(SpanKind.CONSUMER)
-                            .hasParent(trace.getSpan(1))
-                            .hasAttributesSatisfyingExactly(processAttributes(record)),
+                    span -> {
+                      span.hasName(spanName("testSingleTopic", "process", "process"))
+                          .hasKind(SpanKind.CONSUMER)
+                          .hasParent(trace.getSpan(1))
+                          .hasAttributesSatisfyingExactly(processAttributes(record));
+                      if (emitStableMessagingSemconv()) {
+                        span.hasLinks(LinkData.create(trace.getSpan(1).getSpanContext()));
+                      }
+                    },
                     span -> span.hasName("consumer").hasParent(trace.getSpan(2))));
+    assertProcessMetricsWithConsumedMessages(
+        testing(),
+        "io.opentelemetry.vertx-kafka-client-3.6",
+        "testSingleTopic",
+        hasConsumerGroup() ? "test" : null,
+        "0",
+        1,
+        1,
+        null);
   }
 
   @Test
   void shouldHandleFailureInSingleRecordHandler() throws InterruptedException {
-    assertTrue(consumerReady.await(30, TimeUnit.SECONDS));
+    assertThat(consumerReady.await(30, SECONDS)).isTrue();
 
     KafkaProducerRecord<String, String> record =
         KafkaProducerRecord.create("testSingleTopic", "10", "error");
     CountDownLatch sent = new CountDownLatch(1);
     testing().runWithSpan("producer", () -> sendRecord(record, result -> sent.countDown()));
-    assertTrue(sent.await(30, TimeUnit.SECONDS));
+    assertThat(sent.await(30, SECONDS)).isTrue();
 
     testing()
         .waitAndAssertTraces(
@@ -78,17 +94,30 @@ public abstract class AbstractSingleRecordNoReceiveTelemetryVertxKafkaTest
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("producer"),
                     span ->
-                        span.hasName("testSingleTopic publish")
+                        span.hasName(spanName("testSingleTopic", "publish", "send"))
                             .hasKind(SpanKind.PRODUCER)
                             .hasParent(trace.getSpan(0))
                             .hasAttributesSatisfyingExactly(sendAttributes(record)),
-                    span ->
-                        span.hasName("testSingleTopic process")
-                            .hasKind(SpanKind.CONSUMER)
-                            .hasParent(trace.getSpan(1))
-                            .hasStatus(StatusData.error())
-                            .hasException(new IllegalArgumentException("boom"))
-                            .hasAttributesSatisfyingExactly(processAttributes(record)),
+                    span -> {
+                      span.hasName(spanName("testSingleTopic", "process", "process"))
+                          .hasKind(SpanKind.CONSUMER)
+                          .hasParent(trace.getSpan(1))
+                          .hasStatus(StatusData.error())
+                          .hasException(new IllegalArgumentException("boom"))
+                          .hasAttributesSatisfyingExactly(withErrorType(processAttributes(record)));
+                      if (emitStableMessagingSemconv()) {
+                        span.hasLinks(LinkData.create(trace.getSpan(1).getSpanContext()));
+                      }
+                    },
                     span -> span.hasName("consumer").hasParent(trace.getSpan(2))));
+    assertProcessMetricsWithConsumedMessages(
+        testing(),
+        "io.opentelemetry.vertx-kafka-client-3.6",
+        "testSingleTopic",
+        hasConsumerGroup() ? "test" : null,
+        "0",
+        1,
+        1,
+        IllegalArgumentException.class.getName());
   }
 }

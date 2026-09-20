@@ -5,7 +5,7 @@ plugins {
 
 muzzle {
   pass {
-    coreJdk()
+    coreJdk.set(true)
   }
 }
 
@@ -21,7 +21,7 @@ dependencies {
 testing {
   suites {
     // CompletableFuture behaves differently if ForkJoinPool has no parallelism
-    val testNoParallelism by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testNoParallelism") {
       sources {
         java {
           setSrcDirs(listOf("src/test/java"))
@@ -55,7 +55,6 @@ tasks {
       "-Dotel.instrumentation.executors.include=io.opentelemetry.javaagent.instrumentation.executors.ExecutorInstrumentationTest\$CustomThreadPoolExecutor,io.opentelemetry.javaagent.instrumentation.executors.ThreadPoolExecutorTest\$RunnableCheckingThreadPoolExecutor"
     )
     jvmArgs("-Djava.awt.headless=true")
-    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
   }
 
   check {

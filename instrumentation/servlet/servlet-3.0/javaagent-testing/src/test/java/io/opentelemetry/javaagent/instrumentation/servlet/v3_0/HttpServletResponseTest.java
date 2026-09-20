@@ -8,6 +8,7 @@ package io.opentelemetry.javaagent.instrumentation.servlet.v3_0;
 import static io.opentelemetry.instrumentation.testing.GlobalTraceUtil.runWithSpan;
 import static io.opentelemetry.instrumentation.testing.junit.code.SemconvCodeStabilityUtil.codeFunctionAssertions;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
+import static java.util.Collections.emptyEnumeration;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -19,7 +20,6 @@ import io.opentelemetry.sdk.trace.data.StatusData;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Locale;
 import javax.servlet.ServletException;
 import javax.servlet.ServletOutputStream;
@@ -34,7 +34,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 class HttpServletResponseTest {
 
   @RegisterExtension
-  static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
+  private static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
   private final TestResponse response = new TestResponse();
   private final HttpServletRequest request = mock(HttpServletRequest.class);
@@ -43,8 +43,8 @@ class HttpServletResponseTest {
   void setUp() throws ServletException, IOException {
     when(request.getMethod()).thenReturn("GET");
     when(request.getProtocol()).thenReturn("TEST");
-    when(request.getHeaderNames()).thenReturn(Collections.emptyEnumeration());
-    when(request.getAttributeNames()).thenReturn(Collections.emptyEnumeration());
+    when(request.getHeaderNames()).thenReturn(emptyEnumeration());
+    when(request.getAttributeNames()).thenReturn(emptyEnumeration());
 
     HttpServlet servlet = new HttpServlet() {};
     // We need to call service so HttpServletAdvice can link the request to the response.
@@ -97,7 +97,7 @@ class HttpServletResponseTest {
   }
 
   @Test
-  void testSendWithException() throws ServletException, IOException {
+  void testSendWithException() throws Exception {
     TestResponse response =
         new TestResponse() {
           @Override
@@ -132,7 +132,8 @@ class HttpServletResponseTest {
   }
 
   /** Tests deprecated methods */
-  public static class TestResponse implements HttpServletResponse {
+  @SuppressWarnings({"deprecation", "ReturnsNullCollection"})
+  static class TestResponse implements HttpServletResponse {
     @Override
     public void addCookie(Cookie cookie) {}
 
@@ -151,15 +152,11 @@ class HttpServletResponseTest {
       return null;
     }
 
-    // test deprecated methods
-    @SuppressWarnings("deprecation")
     @Override
     public String encodeUrl(String s) {
       return null;
     }
 
-    // test deprecated methods
-    @SuppressWarnings("deprecation")
     @Override
     public String encodeRedirectUrl(String s) {
       return null;
@@ -195,8 +192,6 @@ class HttpServletResponseTest {
     @Override
     public void setStatus(int i) {}
 
-    // test deprecated methods
-    @SuppressWarnings("deprecation")
     @Override
     public void setStatus(int i, String s) {}
 
@@ -210,13 +205,11 @@ class HttpServletResponseTest {
       return null;
     }
 
-    @SuppressWarnings("ReturnsNullCollection")
     @Override
     public Collection<String> getHeaders(String s) {
       return null;
     }
 
-    @SuppressWarnings("ReturnsNullCollection")
     @Override
     public Collection<String> getHeaderNames() {
       return null;

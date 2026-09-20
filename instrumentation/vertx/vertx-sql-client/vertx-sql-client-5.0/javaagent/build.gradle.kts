@@ -20,27 +20,32 @@ dependencies {
   library("io.vertx:vertx-sql-client:$version")
   library("io.vertx:vertx-codegen:$version")
 
-  implementation(project(":instrumentation:vertx:vertx-sql-client:vertx-sql-client-common:javaagent"))
+  compileOnly(project(":muzzle")) // For @NoMuzzle
 
+  implementation(project(":instrumentation:vertx:vertx-sql-client:vertx-sql-client-common-4.0:javaagent"))
+
+  testInstrumentation(project(":instrumentation:jdbc:javaagent"))
   testInstrumentation(project(":instrumentation:netty:netty-4.1:javaagent"))
   testInstrumentation(project(":instrumentation:vertx:vertx-sql-client:vertx-sql-client-4.0:javaagent"))
 
   testLibrary("io.vertx:vertx-pg-client:$version")
+  testLibrary("io.vertx:vertx-jdbc-client:$version")
+  testImplementation("io.agroal:agroal-pool:2.5")
+  testImplementation("org.hsqldb:hsqldb:2.3.4")
 }
-
-val collectMetadata = findProperty("collectMetadata")?.toString() ?: "false"
 
 tasks {
   withType<Test>().configureEach {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
-    systemProperty("collectMetadata", collectMetadata)
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
-    jvmArgs("-Dotel.semconv-stability.opt-in=database")
-    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+    jvmArgs("-Dotel.semconv-stability.opt-in=database,service.peer")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database,service.peer")
   }
 
   check {

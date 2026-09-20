@@ -8,6 +8,7 @@ package io.opentelemetry.instrumentation.micrometer.v1_5;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.baseUnit;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.name;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.tagsAsAttributes;
+import static java.util.Collections.emptyList;
 
 import io.micrometer.core.instrument.AbstractMeter;
 import io.micrometer.core.instrument.Counter;
@@ -16,9 +17,10 @@ import io.micrometer.core.instrument.config.NamingConvention;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.DoubleCounter;
 import io.opentelemetry.api.metrics.Meter;
-import java.util.Collections;
+import io.opentelemetry.instrumentation.micrometer.v1_5.internal.OpenTelemetryInstrument;
 
-final class OpenTelemetryCounter extends AbstractMeter implements Counter, RemovableMeter {
+final class OpenTelemetryCounter extends AbstractMeter
+    implements Counter, RemovableMeter, OpenTelemetryInstrument {
 
   // TODO: use bound instruments when they're available
   private final DoubleCounter otelCounter;
@@ -26,7 +28,8 @@ final class OpenTelemetryCounter extends AbstractMeter implements Counter, Remov
 
   private volatile boolean removed = false;
 
-  OpenTelemetryCounter(Id id, NamingConvention namingConvention, Meter otelMeter) {
+  OpenTelemetryCounter(
+      Id id, NamingConvention namingConvention, Meter otelMeter, Bridging bridging) {
     super(id);
 
     this.attributes = tagsAsAttributes(id, namingConvention);
@@ -34,7 +37,7 @@ final class OpenTelemetryCounter extends AbstractMeter implements Counter, Remov
     this.otelCounter =
         otelMeter
             .counterBuilder(conventionName)
-            .setDescription(Bridging.description(id))
+            .setDescription(bridging.description(conventionName, id))
             .setUnit(baseUnit(id))
             .ofDoubles()
             .build();
@@ -57,7 +60,7 @@ final class OpenTelemetryCounter extends AbstractMeter implements Counter, Remov
   @Override
   public Iterable<Measurement> measure() {
     UnsupportedReadLogger.logWarning();
-    return Collections.emptyList();
+    return emptyList();
   }
 
   @Override

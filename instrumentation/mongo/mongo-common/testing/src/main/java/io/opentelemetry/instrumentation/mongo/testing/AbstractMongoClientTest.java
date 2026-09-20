@@ -15,6 +15,8 @@ import static io.opentelemetry.semconv.DbAttributes.DB_COLLECTION_NAME;
 import static io.opentelemetry.semconv.DbAttributes.DB_NAMESPACE;
 import static io.opentelemetry.semconv.DbAttributes.DB_OPERATION_NAME;
 import static io.opentelemetry.semconv.DbAttributes.DB_SYSTEM_NAME;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_ADDRESS;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_PORT;
 import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
 import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_CONNECTION_STRING;
@@ -23,17 +25,21 @@ import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.MONGODB;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 
+import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.testing.assertj.SpanDataAssert;
 import io.opentelemetry.sdk.trace.data.SpanData;
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,6 +60,7 @@ public abstract class AbstractMongoClientTest<T> {
   private GenericContainer<?> mongodb;
   protected String host;
   protected int port;
+  private String networkPeerAddress;
 
   @BeforeAll
   void setup() {
@@ -64,6 +71,12 @@ public abstract class AbstractMongoClientTest<T> {
     mongodb.start();
     host = mongodb.getHost();
     port = mongodb.getMappedPort(27017);
+    try (Socket socket = new Socket(host, port)) {
+      InetSocketAddress peer = (InetSocketAddress) socket.getRemoteSocketAddress();
+      networkPeerAddress = peer.getAddress().getHostAddress();
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   @AfterAll
@@ -74,6 +87,10 @@ public abstract class AbstractMongoClientTest<T> {
   }
 
   protected abstract InstrumentationExtension testing();
+
+  protected boolean supportsNetworkPeer() {
+    return false;
+  }
 
   // Different client versions have different APIs to do these operations. If adding a test for a
   // new version, refer to existing ones on how to implement these operations.
@@ -124,8 +141,10 @@ public abstract class AbstractMongoClientTest<T> {
 
   @Test
   @DisplayName("test port open")
-  void testPortOpen() {
-    assertThatNoException().isThrownBy(() -> new Socket(host, port));
+  void testPortOpen() throws IOException {
+    try (Socket socket = new Socket(host, port)) {
+      assertThat(socket.isConnected()).isTrue();
+    }
   }
 
   @Test
@@ -152,6 +171,12 @@ public abstract class AbstractMongoClientTest<T> {
                                 "{\"create\":\""
                                     + collectionName
                                     + "\",\"capped\":\"?\",\"$db\":\"?\"}",
+                                "{\"create\":\""
+                                    + collectionName
+                                    + "\",\"autoIndexId\":\"?\",\"capped\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}",
+                                "{\"create\":\""
+                                    + collectionName
+                                    + "\",\"autoIndexId\":\"?\",\"capped\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"create\":\""
                                     + collectionName
                                     + "\",\"capped\":\"?\",\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
@@ -187,6 +212,12 @@ public abstract class AbstractMongoClientTest<T> {
                                     + "\",\"capped\":\"?\",\"$db\":\"?\"}",
                                 "{\"create\":\""
                                     + collectionName
+                                    + "\",\"autoIndexId\":\"?\",\"capped\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}",
+                                "{\"create\":\""
+                                    + collectionName
+                                    + "\",\"autoIndexId\":\"?\",\"capped\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
+                                "{\"create\":\""
+                                    + collectionName
                                     + "\",\"capped\":\"?\",\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"create\":\""
                                     + collectionName
@@ -219,6 +250,12 @@ public abstract class AbstractMongoClientTest<T> {
                                 "{\"create\":\""
                                     + collectionName
                                     + "\",\"capped\":\"?\",\"$db\":\"?\"}",
+                                "{\"create\":\""
+                                    + collectionName
+                                    + "\",\"autoIndexId\":\"?\",\"capped\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}",
+                                "{\"create\":\""
+                                    + collectionName
+                                    + "\",\"autoIndexId\":\"?\",\"capped\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"create\":\""
                                     + collectionName
                                     + "\",\"capped\":\"?\",\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
@@ -263,18 +300,23 @@ public abstract class AbstractMongoClientTest<T> {
                                   + "\",\"query\":{},\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
                               "{\"count\":\""
                                   + collectionName
+                                  + "\",\"query\":{},\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
+                              "{\"count\":\""
+                                  + collectionName
                                   + "\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}"));
                     }));
 
+    List<AttributeKey<?>> expectedMetricKeys =
+        new ArrayList<>(
+            asList(DB_SYSTEM_NAME, DB_OPERATION_NAME, DB_NAMESPACE, DB_COLLECTION_NAME));
+    if (supportsNetworkPeer() && emitStableDatabaseSemconv()) {
+      expectedMetricKeys.add(NETWORK_PEER_ADDRESS);
+      expectedMetricKeys.add(NETWORK_PEER_PORT);
+    }
+    expectedMetricKeys.add(SERVER_ADDRESS);
+    expectedMetricKeys.add(SERVER_PORT);
     assertDurationMetric(
-        testing(),
-        scopeName.get(),
-        DB_SYSTEM_NAME,
-        DB_OPERATION_NAME,
-        DB_NAMESPACE,
-        DB_COLLECTION_NAME,
-        SERVER_ADDRESS,
-        SERVER_PORT);
+        testing(), scopeName.get(), expectedMetricKeys.toArray(new AttributeKey<?>[0]));
   }
 
   @Test
@@ -326,6 +368,9 @@ public abstract class AbstractMongoClientTest<T> {
                                 "{\"count\":\""
                                     + collectionName
                                     + "\",\"query\":{},\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
+                                "{\"count\":\""
+                                    + collectionName
+                                    + "\",\"query\":{},\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"count\":\""
                                     + collectionName
                                     + "\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}"))));
@@ -382,6 +427,9 @@ public abstract class AbstractMongoClientTest<T> {
                                     + "\",\"query\":{},\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"count\":\""
                                     + collectionName
+                                    + "\",\"query\":{},\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
+                                "{\"count\":\""
+                                    + collectionName
                                     + "\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}"))));
   }
 
@@ -436,6 +484,9 @@ public abstract class AbstractMongoClientTest<T> {
                                     + "\",\"query\":{},\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"count\":\""
                                     + collectionName
+                                    + "\",\"query\":{},\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
+                                "{\"count\":\""
+                                    + collectionName
                                     + "\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}"))));
   }
 
@@ -472,6 +523,9 @@ public abstract class AbstractMongoClientTest<T> {
                                     + "\",\"filter\":{\"_id\":{\"$gte\":\"?\"}},\"batchSize\":\"?\",\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"find\":\""
                                     + collectionName
+                                    + "\",\"filter\":{\"_id\":{\"$gte\":\"?\"}},\"batchSize\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
+                                "{\"find\":\""
+                                    + collectionName
                                     + "\",\"filter\":{\"_id\":{\"$gte\":\"?\"}},\"batchSize\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}")),
                     span ->
                         mongoSpan(
@@ -484,6 +538,7 @@ public abstract class AbstractMongoClientTest<T> {
                                 "{\"getMore\":\"?\",\"collection\":\"?\",\"batchSize\":\"?\"}",
                                 "{\"getMore\":\"?\",\"collection\":\"?\",\"batchSize\":\"?\",\"$db\":\"?\"}",
                                 "{\"getMore\":\"?\",\"collection\":\"?\",\"batchSize\":\"?\",\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
+                                "{\"getMore\":\"?\",\"collection\":\"?\",\"batchSize\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"getMore\":\"?\",\"collection\":\"?\",\"batchSize\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}"))));
   }
 
@@ -521,6 +576,15 @@ public abstract class AbstractMongoClientTest<T> {
                                 "{\"create\":\"" + collectionName + "\",\"capped\":\"?\"}",
                                 "{\"create\":\""
                                     + collectionName
+                                    + "\",\"capped\":\"?\",\"$db\":\"?\"}",
+                                "{\"create\":\""
+                                    + collectionName
+                                    + "\",\"autoIndexId\":\"?\",\"capped\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"}}",
+                                "{\"create\":\""
+                                    + collectionName
+                                    + "\",\"autoIndexId\":\"?\",\"capped\":\"?\",\"$db\":\"?\",\"lsid\":{\"id\":\"?\"},\"$readPreference\":{\"mode\":\"?\"}}",
+                                "{\"create\":\""
+                                    + collectionName
                                     + "\",\"capped\":\"?\",\"$db\":\"?\",\"$readPreference\":{\"mode\":\"?\"}}",
                                 "{\"create\":\""
                                     + collectionName
@@ -538,24 +602,32 @@ public abstract class AbstractMongoClientTest<T> {
       String operation,
       String collection,
       String dbName,
-      Object parentSpan,
+      SpanData parentSpan,
       List<String> statements) {
-    span.hasName(operation + " " + dbName + "." + collection).hasKind(CLIENT);
+    span.hasName(
+            emitStableDatabaseSemconv()
+                ? operation + " " + collection
+                : operation + " " + dbName + "." + collection)
+        .hasKind(CLIENT);
     if (parentSpan == null) {
       span.hasNoParent();
     } else {
-      span.hasParent((SpanData) parentSpan);
+      span.hasParent(parentSpan);
     }
 
     span.hasAttributesSatisfyingExactly(
         equalTo(SERVER_ADDRESS, host),
         equalTo(SERVER_PORT, port),
+        equalTo(
+            NETWORK_PEER_ADDRESS,
+            supportsNetworkPeer() && emitStableDatabaseSemconv() ? networkPeerAddress : null),
+        equalTo(
+            NETWORK_PEER_PORT,
+            supportsNetworkPeer() && emitStableDatabaseSemconv() ? Long.valueOf(port) : null),
         satisfies(
             maybeStable(DB_STATEMENT),
-            val ->
-                val.satisfies(
-                    statement -> assertThat(statements).contains(statement.replaceAll(" ", "")))),
-        equalTo(maybeStable(DB_SYSTEM), "mongodb"),
+            val -> val.satisfies(v -> assertThat(statements).contains(v.replaceAll(" ", "")))),
+        equalTo(maybeStable(DB_SYSTEM), MONGODB),
         equalTo(
             DB_CONNECTION_STRING,
             emitStableDatabaseSemconv() ? null : "mongodb://localhost:" + port),

@@ -33,6 +33,10 @@ for file in $(find instrumentation -name "*Module.java"); do
     # TODO module is missing a base version
     continue
   fi
+  if [[ "$simple_module_name" == spring-cloud-gateway-webmvc ]]; then
+    # webmvc variant uses spring-cloud-gateway as base name
+    simple_module_name="spring-cloud-gateway"
+  fi
 
   if [ "$module_name" == "$simple_module_name" ]; then
     expected="super\(\n? *\"$simple_module_name\""
@@ -44,6 +48,13 @@ for file in $(find instrumentation -name "*Module.java"); do
 
   matches=$(perl -0 -ne "print if /$expected/" "$file" | wc -l)
   if [ "$matches" == 0 ]; then
+    if grep -q "expandDeprecatedNames" "$file" \
+      && { grep -q "\"$simple_module_name|deprecated:" "$file" \
+        || perl -0ne "exit !/super\(\s*\"$simple_module_name\"/" "$file"; } \
+      && { [ "$module_name" == "$simple_module_name" ] || grep -q "\"$module_name|deprecated:" "$file"; }
+    then
+      continue
+    fi
     echo "Expected to find $expected in $file"
     exit 1
   fi

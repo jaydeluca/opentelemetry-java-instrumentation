@@ -5,8 +5,7 @@
 
 package io.opentelemetry.instrumentation.awssdk.v2_2;
 
-import static java.util.Collections.singletonList;
-
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.testing.junit.LibraryInstrumentationExtension;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -23,7 +22,7 @@ abstract class Aws2SqsTracingTest extends AbstractAws2SqsTracingTest {
   static AwsSdkTelemetry telemetry;
 
   @Override
-  protected final LibraryInstrumentationExtension getTesting() {
+  protected LibraryInstrumentationExtension getTesting() {
     return testing;
   }
 
@@ -32,8 +31,12 @@ abstract class Aws2SqsTracingTest extends AbstractAws2SqsTracingTest {
     AwsSdkTelemetryBuilder telemetryBuilder =
         AwsSdkTelemetry.builder(getTesting().getOpenTelemetry())
             .setCaptureExperimentalSpanAttributes(true)
-            .setMessagingReceiveInstrumentationEnabled(true)
-            .setCapturedHeaders(singletonList("Test-Message-Header"));
+            .setMessagingReceiveTelemetryEnabled(true)
+            .setHeaders(
+                IncludeExclude.builder()
+                    .setIncluded("Test-Message-*")
+                    .setExcluded("*-Excluded-Header")
+                    .build());
 
     configure(telemetryBuilder);
     telemetry = telemetryBuilder.build();
@@ -44,7 +47,7 @@ abstract class Aws2SqsTracingTest extends AbstractAws2SqsTracingTest {
   @Override
   protected ClientOverrideConfiguration.Builder createOverrideConfigurationBuilder() {
     return ClientOverrideConfiguration.builder()
-        .addExecutionInterceptor(telemetry.newExecutionInterceptor());
+        .addExecutionInterceptor(telemetry.createExecutionInterceptor());
   }
 
   @Override

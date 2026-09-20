@@ -22,5 +22,13 @@ public interface IgnoredTypesConfigurer extends Ordered {
    * Configure the passed {@code builder} and define which classes should be ignored when
    * instrumenting.
    */
-  void configure(IgnoredTypesBuilder builder, ConfigProperties config);
+  default void configure(IgnoredTypesBuilder builder) {}
+
+  /**
+   * Configure the passed {@code builder} and define which classes should be ignored when
+   * instrumenting.
+   */
+  default void configure(IgnoredTypesBuilder builder, ConfigProperties config) {
+    configure(builder);
+  }
 }

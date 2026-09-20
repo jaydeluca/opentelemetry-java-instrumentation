@@ -5,31 +5,36 @@
 
 package io.opentelemetry.javaagent.instrumentation.rmi.client;
 
+import static io.opentelemetry.instrumentation.api.incubator.semconv.rpc.internal.RpcExceptionEventExtractors.setRpcClientExceptionEventExtractor;
+
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcClientAttributesExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcSpanNameExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
+import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanKindExtractor;
 import java.lang.reflect.Method;
 
-public final class RmiClientSingletons {
+public class RmiClientSingletons {
 
-  private static final Instrumenter<Method, Void> INSTRUMENTER;
+  private static final Instrumenter<Method, Void> instrumenter;
 
   static {
-    RmiClientAttributesGetter rpcAttributesGetter = RmiClientAttributesGetter.INSTANCE;
+    RmiClientAttributesGetter rpcAttributesGetter = new RmiClientAttributesGetter();
 
-    INSTRUMENTER =
+    InstrumenterBuilder<Method, Void> builder =
         Instrumenter.<Method, Void>builder(
                 GlobalOpenTelemetry.get(),
                 "io.opentelemetry.rmi",
                 RpcSpanNameExtractor.create(rpcAttributesGetter))
-            .addAttributesExtractor(RpcClientAttributesExtractor.create(rpcAttributesGetter))
-            .buildInstrumenter(SpanKindExtractor.alwaysClient());
+            .addAttributesExtractor(RpcClientAttributesExtractor.create(rpcAttributesGetter));
+    setRpcClientExceptionEventExtractor(builder);
+
+    instrumenter = builder.buildInstrumenter(SpanKindExtractor.alwaysClient());
   }
 
   public static Instrumenter<Method, Void> instrumenter() {
-    return INSTRUMENTER;
+    return instrumenter;
   }
 
   private RmiClientSingletons() {}

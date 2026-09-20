@@ -5,16 +5,18 @@
 
 package io.opentelemetry.instrumentation.spring.autoconfigure.internal.resources;
 
-import io.opentelemetry.sdk.extension.incubator.fileconfig.DeclarativeConfigurationCustomizer;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.DeclarativeConfigurationCustomizerProvider;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.ExperimentalResourceDetectionModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.ExperimentalResourceDetectorModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.ResourceModel;
-import java.util.Collections;
+import static java.util.Collections.singletonList;
+import static java.util.stream.Collectors.toSet;
+
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.DeclarativeConfigurationCustomizer;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.DeclarativeConfigurationCustomizerProvider;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.ResourceModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.internal.ExperimentalResourceDetectionModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.internal.ExperimentalResourceDetectorModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.internal.ResourceModelAccessor;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * This class is internal and is hence not for public use. Its APIs are unstable and can change at
@@ -25,7 +27,7 @@ public class ResourceCustomizerProvider implements DeclarativeConfigurationCusto
   // opentelemetry-javaagent-distribution: adds "distro.name" and "distro.version" attributes
   // (DistroComponentProvider in this package)
   private static final List<String> REQUIRED_DETECTORS =
-      Collections.singletonList("opentelemetry_spring_boot_starter");
+      singletonList("opentelemetry_spring_boot_starter");
 
   @Override
   public void customize(DeclarativeConfigurationCustomizer customizer) {
@@ -34,19 +36,22 @@ public class ResourceCustomizerProvider implements DeclarativeConfigurationCusto
           ResourceModel resource = model.getResource();
           if (resource == null) {
             resource = new ResourceModel();
-            model.withResource(resource);
+            model.setResource(resource);
           }
-          ExperimentalResourceDetectionModel detectionModel = resource.getDetectionDevelopment();
+          ExperimentalResourceDetectionModel detectionModel =
+              ResourceModelAccessor.getDetection(resource);
           if (detectionModel == null) {
             detectionModel = new ExperimentalResourceDetectionModel();
-            resource.withDetectionDevelopment(detectionModel);
           }
-          List<ExperimentalResourceDetectorModel> detectors =
-              Objects.requireNonNull(detectionModel.getDetectors());
+          List<ExperimentalResourceDetectorModel> detectors = detectionModel.getDetectors();
+          if (detectors == null) {
+            detectors = new ArrayList<>();
+            detectionModel.setDetectors(detectors);
+          }
           Set<String> names =
               detectors.stream()
                   .flatMap(detector -> detector.getAdditionalProperties().keySet().stream())
-                  .collect(Collectors.toSet());
+                  .collect(toSet());
 
           for (String name : REQUIRED_DETECTORS) {
             if (!names.contains(name)) {
@@ -57,6 +62,7 @@ public class ResourceCustomizerProvider implements DeclarativeConfigurationCusto
               detectors.add(0, detector);
             }
           }
+          ResourceModelAccessor.setDetection(resource, detectionModel);
           return model;
         });
   }

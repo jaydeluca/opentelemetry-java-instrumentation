@@ -1,5 +1,7 @@
-val stableVersion = "2.23.0-SNAPSHOT"
-val alphaVersion = "2.23.0-alpha-SNAPSHOT"
+val stableVersion = "2.32.0-SNAPSHOT"
+val alphaVersion = "2.32.0-alpha-SNAPSHOT"
+
+val apidiffBaselineVersion = "2.31.1"
 
 allprojects {
   if (findProperty("otel.stable") != "true") {
@@ -7,4 +9,5 @@ allprojects {
   } else {
     version = stableVersion
   }
+  extra["apidiffBaselineVersion"] = apidiffBaselineVersion
 }

@@ -5,9 +5,10 @@
 
 package io.opentelemetry.javaagent.instrumentation.mongo.v3_1;
 
-import static java.util.Collections.singletonList;
+import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
+import static io.opentelemetry.javaagent.instrumentation.mongo.v3_1.MongoInstrumentationSingletons.tracingListener;
+import static java.util.Arrays.asList;
 import static net.bytebuddy.matcher.ElementMatchers.declaresMethod;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
@@ -32,11 +33,21 @@ public class MongoClientInstrumentationModule extends InstrumentationModule {
   }
 
   @Override
-  public List<TypeInstrumentation> typeInstrumentations() {
-    return singletonList(new MongoClientOptionsBuilderInstrumentation());
+  public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
+    // present in supported synchronous drivers and absent from the async driver
+    return hasClassesNamed("com.mongodb.MongoClientOptions");
   }
 
-  private static final class MongoClientOptionsBuilderInstrumentation
+  @Override
+  public List<TypeInstrumentation> typeInstrumentations() {
+    return asList(
+        new MongoClientOptionsBuilderInstrumentation(),
+        new ClusterSettingsBuilderInstrumentation(),
+        new MongoClientUriInstrumentation(),
+        new ClusterInstrumentation());
+  }
+
+  public static final class MongoClientOptionsBuilderInstrumentation
       implements TypeInstrumentation {
     @Override
     public ElementMatcher<TypeDescription> typeMatcher() {
@@ -53,24 +64,24 @@ public class MongoClientInstrumentationModule extends InstrumentationModule {
     @Override
     public void transform(TypeTransformer transformer) {
       transformer.applyAdviceToMethod(
-          isMethod().and(isPublic()).and(named("build")).and(takesArguments(0)),
-          MongoClientInstrumentationModule.class.getName() + "$MongoClientAdvice");
+          isPublic().and(named("build")).and(takesArguments(0)),
+          getClass().getName() + "$MongoClientAdvice");
     }
-  }
 
-  @SuppressWarnings("unused")
-  public static class MongoClientAdvice {
+    @SuppressWarnings("unused")
+    public static class MongoClientAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void injectTraceListener(
-        @Advice.This MongoClientOptions.Builder builder,
-        @Advice.FieldValue("commandListeners") List<CommandListener> commandListeners) {
-      for (CommandListener commandListener : commandListeners) {
-        if (MongoInstrumentationSingletons.isTracingListener(commandListener)) {
-          return;
+      @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+      public static void injectTraceListener(
+          @Advice.This MongoClientOptions.Builder builder,
+          @Advice.FieldValue("commandListeners") List<CommandListener> commandListeners) {
+        for (CommandListener commandListener : commandListeners) {
+          if (MongoInstrumentationSingletons.isTracingListener(commandListener)) {
+            return;
+          }
         }
+        builder.addCommandListener(tracingListener());
       }
-      builder.addCommandListener(MongoInstrumentationSingletons.LISTENER);
     }
   }
 }

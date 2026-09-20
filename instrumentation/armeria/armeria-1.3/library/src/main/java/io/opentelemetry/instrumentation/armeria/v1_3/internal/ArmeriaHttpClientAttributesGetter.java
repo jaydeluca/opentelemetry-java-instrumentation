@@ -13,12 +13,12 @@ import com.linecorp.armeria.common.logging.RequestLog;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesGetter;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nullable;
 
-enum ArmeriaHttpClientAttributesGetter
+final class ArmeriaHttpClientAttributesGetter
     implements HttpClientAttributesGetter<ClientRequestContext, RequestLog> {
-  INSTANCE;
 
   private static final ClassValue<Method> authorityMethodCache =
       new ClassValue<Method>() {
@@ -27,7 +27,7 @@ enum ArmeriaHttpClientAttributesGetter
         protected Method computeValue(Class<?> type) {
           try {
             return type.getMethod("authority");
-          } catch (NoSuchMethodException e) {
+          } catch (NoSuchMethodException ignored) {
             return null;
           }
         }
@@ -66,6 +66,11 @@ enum ArmeriaHttpClientAttributesGetter
   }
 
   @Override
+  public Collection<String> getHttpRequestHeaderNames(ClientRequestContext ctx) {
+    return ArmeriaHeaderUtil.getHeaderNames(request(ctx).headers());
+  }
+
+  @Override
   @Nullable
   public Integer getHttpResponseStatusCode(
       ClientRequestContext ctx, RequestLog requestLog, @Nullable Throwable error) {
@@ -80,6 +85,12 @@ enum ArmeriaHttpClientAttributesGetter
   public List<String> getHttpResponseHeader(
       ClientRequestContext ctx, RequestLog requestLog, String name) {
     return requestLog.responseHeaders().getAll(name);
+  }
+
+  @Override
+  public Collection<String> getHttpResponseHeaderNames(
+      ClientRequestContext ctx, RequestLog requestLog) {
+    return ArmeriaHeaderUtil.getHeaderNames(requestLog.responseHeaders());
   }
 
   @Override
@@ -115,11 +126,11 @@ enum ArmeriaHttpClientAttributesGetter
     }
     int separatorPos = authority.indexOf(':');
     if (separatorPos == -1) {
-      return null;
+      return defaultPortForProtocol(ctx.sessionProtocol());
     }
     try {
       return Integer.parseInt(authority.substring(separatorPos + 1));
-    } catch (NumberFormatException e) {
+    } catch (NumberFormatException ignored) {
       return null;
     }
   }
@@ -132,6 +143,17 @@ enum ArmeriaHttpClientAttributesGetter
   }
 
   @Nullable
+  private static Integer defaultPortForProtocol(SessionProtocol protocol) {
+    if (protocol == SessionProtocol.HTTP) {
+      return 80;
+    }
+    if (protocol == SessionProtocol.HTTPS) {
+      return 443;
+    }
+    return null;
+  }
+
+  @Nullable
   private static String authority(ClientRequestContext ctx) {
     // newer armeria versions expose authority through DefaultClientRequestContext#authority
     // we are using this method as it provides default values based on endpoint
@@ -141,7 +163,7 @@ enum ArmeriaHttpClientAttributesGetter
     if (method != null) {
       try {
         return (String) method.invoke(ctx);
-      } catch (Exception e) {
+      } catch (Exception ignored) {
         return null;
       }
     }

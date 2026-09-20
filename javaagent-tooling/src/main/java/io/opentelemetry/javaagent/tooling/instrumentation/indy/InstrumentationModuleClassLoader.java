@@ -5,16 +5,23 @@
 
 package io.opentelemetry.javaagent.tooling.instrumentation.indy;
 
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
+import static java.util.Collections.singletonMap;
+import static java.util.stream.Collectors.toMap;
+
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
 import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import io.opentelemetry.javaagent.tooling.BytecodeWithUrl;
+import io.opentelemetry.javaagent.tooling.HelperInjector;
 import io.opentelemetry.javaagent.tooling.muzzle.InstrumentationModuleMuzzle;
 import java.io.IOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.lang.ref.WeakReference;
 import java.net.URL;
 import java.security.PrivilegedAction;
 import java.security.ProtectionDomain;
@@ -26,7 +33,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
@@ -61,14 +67,14 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
   private static final ClassLoader BOOT_LOADER = new ClassLoader() {};
 
   private static final Map<String, BytecodeWithUrl> ALWAYS_INJECTED_CLASSES =
-      Collections.singletonMap(
+      singletonMap(
           LookupExposer.class.getName(), BytecodeWithUrl.create(LookupExposer.class).cached());
   private static final ProtectionDomain PROTECTION_DOMAIN = getProtectionDomain();
   private static final MethodHandle FIND_PACKAGE_METHOD = getFindPackageMethod();
 
   private final Map<String, BytecodeWithUrl> additionalInjectedClasses;
   private final ClassLoader agentOrExtensionCl;
-  private volatile MethodHandles.Lookup cachedLookup;
+  @Nullable private volatile MethodHandles.Lookup cachedLookup;
 
   @Nullable private final ClassLoader instrumentedCl;
 
@@ -136,10 +142,20 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
     return cachedLookup;
   }
 
-  public synchronized void installModule(InstrumentationModule module) {
-    if (module.getClass().getClassLoader() != agentOrExtensionCl) {
+  // visible for testing
+  void installModule(InstrumentationModule module) {
+    installModule(module, false);
+  }
+
+  synchronized void installModule(InstrumentationModule module, boolean forMuzzleCheck) {
+    ClassLoader moduleCl = module.getClass().getClassLoader();
+    if (moduleCl != agentOrExtensionCl) {
       throw new IllegalArgumentException(
-          module.getClass().getName() + " is not loaded by " + agentOrExtensionCl);
+          module.getClass().getName()
+              + " is not loaded by "
+              + agentOrExtensionCl
+              + " but is loaded by "
+              + moduleCl);
     }
     if (!installedModules.add(module)) {
       return;
@@ -147,13 +163,29 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
     Map<String, BytecodeWithUrl> classesToInject =
         getClassesToInject(module).stream()
             .collect(
-                Collectors.toMap(
+                toMap(
                     className -> className,
                     className -> BytecodeWithUrl.create(className, agentOrExtensionCl)));
     installInjectedClasses(classesToInject);
     if (module instanceof ExperimentalInstrumentationModule) {
-      hiddenAgentPackages.addAll(
-          ((ExperimentalInstrumentationModule) module).agentPackagesToHide());
+      ExperimentalInstrumentationModule experimentalModule =
+          (ExperimentalInstrumentationModule) module;
+      hiddenAgentPackages.addAll(experimentalModule.agentPackagesToHide());
+    }
+    if (!forMuzzleCheck && instrumentedCl != null && !module.exposedClassNames().isEmpty()) {
+      // Using a weak reference because HelperInjector.addExposedClass places the supplier into
+      // a weak map where instrumentedCl is the key. We must ensure that the value of the map
+      // does not strongly reference the key, otherwise we would leak class loaders.
+      WeakReference<ClassLoader> classLoaderWeakReference = new WeakReference<>(this);
+      for (String className : module.exposedClassNames()) {
+        HelperInjector.addExposedClass(
+            instrumentedCl,
+            className,
+            () -> {
+              ClassLoader cl = classLoaderWeakReference.get();
+              return cl != null ? tryLoad(cl, className) : null;
+            });
+      }
     }
   }
 
@@ -171,9 +203,8 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
     // TODO (Jonas): Make muzzle include advice classes as helper classes
     // so that we don't have to include them here
     toInject.addAll(getModuleAdviceNames(module));
-    if (module instanceof ExperimentalInstrumentationModule) {
-      toInject.removeAll(((ExperimentalInstrumentationModule) module).injectedClassNames());
-    }
+    toInject.removeAll(module.injectedClassNames());
+
     return toInject;
   }
 
@@ -198,8 +229,6 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
     return adviceNames;
   }
 
-  public static final Map<String, byte[]> bytecodeOverride = new ConcurrentHashMap<>();
-
   @Override
   public Class<?> loadClass(String name) throws ClassNotFoundException {
     // We explicitly override loadClass from ClassLoader to ensure
@@ -219,10 +248,7 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
       if (result == null) {
         BytecodeWithUrl injected = getInjectedClass(name);
         if (injected != null) {
-          byte[] bytecode =
-              bytecodeOverride.get(name) != null
-                  ? bytecodeOverride.get(name)
-                  : injected.getBytecode();
+          byte[] bytecode = injected.getBytecode();
           if (System.getSecurityManager() == null) {
             result = defineClassWithPackage(name, bytecode);
           } else {
@@ -262,6 +288,7 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
     return true;
   }
 
+  @Nullable
   private static Class<?> tryLoad(@Nullable ClassLoader cl, String name) {
     try {
       return Class.forName(name, false, cl);
@@ -301,8 +328,7 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
       return super.getResources(resourceName);
     }
     URL resource = getResource(resourceName);
-    List<URL> result =
-        resource != null ? Collections.singletonList(resource) : Collections.emptyList();
+    List<URL> result = resource != null ? singletonList(resource) : emptyList();
     return Collections.enumeration(result);
   }
 
@@ -401,10 +427,10 @@ public class InstrumentationModuleClassLoader extends ClassLoader {
       // In Java 8 getDefinedPackage does not exist (HotSpot) or is not accessible (OpenJ9)
       try {
         return lookup.findVirtual(ClassLoader.class, "getPackage", methodType);
-      } catch (NoSuchMethodException ex) {
-        throw new IllegalStateException("expected method to always exist!", ex);
-      } catch (IllegalAccessException ex2) {
-        throw new IllegalStateException("Method should be accessible from here", ex2);
+      } catch (NoSuchMethodException f) {
+        throw new IllegalStateException("expected method to always exist!", f);
+      } catch (IllegalAccessException f) {
+        throw new IllegalStateException("Method should be accessible from here", f);
       }
     }
   }

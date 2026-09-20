@@ -11,13 +11,11 @@ import static java.util.Arrays.asList;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
 import net.bytebuddy.matcher.ElementMatcher;
 
 @AutoService(InstrumentationModule.class)
-public class HibernateInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class HibernateInstrumentationModule extends InstrumentationModule {
 
   public HibernateInstrumentationModule() {
     super("hibernate", "hibernate-4.0");
@@ -26,15 +24,10 @@ public class HibernateInstrumentationModule extends InstrumentationModule
   @Override
   public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
     return hasClassesNamed(
-        // not present before 4.0
+        // added in 4.0.0.Final
         "org.hibernate.internal.SessionFactoryImpl",
-        // missing in 6.0
+        // removed in 6.0.0.Final
         "org.hibernate.Criteria");
-  }
-
-  @Override
-  public String getModuleGroup() {
-    return "hibernate";
   }
 
   @Override

@@ -12,12 +12,12 @@ import com.linecorp.armeria.common.logging.RequestLog;
 import com.linecorp.armeria.server.ServiceRequestContext;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpServerAttributesGetter;
 import java.net.InetSocketAddress;
+import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nullable;
 
-enum ArmeriaHttpServerAttributesGetter
+final class ArmeriaHttpServerAttributesGetter
     implements HttpServerAttributesGetter<ServiceRequestContext, RequestLog> {
-  INSTANCE;
 
   @Override
   public String getHttpRequestMethod(ServiceRequestContext ctx) {
@@ -51,6 +51,11 @@ enum ArmeriaHttpServerAttributesGetter
   }
 
   @Override
+  public Collection<String> getHttpRequestHeaderNames(ServiceRequestContext ctx) {
+    return ArmeriaHeaderUtil.getHeaderNames(request(ctx).headers());
+  }
+
+  @Override
   @Nullable
   public Integer getHttpResponseStatusCode(
       ServiceRequestContext ctx, RequestLog requestLog, @Nullable Throwable error) {
@@ -65,6 +70,12 @@ enum ArmeriaHttpServerAttributesGetter
   public List<String> getHttpResponseHeader(
       ServiceRequestContext ctx, RequestLog requestLog, String name) {
     return requestLog.responseHeaders().getAll(name);
+  }
+
+  @Override
+  public Collection<String> getHttpResponseHeaderNames(
+      ServiceRequestContext ctx, RequestLog requestLog) {
+    return ArmeriaHeaderUtil.getHeaderNames(requestLog.responseHeaders());
   }
 
   @Override

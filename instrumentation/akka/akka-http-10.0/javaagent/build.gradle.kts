@@ -35,8 +35,8 @@ dependencies {
   library("com.typesafe.akka:akka-stream_2.11:2.4.14")
 
   testInstrumentation(project(":instrumentation:akka:akka-actor-2.3:javaagent"))
-  testInstrumentation(project(":instrumentation:akka:akka-actor-fork-join-2.5:javaagent"))
-  testInstrumentation(project(":instrumentation:scala-fork-join-2.8:javaagent"))
+  testInstrumentation(project(":instrumentation:akka:akka-actor-forkjoin-2.5:javaagent"))
+  testInstrumentation(project(":instrumentation:scala-forkjoin-2.8:javaagent"))
 
   latestDepTestLibrary("com.typesafe.akka:akka-http_2.13:latest.release")
   latestDepTestLibrary("com.typesafe.akka:akka-stream_2.13:latest.release")
@@ -44,15 +44,11 @@ dependencies {
 
 testing {
   suites {
-    val javaRouteTest by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("javaRouteTest") {
       dependencies {
-        if (findProperty("testLatestDeps") as Boolean) {
-          implementation("com.typesafe.akka:akka-http_2.13:latest.release")
-          implementation("com.typesafe.akka:akka-stream_2.13:latest.release")
-        } else {
-          implementation("com.typesafe.akka:akka-http_2.12:10.2.0")
-          implementation("com.typesafe.akka:akka-stream_2.12:2.6.21")
-        }
+        val scalaVersion = if (otelProps.testLatestDeps) "2.13" else "2.12"
+        implementation("com.typesafe.akka:akka-http_$scalaVersion:${baseVersion("10.2.0").orLatest()}")
+        implementation("com.typesafe.akka:akka-stream_$scalaVersion:${baseVersion("2.6.21").orLatest()}")
       }
     }
   }
@@ -64,22 +60,29 @@ tasks {
     jvmArgs("--add-exports=java.base/sun.security.util=ALL-UNNAMED")
     jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
 
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+  }
+
+  val testStableSemconv = register<Test>("testStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=service.peer")
   }
 
   check {
-    dependsOn(testing.suites)
+    dependsOn(testing.suites, testStableSemconv)
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }
   }
 }
 
-if (findProperty("testLatestDeps") as Boolean) {
+if (otelProps.testLatestDeps) {
   configurations {
     // akka artifact name is different for regular and latest tests
     testImplementation {

@@ -5,6 +5,7 @@
 
 package io.opentelemetry.javaagent.tooling.instrumentation;
 
+import static java.util.Objects.requireNonNull;
 import static java.util.logging.Level.FINE;
 import static java.util.logging.Level.WARNING;
 import static net.bytebuddy.dynamic.loading.ClassLoadingStrategy.BOOTSTRAP_LOADER;
@@ -13,15 +14,13 @@ import io.opentelemetry.instrumentation.api.internal.cache.Cache;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.tooling.TransformSafeLogger;
 import io.opentelemetry.javaagent.tooling.Utils;
-import io.opentelemetry.javaagent.tooling.config.AgentConfig;
-import io.opentelemetry.javaagent.tooling.instrumentation.indy.IndyModuleRegistry;
-import io.opentelemetry.javaagent.tooling.instrumentation.indy.InstrumentationModuleClassLoader;
+import io.opentelemetry.javaagent.tooling.config.EarlyInitAgentConfig;
 import io.opentelemetry.javaagent.tooling.muzzle.Mismatch;
 import io.opentelemetry.javaagent.tooling.muzzle.ReferenceMatcher;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import java.security.ProtectionDomain;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.UnaryOperator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.bytebuddy.agent.builder.AgentBuilder;
@@ -39,18 +38,19 @@ class MuzzleMatcher implements AgentBuilder.RawMatcher {
 
   private final TransformSafeLogger instrumentationLogger;
   private final InstrumentationModule instrumentationModule;
+  private final UnaryOperator<ClassLoader> classLoaderTransformer;
   private final Level muzzleLogLevel;
-  private final AtomicBoolean initialized = new AtomicBoolean(false);
+  private final AtomicReference<ReferenceMatcher> referenceMatcher = new AtomicReference<>();
   private final Cache<ClassLoader, Boolean> matchCache = Cache.weak();
-  private volatile ReferenceMatcher referenceMatcher;
 
   MuzzleMatcher(
       TransformSafeLogger instrumentationLogger,
       InstrumentationModule instrumentationModule,
-      ConfigProperties config) {
+      UnaryOperator<ClassLoader> classLoaderTransformer) {
     this.instrumentationLogger = instrumentationLogger;
     this.instrumentationModule = instrumentationModule;
-    this.muzzleLogLevel = AgentConfig.isDebugModeEnabled(config) ? WARNING : FINE;
+    this.classLoaderTransformer = classLoaderTransformer;
+    this.muzzleLogLevel = EarlyInitAgentConfig.get().isDebug() ? WARNING : FINE;
   }
 
   @Override
@@ -63,18 +63,8 @@ class MuzzleMatcher implements AgentBuilder.RawMatcher {
     if (classLoader == BOOTSTRAP_LOADER) {
       classLoader = Utils.getBootstrapProxy();
     }
-    if (instrumentationModule.isIndyModule()) {
-      return matchCache.computeIfAbsent(
-          classLoader,
-          cl -> {
-            InstrumentationModuleClassLoader moduleCl =
-                IndyModuleRegistry.createInstrumentationClassLoaderWithoutRegistration(
-                    instrumentationModule, cl);
-            return doesMatch(moduleCl);
-          });
-    } else {
-      return matchCache.computeIfAbsent(classLoader, this::doesMatch);
-    }
+    return matchCache.computeIfAbsent(
+        classLoader, cl -> doesMatch(classLoaderTransformer.apply(cl)));
   }
 
   private boolean doesMatch(ClassLoader classLoader) {
@@ -116,9 +106,11 @@ class MuzzleMatcher implements AgentBuilder.RawMatcher {
   // ReferenceMatcher is lazily created to avoid unnecessarily loading the muzzle references from
   // the module during the agent setup
   private ReferenceMatcher getReferenceMatcher() {
-    if (initialized.compareAndSet(false, true)) {
-      referenceMatcher = ReferenceMatcher.of(instrumentationModule);
+    ReferenceMatcher result = referenceMatcher.get();
+    if (result == null) {
+      referenceMatcher.compareAndSet(null, ReferenceMatcher.of(instrumentationModule));
+      result = requireNonNull(referenceMatcher.get());
     }
-    return referenceMatcher;
+    return result;
   }
 }

@@ -6,17 +6,16 @@
 package io.opentelemetry.javaagent.extension.instrumentation;
 
 import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
 import static java.util.Collections.unmodifiableSet;
 import static net.bytebuddy.matcher.ElementMatchers.any;
 
-import io.opentelemetry.javaagent.bootstrap.internal.ExperimentalConfig;
+import io.opentelemetry.javaagent.extension.instrumentation.internal.AgentDistributionConfig;
 import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import io.opentelemetry.sdk.autoconfigure.spi.Ordered;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.logging.Logger;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
@@ -32,7 +31,6 @@ import net.bytebuddy.matcher.ElementMatcher;
  * java.util.ServiceLoader} for more details.
  */
 public abstract class InstrumentationModule implements Ordered {
-  private static final Logger logger = Logger.getLogger(InstrumentationModule.class.getName());
 
   private final Set<String> instrumentationNames;
 
@@ -88,8 +86,16 @@ public abstract class InstrumentationModule implements Ordered {
    * Allows instrumentation modules to disable themselves by default, or to additionally disable
    * themselves on some other condition.
    */
+  public boolean defaultEnabled() {
+    return AgentDistributionConfig.get().isInstrumentationDefaultEnabled();
+  }
+
+  /**
+   * Allows instrumentation modules to disable themselves by default, or to additionally disable
+   * themselves on some other condition.
+   */
   public boolean defaultEnabled(ConfigProperties config) {
-    return config.getBoolean("otel.instrumentation.common.default-enabled", true);
+    return defaultEnabled();
   }
 
   /**
@@ -105,19 +111,6 @@ public abstract class InstrumentationModule implements Ordered {
    */
   public boolean isHelperClass(String className) {
     return false;
-  }
-
-  /**
-   * Note this is an experimental feature until phase 1 of <a
-   * href="https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/8999">
-   * implementing the invokedynamic based instrumentation mechanism</a> is complete. Instrumentation
-   * modules that override this to true (recommended) must use the inline=false Invoke Dynamic style
-   * of Byte Buddy advices which calls out to helper classes in their own classloader, thus enabling
-   * better isolation, best practice code development, avoids shading and enables standard debugging
-   * techniques. The non-inlining of advice will be enforced by muzzle (TODO)
-   */
-  public boolean isIndyModule() {
-    return IndyConfigurationHolder.indyEnabled;
   }
 
   /** Register resource names to inject into the user's class loader. */
@@ -153,18 +146,39 @@ public abstract class InstrumentationModule implements Ordered {
    * detected ones.
    */
   public List<String> getAdditionalHelperClassNames() {
-    return Collections.emptyList();
+    return emptyList();
   }
 
-  // InstrumentationModule is loaded before ExperimentalConfig is initialized
-  private static class IndyConfigurationHolder {
-    private static final boolean indyEnabled;
+  /**
+   * Returns a list of helper class names that must be defined in the class loader of the
+   * instrumented library instead of an isolated instrumentation module class loader.
+   *
+   * <p>The agent automatically determines whether to inject all helper classes or load them in an
+   * isolated class loader, typically based on whether the module uses inlined or non-inlined
+   * advice. This method only has an effect when isolated loading is used; when all helper classes
+   * are injected, they are already defined in the class loader of the instrumented library.
+   *
+   * <p>Override this method when a helper class must access package-private members of an
+   * instrumented library class.
+   */
+  public List<String> injectedClassNames() {
+    return emptyList();
+  }
 
-    static {
-      indyEnabled = ExperimentalConfig.get().indyEnabled();
-      if (indyEnabled) {
-        logger.info("Enabled indy for instrumentation modules");
-      }
-    }
+  /**
+   * Returns a list of instrumentation helper class names that must be visible to the application
+   * class loader while remaining loaded by an isolated instrumentation module class loader.
+   *
+   * <p>The agent automatically determines whether to inject all helper classes or load them in an
+   * isolated class loader, typically based on whether the module uses inlined or non-inlined
+   * advice. This method only has an effect when isolated loading is used; isolated helper classes
+   * are not otherwise visible to the instrumented application.
+   *
+   * <p>Override this method when an isolated helper class must be loaded through the application
+   * class loader, for example when providing an SPI implementation loaded by {@link
+   * java.util.ServiceLoader}.
+   */
+  public List<String> exposedClassNames() {
+    return emptyList();
   }
 }

@@ -5,17 +5,15 @@
 
 package io.opentelemetry.javaagent.instrumentation.oracleucp.v11_2;
 
-import static java.util.Collections.singletonList;
+import static java.util.Arrays.asList;
 
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
 
 @AutoService(InstrumentationModule.class)
-public class OracleUcpInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class OracleUcpInstrumentationModule extends InstrumentationModule {
 
   public OracleUcpInstrumentationModule() {
     super("oracle-ucp", "oracle-ucp-11.2");
@@ -23,11 +21,7 @@ public class OracleUcpInstrumentationModule extends InstrumentationModule
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return singletonList(new UniversalConnectionPoolInstrumentation());
-  }
-
-  @Override
-  public boolean isIndyReady() {
-    return true;
+    return asList(
+        new PoolDataSourceInstrumentation(), new UniversalConnectionPoolInstrumentation());
   }
 }

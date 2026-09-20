@@ -7,12 +7,20 @@ package io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.v5_3.
 
 import static io.opentelemetry.api.common.AttributeKey.longKey;
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 import static io.opentelemetry.instrumentation.testing.junit.db.SemconvStabilityUtil.maybeStable;
+import static io.opentelemetry.instrumentation.testing.util.TestLatestDeps.testLatestDeps;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
 import static io.opentelemetry.semconv.ErrorAttributes.ERROR_TYPE;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.ELASTICSEARCH;
 import static java.util.Arrays.asList;
+import static java.util.Collections.singleton;
+import static java.util.Collections.singletonList;
+import static java.util.Collections.singletonMap;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -20,24 +28,19 @@ import static org.elasticsearch.cluster.ClusterName.CLUSTER_NAME_SETTING;
 
 import com.google.common.collect.ImmutableMap;
 import io.opentelemetry.api.trace.SpanKind;
-import io.opentelemetry.instrumentation.api.internal.SemconvStability;
 import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.testing.assertj.AttributeAssertion;
 import io.opentelemetry.sdk.trace.data.StatusData;
-import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
 import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.elasticsearch.action.admin.cluster.settings.ClusterUpdateSettingsRequest;
 import org.elasticsearch.client.Client;
@@ -52,7 +55,6 @@ import org.elasticsearch.search.aggregations.bucket.nested.InternalNested;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.transport.BindTransportException;
 import org.elasticsearch.transport.Netty3Plugin;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,7 +74,7 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
   private static final Logger logger =
       LoggerFactory.getLogger(Elasticsearch53SpringTemplateTest.class);
 
-  private static final long TIMEOUT = TimeUnit.SECONDS.toMillis(10);
+  private static final long TIMEOUT = SECONDS.toMillis(10);
 
   @RegisterExtension
   private static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
@@ -101,7 +103,7 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
     testNode =
         new Node(
             new Environment(InternalSettingsPreparer.prepareSettings(settings)),
-            Collections.singletonList(Netty3Plugin.class)) {};
+            singletonList(Netty3Plugin.class)) {};
     // retry when starting elasticsearch fails with
     // org.elasticsearch.http.BindHttpException: Failed to resolve host [[]]
     // Caused by: java.net.SocketException: No such device (getFlags() failed)
@@ -138,25 +140,20 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
               .updateSettings(
                   new ClusterUpdateSettingsRequest()
                       .transientSettings(
-                          Collections.singletonMap(
-                              "cluster.routing.allocation.disk.threshold_enabled", false)));
+                          singletonMap("cluster.routing.allocation.disk.threshold_enabled", false)))
+              .actionGet(TIMEOUT);
         });
     testing.waitForTraces(1);
-    testing.clearData();
 
+    autoCleanup.deferAfterAll(testNode);
     template = new ElasticsearchTemplate(client);
-  }
-
-  @AfterAll
-  static void cleanUp() throws Exception {
-    testNode.close();
   }
 
   @BeforeEach
   void prepareTest() {
     // when running on jdk 21 this test occasionally fails with timeout
     Assumptions.assumeTrue(
-        Boolean.getBoolean("testLatestDeps")
+        testLatestDeps()
             || Double.parseDouble(System.getProperty("java.specification.version")) < 21
             || Boolean.getBoolean("collectMetadata"));
   }
@@ -168,7 +165,7 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         .isInstanceOf(IndexNotFoundException.class);
 
     List<AttributeAssertion> assertions = refreshActionAttributes(indexName);
-    if (SemconvStability.emitStableDatabaseSemconv()) {
+    if (emitStableDatabaseSemconv()) {
       assertions.add(equalTo(ERROR_TYPE, "org.elasticsearch.index.IndexNotFoundException"));
     }
 
@@ -177,7 +174,8 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("RefreshAction")
+                    span.hasName(
+                            emitStableDatabaseSemconv() ? "indices:admin/refresh" : "RefreshAction")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasStatus(StatusData.error())
@@ -206,7 +204,7 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         new NativeSearchQueryBuilder()
             .withIndices(indexName)
             .withTypes(indexType)
-            .withIds(Collections.singleton(id))
+            .withIds(singleton(id))
             .build();
     assertThat(template.queryForIds(query)).isEmpty();
 
@@ -227,14 +225,19 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("CreateIndexAction")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "indices:admin/create"
+                                : "CreateIndexAction")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
                             equalTo(
-                                maybeStable(DB_SYSTEM),
-                                DbIncubatingAttributes.DbSystemIncubatingValues.ELASTICSEARCH),
-                            equalTo(maybeStable(DB_OPERATION), "CreateIndexAction"),
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv()
+                                    ? "indices:admin/create"
+                                    : "CreateIndexAction"),
                             equalTo(
                                 stringKey("elasticsearch.action"),
                                 experimental("CreateIndexAction")),
@@ -247,14 +250,19 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("ClusterHealthAction")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "cluster:monitor/health"
+                                : "ClusterHealthAction")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
                             equalTo(
-                                maybeStable(DB_SYSTEM),
-                                DbIncubatingAttributes.DbSystemIncubatingValues.ELASTICSEARCH),
-                            equalTo(maybeStable(DB_OPERATION), "ClusterHealthAction"),
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv()
+                                    ? "cluster:monitor/health"
+                                    : "ClusterHealthAction"),
                             equalTo(
                                 stringKey("elasticsearch.action"),
                                 experimental("ClusterHealthAction")),
@@ -264,14 +272,19 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("SearchAction")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "indices:data/read/search"
+                                : "SearchAction")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
                             equalTo(
-                                maybeStable(DB_SYSTEM),
-                                DbIncubatingAttributes.DbSystemIncubatingValues.ELASTICSEARCH),
-                            equalTo(maybeStable(DB_OPERATION), "SearchAction"),
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv()
+                                    ? "indices:data/read/search"
+                                    : "SearchAction"),
                             equalTo(
                                 stringKey("elasticsearch.action"), experimental("SearchAction")),
                             equalTo(
@@ -285,14 +298,19 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("IndexAction")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "indices:data/write/index"
+                                : "IndexAction")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
                             equalTo(
-                                maybeStable(DB_SYSTEM),
-                                DbIncubatingAttributes.DbSystemIncubatingValues.ELASTICSEARCH),
-                            equalTo(maybeStable(DB_OPERATION), "IndexAction"),
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv()
+                                    ? "indices:data/write/index"
+                                    : "IndexAction"),
                             equalTo(stringKey("elasticsearch.action"), experimental("IndexAction")),
                             equalTo(
                                 stringKey("elasticsearch.request"), experimental("IndexRequest")),
@@ -316,7 +334,8 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("RefreshAction")
+                    span.hasName(
+                            emitStableDatabaseSemconv() ? "indices:admin/refresh" : "RefreshAction")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
@@ -324,14 +343,19 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("SearchAction")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "indices:data/read/search"
+                                : "SearchAction")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
                             equalTo(
-                                maybeStable(DB_SYSTEM),
-                                DbIncubatingAttributes.DbSystemIncubatingValues.ELASTICSEARCH),
-                            equalTo(maybeStable(DB_OPERATION), "SearchAction"),
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv()
+                                    ? "indices:data/read/search"
+                                    : "SearchAction"),
                             equalTo(
                                 stringKey("elasticsearch.action"), experimental("SearchAction")),
                             equalTo(
@@ -347,10 +371,10 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
   private static List<AttributeAssertion> refreshActionAttributes(String indexName) {
     return new ArrayList<>(
         asList(
+            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
             equalTo(
-                maybeStable(DB_SYSTEM),
-                DbIncubatingAttributes.DbSystemIncubatingValues.ELASTICSEARCH),
-            equalTo(maybeStable(DB_OPERATION), "RefreshAction"),
+                maybeStable(DB_OPERATION),
+                emitStableDatabaseSemconv() ? "indices:admin/refresh" : "RefreshAction"),
             equalTo(stringKey("elasticsearch.action"), experimental("RefreshAction")),
             equalTo(stringKey("elasticsearch.request"), experimental("RefreshRequest")),
             equalTo(stringKey("elasticsearch.request.indices"), experimental(indexName))));
@@ -413,7 +437,7 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
               results.addAll(
                   StreamSupport.stream(response.getHits().spliterator(), false)
                       .map(SearchHit::getSource)
-                      .collect(Collectors.toList()));
+                      .collect(toList()));
               if (response.getAggregations() != null) {
                 InternalNested internalNested = response.getAggregations().get("tag");
                 if (internalNested != null) {
@@ -428,22 +452,29 @@ class Elasticsearch53SpringTemplateTest extends ElasticsearchSpringTest {
             });
 
     assertThat(hits.get()).isEqualTo(2);
-    assertThat(results.get(0)).isEqualTo(ImmutableMap.of("id", "2", "data", "doc b"));
-    assertThat(results.get(1)).isEqualTo(ImmutableMap.of("id", "1", "data", "doc a"));
+    assertThat(results)
+        .containsExactly(
+            ImmutableMap.of("id", "2", "data", "doc b"),
+            ImmutableMap.of("id", "1", "data", "doc a"));
     assertThat(bucketTags).isEmpty();
 
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("SearchAction")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "indices:data/read/search"
+                                : "SearchAction")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
                             equalTo(
-                                maybeStable(DB_SYSTEM),
-                                DbIncubatingAttributes.DbSystemIncubatingValues.ELASTICSEARCH),
-                            equalTo(maybeStable(DB_OPERATION), "SearchAction"),
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv()
+                                    ? "indices:data/read/search"
+                                    : "SearchAction"),
                             equalTo(
                                 stringKey("elasticsearch.action"), experimental("SearchAction")),
                             equalTo(

@@ -5,10 +5,11 @@
 
 package io.opentelemetry.instrumentation.nats.v2_17;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
 import static io.opentelemetry.instrumentation.nats.v2_17.NatsTestHelper.assertTraceparentHeader;
 import static io.opentelemetry.instrumentation.nats.v2_17.NatsTestHelper.messagingAttributes;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_TEMPORARY;
+import static io.opentelemetry.semconv.ErrorAttributes.ERROR_TYPE;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -26,7 +27,6 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -40,11 +40,7 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
   void beforeEach() {
     clientId = connection.getServerInfo().getClientId();
     subscription = connection.subscribe("sub");
-  }
-
-  @AfterEach
-  void afterEach() throws InterruptedException {
-    subscription.drain(Duration.ofSeconds(10));
+    cleanup.deferCleanup(() -> subscription.drain(Duration.ofSeconds(10)));
   }
 
   @Test
@@ -63,12 +59,13 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("parent").hasNoParent(),
                     span ->
-                        span.hasName("sub publish")
+                        span.hasName(emitStableMessagingSemconv() ? "request sub" : "sub publish")
                             .hasKind(SpanKind.PRODUCER)
                             .hasParent(trace.getSpan(0))
                             .hasAttributesSatisfyingExactly(
-                                messagingAttributes("publish", "sub", clientId))));
+                                messagingAttributes("request", "sub", clientId))));
     assertTraceparentHeader(subscription);
+    assertProducerMetrics("request", "sub", null);
   }
 
   @Test
@@ -78,14 +75,13 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
         connection
             .createDispatcher(m -> connection.publish(m.getReplyTo(), m.getData()))
             .subscribe("sub");
+    cleanup.deferCleanup(() -> connection.closeDispatcher(dispatcher));
 
     // when
     Message message =
         testing()
             .runWithSpan(
                 "parent", () -> connection.request("sub", new byte[] {0}, Duration.ofSeconds(10)));
-    connection.closeDispatcher(dispatcher);
-
     // then
     assertThat(message).isNotNull();
     assertPublishReceiveSpansSameTrace();
@@ -99,6 +95,7 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
         connection
             .createDispatcher(m -> connection.publish(m.getReplyTo(), new Headers(), m.getData()))
             .subscribe("sub");
+    cleanup.deferCleanup(() -> connection.closeDispatcher(dispatcher));
 
     // when
     Message message =
@@ -108,8 +105,6 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
                 () ->
                     connection.request(
                         "sub", new Headers(), new byte[] {0}, Duration.ofSeconds(10)));
-    connection.closeDispatcher(dispatcher);
-
     // then
     assertThat(message).isNotNull();
     assertPublishReceiveSpansSameTrace();
@@ -123,13 +118,12 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
         connection
             .createDispatcher(m -> connection.publish(m.getReplyTo(), m.getData()))
             .subscribe("sub");
+    cleanup.deferCleanup(() -> connection.closeDispatcher(dispatcher));
     NatsMessage message = NatsMessage.builder().subject("sub").data("x").build();
 
     // when
     Message response =
         testing().runWithSpan("parent", () -> connection.request(message, Duration.ofSeconds(10)));
-    connection.closeDispatcher(dispatcher);
-
     // then
     assertThat(response).isNotNull();
     assertPublishReceiveSpansSameTrace();
@@ -143,14 +137,13 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
         connection
             .createDispatcher(m -> connection.publish(m.getReplyTo(), new Headers(), m.getData()))
             .subscribe("sub");
+    cleanup.deferCleanup(() -> connection.closeDispatcher(dispatcher));
     NatsMessage message =
         NatsMessage.builder().subject("sub").headers(new Headers()).data("x").build();
 
     // when
     Message response =
         testing().runWithSpan("parent", () -> connection.request(message, Duration.ofSeconds(10)));
-    connection.closeDispatcher(dispatcher);
-
     // then
     assertThat(response).isNotNull();
     assertPublishReceiveSpansSameTrace();
@@ -164,12 +157,11 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
         connection
             .createDispatcher(m -> connection.publish(m.getReplyTo(), m.getData()))
             .subscribe("sub");
+    cleanup.deferCleanup(() -> connection.closeDispatcher(dispatcher));
 
     // when
     CompletableFuture<Message> message =
-        testing()
-            .runWithSpan("parent", () -> connection.request("sub", new byte[] {0}))
-            .whenComplete((m, e) -> connection.closeDispatcher(dispatcher));
+        testing().runWithSpan("parent", () -> connection.request("sub", new byte[] {0}));
 
     // then
     assertPublishReceiveSpansSameTrace();
@@ -184,12 +176,12 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
         connection
             .createDispatcher(m -> connection.publish(m.getReplyTo(), new Headers(), m.getData()))
             .subscribe("sub");
+    cleanup.deferCleanup(() -> connection.closeDispatcher(dispatcher));
 
     // when
     CompletableFuture<Message> message =
         testing()
-            .runWithSpan("parent", () -> connection.request("sub", new Headers(), new byte[] {0}))
-            .whenComplete((m, e) -> connection.closeDispatcher(dispatcher));
+            .runWithSpan("parent", () -> connection.request("sub", new Headers(), new byte[] {0}));
 
     // then
     assertPublishReceiveSpansSameTrace();
@@ -204,13 +196,12 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
         connection
             .createDispatcher(m -> connection.publish(m.getReplyTo(), m.getData()))
             .subscribe("sub");
+    cleanup.deferCleanup(() -> connection.closeDispatcher(dispatcher));
     NatsMessage message = NatsMessage.builder().subject("sub").data("x").build();
 
     // when
     CompletableFuture<Message> response =
-        testing()
-            .runWithSpan("parent", () -> connection.request(message))
-            .whenComplete((m, e) -> connection.closeDispatcher(dispatcher));
+        testing().runWithSpan("parent", () -> connection.request(message));
 
     // then
     assertPublishReceiveSpansSameTrace();
@@ -225,14 +216,13 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
         connection
             .createDispatcher(m -> connection.publish(m.getReplyTo(), new Headers(), m.getData()))
             .subscribe("sub");
+    cleanup.deferCleanup(() -> connection.closeDispatcher(dispatcher));
     NatsMessage message =
         NatsMessage.builder().subject("sub").headers(new Headers()).data("x").build();
 
     // when
     CompletableFuture<Message> response =
-        testing()
-            .runWithSpan("parent", () -> connection.request(message))
-            .whenComplete((m, e) -> connection.closeDispatcher(dispatcher));
+        testing().runWithSpan("parent", () -> connection.request(message));
 
     // then
     assertPublishReceiveSpansSameTrace();
@@ -253,6 +243,7 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
     assertCancellationPublishSpan();
     assertTraceparentHeader(subscription);
     assertThat(message).isCompletedExceptionally();
+    assertProducerMetrics("request", "sub", CancellationException.class.getName());
   }
 
   @Test
@@ -317,31 +308,35 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
                           // publisher: parent + publish
                           span -> span.hasName("parent").hasNoParent(),
                           span ->
-                              span.hasName("sub publish")
+                              span.hasName(
+                                      emitStableMessagingSemconv() ? "request sub" : "sub publish")
                                   .hasKind(SpanKind.PRODUCER)
                                   .hasParent(trace.getSpan(0))
                                   .hasAttributesSatisfyingExactly(
-                                      messagingAttributes("publish", "sub", clientId)),
+                                      messagingAttributes("request", "sub", clientId)),
                           // subscriber: process + publish(response)
                           span ->
-                              span.hasName("sub process")
+                              span.hasName(
+                                      emitStableMessagingSemconv() ? "process sub" : "sub process")
                                   .hasKind(SpanKind.CONSUMER)
                                   .hasParent(trace.getSpan(1)),
                           span ->
-                              span.hasName("(temporary) publish")
+                              span.hasName(
+                                      emitStableMessagingSemconv()
+                                          ? "publish _INBOX."
+                                          : "(temporary) publish")
                                   .hasKind(SpanKind.PRODUCER)
                                   .hasParent(trace.getSpan(2)),
                           // publisher: process
                           span ->
-                              span.hasName("(temporary) process")
+                              span.hasName(
+                                      emitStableMessagingSemconv()
+                                          ? "process _INBOX."
+                                          : "(temporary) process")
                                   .hasKind(SpanKind.CONSUMER)
                                   .hasParent(trace.getSpan(3))
                                   .hasAttributesSatisfyingExactly(
-                                      messagingAttributes(
-                                          "process",
-                                          "(temporary)",
-                                          clientId,
-                                          equalTo(MESSAGING_DESTINATION_TEMPORARY, true)))));
+                                      messagingAttributes("process", "(temporary)", clientId))));
 
               trace.hasSpansSatisfyingExactly(asserts);
             });
@@ -360,11 +355,19 @@ public abstract class AbstractNatsRequestTest extends AbstractNatsTest {
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("parent").hasNoParent(),
                     span ->
-                        span.hasName("sub publish")
+                        span.hasName(emitStableMessagingSemconv() ? "request sub" : "sub publish")
                             .hasKind(SpanKind.PRODUCER)
                             .hasParent(trace.getSpan(0))
                             .hasException(exception)
                             .hasAttributesSatisfyingExactly(
-                                messagingAttributes("publish", "sub", clientId))));
+                                messagingAttributes(
+                                    "request",
+                                    "sub",
+                                    clientId,
+                                    equalTo(
+                                        ERROR_TYPE,
+                                        emitStableMessagingSemconv()
+                                            ? exception.getClass().getName()
+                                            : null)))));
   }
 }

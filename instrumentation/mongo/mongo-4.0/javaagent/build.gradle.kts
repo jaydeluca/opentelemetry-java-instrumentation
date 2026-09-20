@@ -20,9 +20,9 @@ dependencies {
   testLibrary("org.mongodb:mongodb-driver-core:4.0.1")
   testLibrary("org.mongodb:mongodb-driver-sync:4.0.0")
   testLibrary("org.mongodb:mongodb-driver-reactivestreams:4.0.0")
+  testLibrary("io.netty:netty-handler:4.1.43.Final")
 
   testImplementation(project(":instrumentation:mongo:mongo-common:testing"))
-  testImplementation("de.flapdoodle.embed:de.flapdoodle.embed.mongo:1.50.5")
 
   testInstrumentation(project(":instrumentation:mongo:mongo-async-3.3:javaagent"))
   testInstrumentation(project(":instrumentation:mongo:mongo-3.1:javaagent"))
@@ -32,10 +32,11 @@ dependencies {
 tasks {
   withType<Test>().configureEach {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     jvmArgs("-Dotel.semconv-stability.opt-in=database")

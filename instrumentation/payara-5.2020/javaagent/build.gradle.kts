@@ -1,0 +1,10 @@
+plugins {
+  id("otel.javaagent-instrumentation")
+  id("otel.nullaway-conventions")
+}
+
+// No muzzle check because this instrumentation is written in ASM and muzzle won't work with it.
+
+dependencies {
+  library("fish.payara.extras:payara-embedded-web:5.2020.2")
+}

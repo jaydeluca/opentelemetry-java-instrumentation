@@ -25,7 +25,7 @@ dependencies {
 
 testing {
   suites {
-    val test24 by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("test24") {
       dependencies {
         implementation(project())
         implementation("org.influxdb:influxdb-java:2.4")
@@ -41,24 +41,76 @@ tasks {
     // from the okhttp instrumentation we need OkHttp3IgnoredTypesConfigurer to fix context leaks
     jvmArgs("-Dotel.instrumentation.okhttp.enabled=false")
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  if (!(findProperty("testLatestDeps") as Boolean)) {
+  if (!otelProps.testLatestDeps) {
     check {
       dependsOn(testing.suites)
     }
   }
 
-  val testStableSemconv by registering(Test::class) {
+  test {
+    filter {
+      excludeTestsMatching("InfluxDbQuerySanitizationDisabledTest")
+    }
+  }
+
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .associate { suite ->
+      suite.name to register<Test>("${suite.name}StableSemconv") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        filter {
+          excludeTestsMatching("InfluxDbQuerySanitizationDisabledTest")
+        }
+        systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+        jvmArgs("-Dotel.semconv-stability.opt-in=database")
+      }
+    }
+
+  val testQuerySanitizationDisabled = register<Test>("testQuerySanitizationDisabled") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
-    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+    filter {
+      includeTestsMatching("InfluxDbQuerySanitizationDisabledTest")
+    }
+    systemProperty("metadataConfig", "otel.instrumentation.common.db.query-sanitization.enabled=false")
+    jvmArgs("-Dotel.instrumentation.common.db.query-sanitization.enabled=false")
+  }
+
+  val testQuerySanitizationEnabledOverride = register<Test>("testQuerySanitizationEnabledOverride") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    filter {
+      includeTestsMatching("InfluxDbClientTest.testQueryWithTwoArguments")
+    }
+    systemProperty("metadataConfig", "otel.instrumentation.common.db.query-sanitization.enabled=false,otel.instrumentation.influxdb.query-sanitization.enabled=true")
+    jvmArgs("-Dotel.instrumentation.common.db.query-sanitization.enabled=false")
+    jvmArgs("-Dotel.instrumentation.influxdb.query-sanitization.enabled=true")
+  }
+
+  val testQuerySanitizationDisabledStableSemconv = register<Test>("testQuerySanitizationDisabledStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    filter {
+      includeTestsMatching("InfluxDbQuerySanitizationDisabledTest")
+    }
+    systemProperty("metadataConfig", "otel.instrumentation.common.db.query-sanitization.enabled=false,otel.semconv-stability.opt-in=database")
+    jvmArgs("-Dotel.instrumentation.common.db.query-sanitization.enabled=false")
     jvmArgs("-Dotel.semconv-stability.opt-in=database")
   }
 
   check {
-    dependsOn(testStableSemconv)
+    dependsOn(
+      if (otelProps.testLatestDeps) listOf(stableSemconvSuites.getValue("test")) else stableSemconvSuites.values,
+      testQuerySanitizationDisabled,
+      testQuerySanitizationDisabledStableSemconv,
+      testQuerySanitizationEnabledOverride
+    )
   }
 }

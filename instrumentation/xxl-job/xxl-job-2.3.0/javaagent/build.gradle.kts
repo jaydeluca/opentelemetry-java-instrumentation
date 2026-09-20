@@ -17,30 +17,27 @@ otelJava {
 }
 
 dependencies {
-  library("org.apache.groovy:groovy")
   library("com.xuxueli:xxl-job-core:2.3.0") {
     exclude("org.codehaus.groovy", "groovy")
   }
-  implementation(project(":instrumentation:xxl-job:xxl-job-common:javaagent"))
+  implementation(project(":instrumentation:xxl-job:xxl-job-common-1.9.2:javaagent"))
 
+  testInstrumentation(project(":instrumentation:xxl-job:xxl-job-1.9.2:javaagent"))
   testInstrumentation(project(":instrumentation:xxl-job:xxl-job-2.1.2:javaagent"))
-  testInstrumentation(project(":instrumentation:xxl-job:xxl-job-2.3.0:javaagent"))
-
-  testImplementation(project(":instrumentation:xxl-job:xxl-job-common:testing"))
+  testImplementation("org.apache.groovy:groovy")
+  testImplementation(project(":instrumentation:xxl-job:xxl-job-common-1.9.2:testing"))
 
   // latest version is tested in a separate test suite
-  latestDepTestLibrary("com.xuxueli:xxl-job-core:3.2.+") // documented limitation
+  latestDepTestLibrary("com.xuxueli:xxl-job-core:3.2.+") // see test suite below
 }
-
-val testLatestDeps = findProperty("testLatestDeps") as Boolean
 
 testing {
   suites {
-    val xxlJob33Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("xxlJob33Test") {
       dependencies {
-        val version = if (testLatestDeps) "latest.release" else "3.3.0"
+        val version = baseVersion("3.3.0").orLatest()
         implementation("com.xuxueli:xxl-job-core:$version")
-        implementation(project(":instrumentation:xxl-job:xxl-job-common:testing"))
+        implementation(project(":instrumentation:xxl-job:xxl-job-common-1.9.2:testing"))
       }
     }
   }
@@ -51,15 +48,33 @@ tasks {
     // required on jdk17
     jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
     jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
-    jvmArgs("-Dotel.instrumentation.xxl-job.experimental-span-attributes=true")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
+
+  val experimentalSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}Experimental") {
+        val sourceTask = named<Test>(suite.name).get()
+        setJvmArgs(sourceTask.jvmArgs)
+        setSystemProperties(sourceTask.systemProperties)
+
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        val experimentalConfig = "otel.instrumentation.xxl-job.experimental-span-attributes=true"
+        jvmArgs("-D$experimentalConfig")
+        systemProperty(
+          "metadataConfig",
+          listOfNotNull(sourceTask.systemProperties["metadataConfig"], experimentalConfig).joinToString(","),
+        )
+        isEnabled = sourceTask.enabled
+      }
+    }
 
   named("compileXxlJob33TestJava", JavaCompile::class).configure {
     options.release.set(17)
   }
-  val testJavaVersion =
-    gradle.startParameter.projectProperties.get("testJavaVersion")?.let(JavaVersion::toVersion)
-      ?: JavaVersion.current()
+  val testJavaVersion = otelProps.testJavaVersion ?: JavaVersion.current()
   if (!testJavaVersion.isCompatibleWith(JavaVersion.VERSION_17)) {
     named("xxlJob33Test", Test::class).configure {
       enabled = false
@@ -67,6 +82,6 @@ tasks {
   }
 
   check {
-    dependsOn(testing.suites)
+    dependsOn(testing.suites, experimentalSuites)
   }
 }

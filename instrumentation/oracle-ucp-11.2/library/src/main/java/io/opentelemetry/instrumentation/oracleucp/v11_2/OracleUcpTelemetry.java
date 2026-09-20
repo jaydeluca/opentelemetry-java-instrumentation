@@ -10,13 +10,12 @@ import oracle.ucp.UniversalConnectionPool;
 
 /** Entrypoint for instrumenting Oracle UCP database connection pools. */
 public final class OracleUcpTelemetry {
+  private final OpenTelemetry openTelemetry;
 
   /** Returns a new {@link OracleUcpTelemetry} configured with the given {@link OpenTelemetry}. */
   public static OracleUcpTelemetry create(OpenTelemetry openTelemetry) {
     return new OracleUcpTelemetry(openTelemetry);
   }
-
-  private final OpenTelemetry openTelemetry;
 
   private OracleUcpTelemetry(OpenTelemetry openTelemetry) {
     this.openTelemetry = openTelemetry;
@@ -25,6 +24,11 @@ public final class OracleUcpTelemetry {
   /** Start collecting metrics for given connection pool. */
   public void registerMetrics(UniversalConnectionPool universalConnectionPool) {
     ConnectionPoolMetrics.registerMetrics(openTelemetry, universalConnectionPool);
+  }
+
+  /** Start collecting metrics using {@code poolName} as the connection pool name. */
+  public void registerMetrics(UniversalConnectionPool universalConnectionPool, String poolName) {
+    ConnectionPoolMetrics.registerMetrics(openTelemetry, universalConnectionPool, poolName);
   }
 
   /** Stop collecting metrics for given connection pool. */

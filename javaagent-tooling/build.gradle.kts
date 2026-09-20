@@ -2,6 +2,7 @@ import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
   id("otel.java-conventions")
+  id("otel.nullaway-conventions")
   id("otel.publish-conventions")
   id("otel.jmh-conventions")
 }
@@ -28,6 +29,10 @@ dependencies {
     // we use byte-buddy-dep
     exclude("net.bytebuddy", "byte-buddy")
   }
+  implementation("io.opentelemetry:opentelemetry-sdk-extension-declarative-config") {
+    // we use byte-buddy-dep
+    exclude("net.bytebuddy", "byte-buddy")
+  }
 
   // Exporters with dependencies
   implementation("io.opentelemetry:opentelemetry-exporter-logging")
@@ -51,6 +56,7 @@ dependencies {
   api("net.bytebuddy:byte-buddy-dep")
   implementation("org.ow2.asm:asm-tree")
   implementation("org.ow2.asm:asm-util")
+  implementation("com.fasterxml.jackson.core:jackson-databind")
 
   annotationProcessor("com.google.auto.service:auto-service")
   compileOnly("com.google.auto.service:auto-service-annotations")
@@ -62,13 +68,11 @@ dependencies {
 
   testImplementation("io.opentelemetry.javaagent:opentelemetry-testing-common")
   testImplementation("com.google.guava:guava")
-  testImplementation("org.junit-pioneer:junit-pioneer")
-  testImplementation("com.fasterxml.jackson.core:jackson-databind")
 }
 
 testing {
   suites {
-    val testExceptionHandler by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testExceptionHandler") {
       dependencies {
         implementation(project(":javaagent-bootstrap"))
         implementation(project(":javaagent-tooling"))
@@ -79,7 +83,7 @@ testing {
       }
     }
 
-    val testMissingType by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testMissingType") {
       dependencies {
         implementation(project(":javaagent-bootstrap"))
         implementation(project(":javaagent-tooling"))
@@ -103,11 +107,29 @@ testing {
       }
     }
 
-    val testConfigFile by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testConfigFile") {
       dependencies {
         implementation(project(":javaagent-tooling"))
         // requires mockito-inline
         implementation("uk.org.webcompere:system-stubs-jupiter")
+      }
+    }
+
+    register<JvmTestSuite>("testDistributionConfig") {
+      dependencies {
+        implementation(project(":javaagent-extension-api"))
+        implementation(project(":instrumentation-api-incubator"))
+        implementation(project(":javaagent-tooling"))
+        implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
+      }
+      targets {
+        all {
+          testTask.configure {
+            jvmArgs(
+              "-Dotel.config.file=$projectDir/src/testDistributionConfig/resources/distribution-config.yaml"
+            )
+          }
+        }
       }
     }
   }
@@ -129,7 +151,7 @@ tasks {
   // TODO this should live in jmh-conventions
   named<JavaCompile>("jmhCompileGeneratedClasses") {
     options.errorprone {
-      isEnabled.set(false)
+      enabled.set(false)
     }
   }
 

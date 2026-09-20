@@ -7,10 +7,6 @@ muzzle {
     group.set("io.nats")
     module.set("jnats")
     versions.set("[2.17.2,)")
-
-    // Could not find io.nats:nats-parent:1.0-SNAPSHOT
-    skip("0.5.0", "0.5.1")
-
     assertInverse.set(true)
   }
 }
@@ -25,25 +21,24 @@ dependencies {
 tasks {
   withType<Test>().configureEach {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  val testExperimental by registering(Test::class) {
+  val testMessagingPreview = register<Test>("testMessagingPreview") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
-    filter {
-      includeTestsMatching("NatsExperimentalTest")
-    }
-    jvmArgs("-Dotel.instrumentation.messaging.experimental.capture-headers=captured-header")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
   }
 
-  test {
-    filter {
-      excludeTestsMatching("NatsExperimentalTest")
-    }
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging/dup")
   }
 
   check {
-    dependsOn(testExperimental)
+    dependsOn(testMessagingPreview, testBothSemconv)
   }
 }

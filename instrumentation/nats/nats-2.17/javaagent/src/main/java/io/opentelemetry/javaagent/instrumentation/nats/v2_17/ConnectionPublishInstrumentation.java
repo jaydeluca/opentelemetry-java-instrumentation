@@ -5,8 +5,10 @@
 
 package io.opentelemetry.javaagent.instrumentation.nats.v2_17;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.implementsInterface;
-import static io.opentelemetry.javaagent.instrumentation.nats.v2_17.NatsSingletons.PRODUCER_INSTRUMENTER;
+import static io.opentelemetry.javaagent.instrumentation.nats.v2_17.NatsSingletons.publishInstrumenter;
+import static io.opentelemetry.javaagent.instrumentation.nats.v2_17.NatsSingletons.settleInstrumenter;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
@@ -17,6 +19,7 @@ import io.nats.client.Message;
 import io.nats.client.impl.Headers;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.nats.v2_17.internal.NatsMessageWritableHeaders;
 import io.opentelemetry.instrumentation.nats.v2_17.internal.NatsRequest;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
@@ -28,7 +31,7 @@ import net.bytebuddy.asm.Advice.AssignReturned.ToArguments.ToArgument;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
-public class ConnectionPublishInstrumentation implements TypeInstrumentation {
+class ConnectionPublishInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -43,7 +46,7 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
             .and(takesArguments(2))
             .and(takesArgument(0, String.class))
             .and(takesArgument(1, byte[].class)),
-        ConnectionPublishInstrumentation.class.getName() + "$PublishBodyAdvice");
+        getClass().getName() + "$PublishBodyAdvice");
     transformer.applyAdviceToMethod(
         isPublic()
             .and(named("publish"))
@@ -51,7 +54,7 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
             .and(takesArgument(0, String.class))
             .and(takesArgument(1, named("io.nats.client.impl.Headers")))
             .and(takesArgument(2, byte[].class)),
-        ConnectionPublishInstrumentation.class.getName() + "$PublishHeadersBodyAdvice");
+        getClass().getName() + "$PublishHeadersBodyAdvice");
     transformer.applyAdviceToMethod(
         isPublic()
             .and(named("publish"))
@@ -59,7 +62,7 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
             .and(takesArgument(0, String.class))
             .and(takesArgument(1, String.class))
             .and(takesArgument(2, byte[].class)),
-        ConnectionPublishInstrumentation.class.getName() + "$PublishReplyToBodyAdvice");
+        getClass().getName() + "$PublishReplyToBodyAdvice");
     transformer.applyAdviceToMethod(
         isPublic()
             .and(named("publish"))
@@ -68,18 +71,21 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
             .and(takesArgument(1, String.class))
             .and(takesArgument(2, named("io.nats.client.impl.Headers")))
             .and(takesArgument(3, byte[].class)),
-        ConnectionPublishInstrumentation.class.getName() + "$PublishReplyToHeadersBodyAdvice");
+        getClass().getName() + "$PublishReplyToHeadersBodyAdvice");
     transformer.applyAdviceToMethod(
         isPublic()
             .and(named("publish"))
             .and(takesArguments(1))
             .and(takesArgument(0, named("io.nats.client.Message"))),
-        ConnectionPublishInstrumentation.class.getName() + "$PublishMessageAdvice");
+        getClass().getName() + "$PublishMessageAdvice");
   }
 
   @SuppressWarnings("unused")
   public static class PublishBodyAdvice {
-    @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
+    @Advice.OnMethodEnter(
+        skipOn = Advice.OnNonDefaultValue.class,
+        suppress = Throwable.class,
+        inline = false)
     public static boolean onEnter(
         @Advice.This Connection connection,
         @Advice.Argument(0) String subject,
@@ -92,7 +98,10 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
 
   @SuppressWarnings("unused")
   public static class PublishHeadersBodyAdvice {
-    @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
+    @Advice.OnMethodEnter(
+        skipOn = Advice.OnNonDefaultValue.class,
+        suppress = Throwable.class,
+        inline = false)
     public static boolean onEnter(
         @Advice.This Connection connection,
         @Advice.Argument(0) String subject,
@@ -106,7 +115,10 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
 
   @SuppressWarnings("unused")
   public static class PublishReplyToBodyAdvice {
-    @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
+    @Advice.OnMethodEnter(
+        skipOn = Advice.OnNonDefaultValue.class,
+        suppress = Throwable.class,
+        inline = false)
     public static boolean onEnter(
         @Advice.This Connection connection,
         @Advice.Argument(0) String subject,
@@ -123,11 +135,17 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
 
     public static class AdviceScope {
       private final NatsRequest request;
+      private final Instrumenter<NatsRequest, NatsRequest> instrumenter;
       private final Context context;
       private final Scope scope;
 
-      private AdviceScope(NatsRequest request, Context context, Scope scope) {
+      private AdviceScope(
+          NatsRequest request,
+          Instrumenter<NatsRequest, NatsRequest> instrumenter,
+          Context context,
+          Scope scope) {
         this.request = request;
+        this.instrumenter = instrumenter;
         this.context = context;
         this.scope = scope;
       }
@@ -135,21 +153,25 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
       @Nullable
       public static AdviceScope start(NatsRequest natsRequest) {
         Context parentContext = Context.current();
-        if (!PRODUCER_INSTRUMENTER.shouldStart(parentContext, natsRequest)) {
+        Instrumenter<NatsRequest, NatsRequest> instrumenter =
+            emitStableMessagingSemconv() && natsRequest.isJetStreamSettlement()
+                ? settleInstrumenter()
+                : publishInstrumenter();
+        if (!instrumenter.shouldStart(parentContext, natsRequest)) {
           return null;
         }
-        Context context = PRODUCER_INSTRUMENTER.start(parentContext, natsRequest);
-        return new AdviceScope(natsRequest, context, context.makeCurrent());
+        Context context = instrumenter.start(parentContext, natsRequest);
+        return new AdviceScope(natsRequest, instrumenter, context, context.makeCurrent());
       }
 
       public void end(@Nullable Throwable throwable) {
         scope.close();
-        PRODUCER_INSTRUMENTER.end(context, request, null, throwable);
+        instrumenter.end(context, request, null, throwable);
       }
     }
 
     @AssignReturned.ToArguments(@ToArgument(value = 2, index = 1))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static Object[] onEnter(
         @Advice.This Connection connection,
         @Advice.Argument(0) String subject,
@@ -162,7 +184,7 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
       return new Object[] {adviceScope, headers};
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void onExit(
         @Advice.Thrown @Nullable Throwable throwable, @Advice.Enter Object[] enterResult) {
       AdviceScope adviceScope = (AdviceScope) enterResult[0];
@@ -174,7 +196,10 @@ public class ConnectionPublishInstrumentation implements TypeInstrumentation {
 
   @SuppressWarnings("unused")
   public static class PublishMessageAdvice {
-    @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
+    @Advice.OnMethodEnter(
+        skipOn = Advice.OnNonDefaultValue.class,
+        suppress = Throwable.class,
+        inline = false)
     public static boolean onEnter(
         @Advice.This Connection connection, @Advice.Argument(0) Message message) {
       if (message == null) {

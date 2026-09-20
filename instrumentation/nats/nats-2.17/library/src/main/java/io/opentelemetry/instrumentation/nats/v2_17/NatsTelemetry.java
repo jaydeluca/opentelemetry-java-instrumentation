@@ -16,10 +16,14 @@ import java.io.IOException;
 
 /** Entrypoint for instrumenting NATS clients. */
 public final class NatsTelemetry {
+  private final Instrumenter<NatsRequest, NatsRequest> publishInstrumenter;
+  private final Instrumenter<NatsRequest, NatsRequest> requestInstrumenter;
+  private final Instrumenter<NatsRequest, NatsRequest> settleInstrumenter;
+  private final Instrumenter<NatsRequest, Void> consumerProcessInstrumenter;
 
   /** Returns a new {@link NatsTelemetry} configured with the given {@link OpenTelemetry}. */
   public static NatsTelemetry create(OpenTelemetry openTelemetry) {
-    return new NatsTelemetryBuilder(openTelemetry).build();
+    return builder(openTelemetry).build();
   }
 
   /** Returns a new {@link NatsTelemetryBuilder} configured with the given {@link OpenTelemetry}. */
@@ -27,13 +31,14 @@ public final class NatsTelemetry {
     return new NatsTelemetryBuilder(openTelemetry);
   }
 
-  private final Instrumenter<NatsRequest, NatsRequest> producerInstrumenter;
-  private final Instrumenter<NatsRequest, Void> consumerProcessInstrumenter;
-
   NatsTelemetry(
-      Instrumenter<NatsRequest, NatsRequest> producerInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> publishInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> requestInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> settleInstrumenter,
       Instrumenter<NatsRequest, Void> consumerProcessInstrumenter) {
-    this.producerInstrumenter = producerInstrumenter;
+    this.publishInstrumenter = publishInstrumenter;
+    this.requestInstrumenter = requestInstrumenter;
+    this.settleInstrumenter = settleInstrumenter;
     this.consumerProcessInstrumenter = consumerProcessInstrumenter;
   }
 
@@ -41,19 +46,23 @@ public final class NatsTelemetry {
    * Returns a {@link Connection} with telemetry instrumentation.
    *
    * <p>This method should be used together with {@link #configure(Options.Builder)}. Consider using
-   * {@link #newConnection(Options.Builder, ConnectionFactory)} or {@link #newConnection(Options,
-   * ConnectionFactory)} instead.
+   * {@link #createConnection(Options.Builder, ConnectionFactory)} or {@link
+   * #createConnection(Options, ConnectionFactory)} instead.
    */
   public Connection wrap(Connection connection) {
     return OpenTelemetryConnection.wrap(
-        connection, producerInstrumenter, consumerProcessInstrumenter);
+        connection,
+        publishInstrumenter,
+        requestInstrumenter,
+        settleInstrumenter,
+        consumerProcessInstrumenter);
   }
 
   /**
    * Returns a {@link Options.Builder} configured with telemetry instrumentation.
    *
    * <p>This method should be used together with {@link #wrap(Connection)}. Consider using {@link
-   * #newConnection(Options.Builder, ConnectionFactory)} or {@link #newConnection(Options,
+   * #createConnection(Options.Builder, ConnectionFactory)} or {@link #createConnection(Options,
    * ConnectionFactory)} instead.
    */
   public Options.Builder configure(Options.Builder options) {
@@ -68,13 +77,13 @@ public final class NatsTelemetry {
   }
 
   /** Returns a {@link Connection} with telemetry instrumentation. */
-  public Connection newConnection(Options options, ConnectionFactory<Options> connectionFactory)
+  public Connection createConnection(Options options, ConnectionFactory<Options> connectionFactory)
       throws IOException, InterruptedException {
     return wrap(connectionFactory.create(configure(new Options.Builder(options)).build()));
   }
 
   /** Returns a {@link Connection} with telemetry instrumentation. */
-  public Connection newConnection(
+  public Connection createConnection(
       Options.Builder builder, ConnectionFactory<Options.Builder> connectionFactory)
       throws IOException, InterruptedException {
     return wrap(connectionFactory.create(configure(builder)));

@@ -9,7 +9,6 @@ import io.opentelemetry.instrumentation.spring.webflux.client.AbstractSpringWebf
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientInstrumentationExtension;
-import java.util.Collections;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -23,10 +22,8 @@ class SpringWebfluxClientInstrumentationTest
   protected WebClient.Builder instrument(WebClient.Builder builder) {
     SpringWebfluxClientTelemetry instrumentation =
         SpringWebfluxClientTelemetry.builder(testing.getOpenTelemetry())
-            .setCapturedRequestHeaders(
-                Collections.singletonList(AbstractHttpClientTest.TEST_REQUEST_HEADER))
-            .setCapturedResponseHeaders(
-                Collections.singletonList(AbstractHttpClientTest.TEST_RESPONSE_HEADER))
+            .setRequestHeaders(AbstractHttpClientTest.TEST_HEADERS)
+            .setResponseHeaders(AbstractHttpClientTest.TEST_HEADERS)
             .build();
     return builder.filters(instrumentation::addFilterAndRegisterReactorHook);
   }

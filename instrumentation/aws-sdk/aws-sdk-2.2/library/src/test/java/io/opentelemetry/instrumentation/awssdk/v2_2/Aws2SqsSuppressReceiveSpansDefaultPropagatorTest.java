@@ -30,8 +30,8 @@ class Aws2SqsSuppressReceiveSpansDefaultPropagatorTest extends Aws2SqsSuppressRe
     configureSdkClient(builder);
     ClientOverrideConfiguration overrideConfiguration =
         ClientOverrideConfiguration.builder()
-            .addExecutionInterceptor(telemetry.newExecutionInterceptor())
-            .addExecutionInterceptor(telemetry.newExecutionInterceptor())
+            .addExecutionInterceptor(telemetry.createExecutionInterceptor())
+            .addExecutionInterceptor(telemetry.createExecutionInterceptor())
             .build();
     builder.overrideConfiguration(overrideConfiguration);
     SqsClient client = configureSqsClient(builder.build());
@@ -40,7 +40,7 @@ class Aws2SqsSuppressReceiveSpansDefaultPropagatorTest extends Aws2SqsSuppressRe
     client.sendMessage(sendMessageRequest);
     ReceiveMessageResponse response = client.receiveMessage(receiveMessageRequest);
 
-    assertThat(response.messages().size()).isEqualTo(1);
+    assertThat(response.messages()).hasSize(1);
     response.messages().forEach(message -> getTesting().runWithSpan("process child", () -> {}));
 
     assertSqsTraces(false, false);

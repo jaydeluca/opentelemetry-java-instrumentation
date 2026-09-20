@@ -5,13 +5,16 @@
 
 package io.opentelemetry.javaagent.tooling;
 
+import static java.util.Collections.emptyList;
+import static java.util.logging.Level.FINE;
+import static java.util.logging.Level.WARNING;
+
 import io.opentelemetry.context.Context;
 import io.opentelemetry.javaagent.tooling.config.EarlyInitAgentConfig;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.channels.Channels;
@@ -21,12 +24,16 @@ import java.security.AllPermission;
 import java.security.CodeSource;
 import java.security.PermissionCollection;
 import java.security.Permissions;
+import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.Nullable;
 import net.bytebuddy.dynamic.loading.MultipleParentClassLoader;
 
@@ -39,29 +46,26 @@ import net.bytebuddy.dynamic.loading.MultipleParentClassLoader;
  * MultipleParentClassLoader}.
  */
 // TODO find a way to initialize logging before using this class
-@SuppressWarnings("SystemOut")
 public class ExtensionClassLoader extends URLClassLoader {
-  public static final String EXTENSIONS_CONFIG = "otel.javaagent.extensions";
 
-  private final boolean isSecurityManagerSupportEnabled;
-
-  // NOTE it's important not to use logging in this class, because this class is used before logging
-  // is initialized
+  // this class is used early, and must not use logging in most of its methods
+  // instead we save the messages here and log them later, when the logging subsystem is
+  // initialized
+  private static final List<Map.Entry<Level, String>> deferredLogs = new ArrayList<>();
 
   static {
     ClassLoader.registerAsParallelCapable();
   }
 
+  private final boolean isSecurityManagerSupportEnabled;
+
   public static ClassLoader getInstance(
-      ClassLoader parent,
-      File javaagentFile,
-      boolean isSecurityManagerSupportEnabled,
-      EarlyInitAgentConfig earlyConfig) {
+      ClassLoader parent, File javaagentFile, boolean isSecurityManagerSupportEnabled) {
     List<URL> extensions = new ArrayList<>();
 
     includeEmbeddedExtensionsIfFound(extensions, javaagentFile);
 
-    extensions.addAll(parseLocation(earlyConfig.getString(EXTENSIONS_CONFIG), javaagentFile));
+    extensions.addAll(parseLocation(EarlyInitAgentConfig.get().getExtensions(), javaagentFile));
 
     // TODO when logging is configured add warning about deprecated property
 
@@ -76,6 +80,22 @@ public class ExtensionClassLoader extends URLClassLoader {
     return new MultipleParentClassLoader(parent, delegates);
   }
 
+  static void logExtensionLoadingMessages() {
+    if (deferredLogs.isEmpty()) {
+      return;
+    }
+    Logger logger = Logger.getLogger(ExtensionClassLoader.class.getName());
+    for (Map.Entry<Level, String> entry : deferredLogs) {
+      logger.log(entry.getKey(), entry.getValue());
+    }
+    deferredLogs.clear();
+  }
+
+  private static void addLog(Level level, String message) {
+    deferredLogs.add(new SimpleImmutableEntry<>(level, message));
+  }
+
+  @SuppressWarnings("SystemOut")
   private static void includeEmbeddedExtensionsIfFound(List<URL> extensions, File javaagentFile) {
     try (JarFile jarFile = new JarFile(javaagentFile, false)) {
       Enumeration<JarEntry> entryEnumeration = jarFile.entries();
@@ -106,12 +126,12 @@ public class ExtensionClassLoader extends URLClassLoader {
           }
         }
       }
-    } catch (IOException ex) {
-      System.err.println("Failed to open embedded extensions " + ex.getMessage());
+    } catch (IOException e) {
+      System.err.println("Failed to open embedded extensions " + e.getMessage());
     }
   }
 
-  private static File ensureTempDirectoryExists(File tempDirectory) throws IOException {
+  private static File ensureTempDirectoryExists(@Nullable File tempDirectory) throws IOException {
     if (tempDirectory == null) {
       tempDirectory = Files.createTempDirectory("otel-extensions").toFile();
       tempDirectory.deleteOnExit();
@@ -127,7 +147,7 @@ public class ExtensionClassLoader extends URLClassLoader {
   // visible for testing
   static List<URL> parseLocation(@Nullable String locationName, File javaagentFile) {
     if (locationName == null) {
-      return Collections.emptyList();
+      return emptyList();
     }
 
     List<URL> result = new ArrayList<>();
@@ -144,18 +164,34 @@ public class ExtensionClassLoader extends URLClassLoader {
     }
 
     File location = new File(locationName);
+    boolean found = false;
     if (isJar(location)) {
+      found = true;
       addFileUrl(locations, location);
     } else if (location.isDirectory()) {
       File[] files = location.listFiles(ExtensionClassLoader::isJar);
       if (files != null) {
         for (File file : files) {
-          if (isJar(file) && !file.getAbsolutePath().equals(javaagentFile.getAbsolutePath())) {
+          if (!file.getAbsolutePath().equals(javaagentFile.getAbsolutePath())) {
+            found = true;
             addFileUrl(locations, file);
           }
         }
       }
     }
+    if (!found) {
+      addLog(
+          WARNING,
+          "Configured extensions location \""
+              + locationName
+              + "\" does not exist, is not a jar file or directory, or contains no extension jar"
+              + " files; ignoring it");
+    }
+  }
+
+  // visible for testing
+  static List<Map.Entry<Level, String>> getLogsForTest() {
+    return deferredLogs;
   }
 
   private static boolean isJar(File f) {
@@ -172,8 +208,9 @@ public class ExtensionClassLoader extends URLClassLoader {
       } else {
         result.add(file.toURI().toURL());
       }
-    } catch (MalformedURLException ignored) {
-      System.err.println("Ignoring " + file);
+      addLog(FINE, "Loaded extension jar file \"" + file + "\"");
+    } catch (IOException e) {
+      addLog(WARNING, "Failed to load extension jar file \"" + file + "\": " + e.getMessage());
     }
   }
 
@@ -200,5 +237,51 @@ public class ExtensionClassLoader extends URLClassLoader {
       URL url, ClassLoader parent, boolean isSecurityManagerSupportEnabled) {
     super(new URL[] {url}, parent);
     this.isSecurityManagerSupportEnabled = isSecurityManagerSupportEnabled;
+  }
+
+  @Override
+  public Enumeration<URL> findResources(String name) throws IOException {
+    Enumeration<URL> result = super.findResources(name);
+    // Agent shades instrumentation-api-incubator, in extensions references to these classes are
+    // remapped at load time. Here we handle looking up the service files for the classes that
+    // were renamed using the original name.
+    if (name.startsWith(
+        "META-INF/services/io.opentelemetry.javaagent.shaded.instrumentation.api.incubator")) {
+      String originalName =
+          name.replace(
+              "opentelemetry.javaagent.shaded.instrumentation", "opentelemetry.instrumentation");
+      return new CompoundEnumeration<>(result, super.findResources(originalName));
+    }
+    return result;
+  }
+
+  private static class CompoundEnumeration<E> implements Enumeration<E> {
+    private final Enumeration<E>[] enumerations;
+    private int index = 0;
+
+    @SafeVarargs
+    @SuppressWarnings("varargs")
+    CompoundEnumeration(Enumeration<E>... enumerations) {
+      this.enumerations = enumerations;
+    }
+
+    @Override
+    public boolean hasMoreElements() {
+      while (index < enumerations.length) {
+        if (enumerations[index].hasMoreElements()) {
+          return true;
+        }
+        index++;
+      }
+      return false;
+    }
+
+    @Override
+    public E nextElement() {
+      if (!hasMoreElements()) {
+        throw new NoSuchElementException();
+      }
+      return enumerations[index].nextElement();
+    }
   }
 }

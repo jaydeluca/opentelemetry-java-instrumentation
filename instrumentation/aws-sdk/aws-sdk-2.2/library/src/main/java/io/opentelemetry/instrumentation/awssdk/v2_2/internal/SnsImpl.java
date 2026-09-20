@@ -14,8 +14,12 @@ import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sns.model.MessageAttributeValue;
 import software.amazon.awssdk.services.sns.model.PublishRequest;
 
+/**
+ * This class is internal and is hence not for public use. Its APIs are unstable and can change at
+ * any time.
+ */
 // this class is only used from SnsAccess from method with @NoMuzzle annotation
-class SnsImpl {
+public class SnsImpl {
   static {
     // Force loading of SnsClient; this ensures that an exception is thrown at this point when the
     // SNS library is not present, which will cause SnsAccess to have enabled=false in library mode.
@@ -54,7 +58,7 @@ class SnsImpl {
 
   private static boolean injectIntoMessageAttributes(
       Map<String, MessageAttributeValue> messageAttributes,
-      io.opentelemetry.context.Context otelContext,
+      Context otelContext,
       TextMapPropagator messagingPropagator) {
     // Note: Code is 1:1 copy & paste from SQS, but due to different types (packages) cannot be
     // reused.

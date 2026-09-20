@@ -5,13 +5,10 @@
 
 package io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_27;
 
-import application.io.opentelemetry.api.OpenTelemetry;
-import application.io.opentelemetry.api.logs.LoggerProvider;
-import application.io.opentelemetry.api.metrics.MeterProvider;
-import application.io.opentelemetry.api.trace.TracerProvider;
-import application.io.opentelemetry.context.propagation.ContextPropagators;
-import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.context.propagation.ApplicationContextPropagators;
-import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.trace.ApplicationTracerFactory;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_0.context.propagation.ApplicationContextPropagators;
+import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_0.trace.ApplicationTracerFactory;
 import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_10.metrics.ApplicationMeterFactory;
 import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_10.metrics.ApplicationMeterProvider;
 import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_15.metrics.ApplicationMeterFactory115;
@@ -21,22 +18,23 @@ import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_27.logs.Ap
 import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_27.trace.ApplicationTracerFactory127;
 import io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_4.trace.ApplicationTracerProvider14;
 import java.lang.reflect.InvocationTargetException;
+import javax.annotation.Nullable;
 
-public class ApplicationOpenTelemetry127 implements OpenTelemetry {
+public class ApplicationOpenTelemetry127 implements application.io.opentelemetry.api.OpenTelemetry {
 
   // Accessed with reflection
   @SuppressWarnings("unused")
-  public static final OpenTelemetry INSTANCE = new ApplicationOpenTelemetry127();
+  public static final application.io.opentelemetry.api.OpenTelemetry INSTANCE =
+      new ApplicationOpenTelemetry127();
 
-  private final TracerProvider applicationTracerProvider;
-  private final ContextPropagators applicationContextPropagators;
-  private final MeterProvider applicationMeterProvider;
-  private final LoggerProvider applicationLoggerProvider;
+  private final application.io.opentelemetry.api.trace.TracerProvider applicationTracerProvider;
+  private final application.io.opentelemetry.context.propagation.ContextPropagators
+      applicationContextPropagators;
+  private final application.io.opentelemetry.api.metrics.MeterProvider applicationMeterProvider;
+  private final application.io.opentelemetry.api.logs.LoggerProvider applicationLoggerProvider;
 
-  @SuppressWarnings("UnnecessarilyFullyQualified")
   protected ApplicationOpenTelemetry127() {
-    io.opentelemetry.api.OpenTelemetry agentOpenTelemetry =
-        io.opentelemetry.api.GlobalOpenTelemetry.get();
+    OpenTelemetry agentOpenTelemetry = GlobalOpenTelemetry.get();
     applicationTracerProvider =
         new ApplicationTracerProvider14(getTracerFactory(), agentOpenTelemetry.getTracerProvider());
     applicationContextPropagators =
@@ -48,30 +46,36 @@ public class ApplicationOpenTelemetry127 implements OpenTelemetry {
   }
 
   @Override
-  public TracerProvider getTracerProvider() {
+  public application.io.opentelemetry.api.trace.TracerProvider getTracerProvider() {
     return applicationTracerProvider;
   }
 
   @Override
-  public MeterProvider getMeterProvider() {
+  public application.io.opentelemetry.api.metrics.MeterProvider getMeterProvider() {
     return applicationMeterProvider;
   }
 
   @Override
-  public LoggerProvider getLogsBridge() {
+  public application.io.opentelemetry.api.logs.LoggerProvider getLogsBridge() {
     return applicationLoggerProvider;
   }
 
   @Override
-  public ContextPropagators getPropagators() {
+  public application.io.opentelemetry.context.propagation.ContextPropagators getPropagators() {
     return applicationContextPropagators;
   }
 
   private static ApplicationMeterFactory getMeterFactory() {
-    // this class is defined in opentelemetry-api-1.40
+    // this class is defined in opentelemetry-api-1.65
     ApplicationMeterFactory meterFactory =
         getMeterFactory(
-            "io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_40.incubator.metrics.ApplicationMeterFactory140Incubator");
+            "io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_65.incubator.metrics.ApplicationMeterFactory165Incubator");
+    if (meterFactory == null) {
+      // this class is defined in opentelemetry-api-1.40
+      meterFactory =
+          getMeterFactory(
+              "io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_40.incubator.metrics.ApplicationMeterFactory140Incubator");
+    }
     if (meterFactory == null) {
       // this class is defined in opentelemetry-api-1.38
       meterFactory =
@@ -115,15 +119,22 @@ public class ApplicationOpenTelemetry127 implements OpenTelemetry {
     return meterFactory;
   }
 
+  @Nullable
   private static ApplicationMeterFactory getMeterFactory(String className) {
     return getFactory(className, ApplicationMeterFactory.class);
   }
 
   private static ApplicationLoggerFactory getLoggerFactory() {
-    // this class is defined in opentelemetry-api-1.52
+    // this class is defined in opentelemetry-api-1.63
     ApplicationLoggerFactory loggerFactory =
         getLoggerFactory(
-            "io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_52.incubator.logs.ApplicationLoggerFactory150Incubator");
+            "io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_63.incubator.logs.ApplicationLoggerFactory163Incubator");
+    if (loggerFactory == null) {
+      // this class is defined in opentelemetry-api-1.63
+      loggerFactory =
+          getLoggerFactory(
+              "io.opentelemetry.javaagent.instrumentation.opentelemetryapi.v1_63.logs.ApplicationLoggerFactory163");
+    }
     // this class is defined in opentelemetry-api-1.50
     if (loggerFactory == null) {
       loggerFactory =
@@ -167,6 +178,7 @@ public class ApplicationOpenTelemetry127 implements OpenTelemetry {
     return loggerFactory;
   }
 
+  @Nullable
   private static ApplicationLoggerFactory getLoggerFactory(String className) {
     return getFactory(className, ApplicationLoggerFactory.class);
   }
@@ -189,10 +201,12 @@ public class ApplicationOpenTelemetry127 implements OpenTelemetry {
     return tracerFactory;
   }
 
+  @Nullable
   private static ApplicationTracerFactory getTracerFactory(String className) {
     return getFactory(className, ApplicationTracerFactory.class);
   }
 
+  @Nullable
   private static <T> T getFactory(String className, Class<T> factoryClass) {
     try {
       Class<?> clazz = Class.forName(className);
@@ -201,7 +215,7 @@ public class ApplicationOpenTelemetry127 implements OpenTelemetry {
         | NoSuchMethodException
         | InstantiationException
         | IllegalAccessException
-        | InvocationTargetException exception) {
+        | InvocationTargetException ignored) {
       return null;
     }
   }

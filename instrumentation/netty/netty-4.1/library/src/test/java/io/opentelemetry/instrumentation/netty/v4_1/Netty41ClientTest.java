@@ -5,13 +5,13 @@
 
 package io.opentelemetry.instrumentation.netty.v4_1;
 
+import static io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest.TEST_HEADERS;
+
 import io.netty.channel.Channel;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
-import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientTestOptions;
-import java.util.Collections;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 class Netty41ClientTest extends AbstractNetty41ClientTest {
@@ -25,10 +25,8 @@ class Netty41ClientTest extends AbstractNetty41ClientTest {
           channelPipeline ->
               channelPipeline.addLast(
                   NettyClientTelemetry.builder(testing.getOpenTelemetry())
-                      .setCapturedRequestHeaders(
-                          Collections.singletonList(AbstractHttpClientTest.TEST_REQUEST_HEADER))
-                      .setCapturedResponseHeaders(
-                          Collections.singletonList(AbstractHttpClientTest.TEST_RESPONSE_HEADER))
+                      .setRequestHeaders(TEST_HEADERS)
+                      .setResponseHeaders(TEST_HEADERS)
                       .build()
                       .createCombinedHandler()));
 
@@ -40,7 +38,7 @@ class Netty41ClientTest extends AbstractNetty41ClientTest {
   @Override
   protected void configureChannel(Channel channel) {
     // Current context must be propagated to the channel
-    NettyClientTelemetry.setChannelContext(channel, Context.current());
+    NettyClientTelemetry.setParentContext(channel, Context.current());
   }
 
   @Override

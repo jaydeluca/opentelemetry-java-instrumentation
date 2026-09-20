@@ -9,11 +9,13 @@ muzzle {
     // Tomcat 10 is about servlet 5.0
     // 7.0.4 added Request.isAsync, which is needed
     versions.set("[7.0.4, 10)")
+    assertInverse.set(true)
+    excludeInstrumentationName("servlet-3.0")
   }
 }
 
 dependencies {
-  implementation(project(":instrumentation:tomcat:tomcat-common:javaagent"))
+  implementation(project(":instrumentation:tomcat:tomcat-common-7.0:javaagent"))
   implementation(project(":instrumentation:servlet:servlet-3.0:javaagent"))
   bootstrap(project(":instrumentation:servlet:servlet-common:bootstrap"))
 
@@ -32,11 +34,11 @@ dependencies {
 }
 
 tasks {
-  withType<Test>().configureEach {
-    jvmArgs("-Dotel.instrumentation.servlet.experimental.capture-request-parameters=test-parameter")
+  test {
+    jvmArgs("-Dotel.instrumentation.servlet.experimental.request-parameters.included=test-parameter")
     // required on jdk17
     jvmArgs("--add-opens=java.base/java.util=ALL-UNNAMED")
     jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
-    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 }

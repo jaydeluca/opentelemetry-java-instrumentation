@@ -5,20 +5,23 @@
 
 package io.opentelemetry.javaagent.instrumentation.cassandra.v4_4;
 
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
+import static io.opentelemetry.javaagent.instrumentation.cassandra.v4_4.CassandraSingletons.telemetry;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
+import com.datastax.oss.driver.api.core.metadata.EndPoint;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.Advice.AssignReturned;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
-public class SessionBuilderInstrumentation implements TypeInstrumentation {
+class SessionBuilderInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -30,8 +33,8 @@ public class SessionBuilderInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        isMethod().and(isPublic()).and(named("buildAsync")).and(takesArguments(0)),
-        SessionBuilderInstrumentation.class.getName() + "$BuildAdvice");
+        isPublic().and(named("buildAsync")).and(takesArguments(0)),
+        getClass().getName() + "$BuildAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -40,15 +43,18 @@ public class SessionBuilderInstrumentation implements TypeInstrumentation {
     /**
      * Strategy: each time we build a connection to a Cassandra cluster, the
      * com.datastax.oss.driver.api.core.session.SessionBuilder.buildAsync() method is called. The
-     * opentracing contribution is a simple wrapper, so we just have to wrap the new session.
+     * OpenTelemetry instrumentation is a simple wrapper, so we just have to wrap the new session.
      *
      * @param stage The fresh CompletionStage to patch. This stage produces session which is
      *     replaced with new session
      */
     @AssignReturned.ToReturned
-    @Advice.OnMethodExit(suppress = Throwable.class)
-    public static CompletionStage<?> injectTracingSession(@Advice.Return CompletionStage<?> stage) {
-      return stage.thenApply(new CompletionStageFunction());
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
+    public static CompletionStage<?> injectTracingSession(
+        @Advice.Return CompletionStage<?> stage,
+        @Advice.FieldValue("programmaticContactPoints") Set<EndPoint> programmaticContactPoints) {
+      return stage.thenApply(
+          new CompletionStageFunction(telemetry(), new HashSet<>(programmaticContactPoints)));
     }
   }
 }

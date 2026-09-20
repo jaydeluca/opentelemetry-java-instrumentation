@@ -5,23 +5,26 @@
 
 package io.opentelemetry.javaagent.instrumentation.grpc.v1_6;
 
-import static java.util.Collections.emptyList;
-
 import io.grpc.ClientInterceptor;
 import io.grpc.Context;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.ServerBuilder;
 import io.grpc.ServerInterceptor;
 import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
 import io.opentelemetry.instrumentation.api.util.VirtualField;
 import io.opentelemetry.instrumentation.grpc.v1_6.GrpcTelemetry;
+import io.opentelemetry.instrumentation.grpc.v1_6.GrpcTelemetryBuilder;
 import io.opentelemetry.instrumentation.grpc.v1_6.internal.ContextStorageBridge;
-import io.opentelemetry.javaagent.bootstrap.internal.AgentInstrumentationConfig;
-import java.util.List;
+import io.opentelemetry.instrumentation.grpc.v1_6.internal.GrpcConfig;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.annotation.Nullable;
 
 // Holds singleton references.
-public final class GrpcSingletons {
+public class GrpcSingletons {
 
   public static final VirtualField<ManagedChannelBuilder<?>, Boolean>
       MANAGED_CHANNEL_BUILDER_INSTRUMENTED =
@@ -30,47 +33,56 @@ public final class GrpcSingletons {
   public static final VirtualField<ServerBuilder<?>, Boolean> SERVER_BUILDER_INSTRUMENTED =
       VirtualField.find(ServerBuilder.class, Boolean.class);
 
-  public static final ClientInterceptor CLIENT_INTERCEPTOR;
+  private static final ClientInterceptor clientInterceptor;
 
-  public static final ServerInterceptor SERVER_INTERCEPTOR;
+  private static final ServerInterceptor serverInterceptor;
 
-  private static final AtomicReference<Context.Storage> STORAGE_REFERENCE = new AtomicReference<>();
+  private static final AtomicReference<Context.Storage> storageReference = new AtomicReference<>();
 
   static {
-    boolean emitMessageEvents =
-        AgentInstrumentationConfig.get()
-            .getBoolean("otel.instrumentation.grpc.emit-message-events", true);
+    OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
+    DeclarativeConfigProperties config =
+        DeclarativeConfigUtil.getInstrumentationConfig(openTelemetry, "grpc");
+    GrpcConfig grpcConfig = GrpcConfig.create(openTelemetry);
+    boolean emitMessageEvents = config.getBoolean("emit_message_events", true);
 
     boolean experimentalSpanAttributes =
-        AgentInstrumentationConfig.get()
-            .getBoolean("otel.instrumentation.grpc.experimental-span-attributes", false);
+        config.getBoolean("experimental_span_attributes/development", false);
 
-    List<String> clientRequestMetadata =
-        AgentInstrumentationConfig.get()
-            .getList("otel.instrumentation.grpc.capture-metadata.client.request", emptyList());
-    List<String> serverRequestMetadata =
-        AgentInstrumentationConfig.get()
-            .getList("otel.instrumentation.grpc.capture-metadata.server.request", emptyList());
-
-    GrpcTelemetry telemetry =
-        GrpcTelemetry.builder(GlobalOpenTelemetry.get())
+    GrpcTelemetryBuilder telemetryBuilder =
+        GrpcTelemetry.builder(openTelemetry)
             .setEmitMessageEvents(emitMessageEvents)
-            .setCaptureExperimentalSpanAttributes(experimentalSpanAttributes)
-            .setCapturedClientRequestMetadata(clientRequestMetadata)
-            .setCapturedServerRequestMetadata(serverRequestMetadata)
-            .build();
+            .setCaptureExperimentalSpanAttributes(experimentalSpanAttributes);
+    IncludeExclude clientRequestMetadata = grpcConfig.getClientRequestMetadata();
+    if (clientRequestMetadata != null) {
+      telemetryBuilder.setClientRequestMetadata(clientRequestMetadata);
+    }
+    IncludeExclude serverRequestMetadata = grpcConfig.getServerRequestMetadata();
+    if (serverRequestMetadata != null) {
+      telemetryBuilder.setServerRequestMetadata(serverRequestMetadata);
+    }
+    GrpcTelemetry telemetry = telemetryBuilder.build();
 
-    CLIENT_INTERCEPTOR = telemetry.newClientInterceptor();
-    SERVER_INTERCEPTOR = telemetry.newServerInterceptor();
+    clientInterceptor = telemetry.createClientInterceptor();
+    serverInterceptor = telemetry.createServerInterceptor();
   }
 
-  public static Context.Storage getStorage() {
-    return STORAGE_REFERENCE.get();
+  public static ClientInterceptor clientInterceptor() {
+    return clientInterceptor;
+  }
+
+  public static ServerInterceptor serverInterceptor() {
+    return serverInterceptor;
+  }
+
+  @Nullable
+  public static Context.Storage storage() {
+    return storageReference.get();
   }
 
   public static Context.Storage setStorage(Context.Storage storage) {
-    STORAGE_REFERENCE.compareAndSet(null, new ContextStorageBridge(storage));
-    return getStorage();
+    storageReference.compareAndSet(null, new ContextStorageBridge(storage));
+    return storage();
   }
 
   private GrpcSingletons() {}

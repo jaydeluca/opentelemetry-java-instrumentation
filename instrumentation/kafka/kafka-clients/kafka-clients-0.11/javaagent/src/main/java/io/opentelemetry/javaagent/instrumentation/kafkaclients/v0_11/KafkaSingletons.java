@@ -6,54 +6,67 @@
 package io.opentelemetry.javaagent.instrumentation.kafkaclients.v0_11;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.internal.MessagingTelemetrySignals;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
+import io.opentelemetry.instrumentation.api.util.VirtualField;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaInstrumenterFactory;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaProcessRequest;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaProducerRequest;
+import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaPropagation;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaReceiveRequest;
-import io.opentelemetry.javaagent.bootstrap.internal.AgentInstrumentationConfig;
 import io.opentelemetry.javaagent.bootstrap.internal.ExperimentalConfig;
+import io.opentelemetry.javaagent.bootstrap.messaging.MessagingTelemetryCarrier;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 
-public final class KafkaSingletons {
+public class KafkaSingletons {
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.kafka-clients-0.11";
 
-  private static final boolean PRODUCER_PROPAGATION_ENABLED =
-      AgentInstrumentationConfig.get()
-          .getBoolean("otel.instrumentation.kafka.producer-propagation.enabled", true);
+  public static final boolean PRODUCER_PROPAGATION_ENABLED =
+      DeclarativeConfigUtil.getInstrumentationConfig(GlobalOpenTelemetry.get(), "kafka")
+          .get("producer_propagation")
+          .getBoolean("enabled", true);
+  public static final boolean PRODUCER_SPAN_CONTEXT_PROPAGATION_ENABLED =
+      PRODUCER_PROPAGATION_ENABLED
+          && KafkaPropagation.propagatesSpanContext(
+              GlobalOpenTelemetry.getPropagators().getTextMapPropagator());
 
-  private static final Instrumenter<KafkaProducerRequest, RecordMetadata> PRODUCER_INSTRUMENTER;
-  private static final Instrumenter<KafkaReceiveRequest, Void> CONSUMER_RECEIVE_INSTRUMENTER;
-  private static final Instrumenter<KafkaProcessRequest, Void> CONSUMER_PROCESS_INSTRUMENTER;
+  private static final Instrumenter<KafkaProducerRequest, RecordMetadata> producerInstrumenter;
+  private static final Instrumenter<KafkaReceiveRequest, Void> consumerReceiveInstrumenter;
+  private static final Instrumenter<KafkaProcessRequest, Void> consumerProcessInstrumenter;
+  private static final MessagingTelemetryCarrier<ConsumerRecord<?, ?>> recordTelemetry =
+      MessagingTelemetryCarrier.create(
+          VirtualField.find(ConsumerRecord.class, MessagingTelemetrySignals.class));
 
   static {
     KafkaInstrumenterFactory instrumenterFactory =
         new KafkaInstrumenterFactory(GlobalOpenTelemetry.get(), INSTRUMENTATION_NAME)
-            .setCapturedHeaders(ExperimentalConfig.get().getMessagingHeaders())
+            .setHeaders(ExperimentalConfig.get().getMessagingHeaders())
             .setCaptureExperimentalSpanAttributes(
-                AgentInstrumentationConfig.get()
-                    .getBoolean("otel.instrumentation.kafka.experimental-span-attributes", false))
-            .setMessagingReceiveInstrumentationEnabled(
+                DeclarativeConfigUtil.getInstrumentationConfig(GlobalOpenTelemetry.get(), "kafka")
+                    .getBoolean("experimental_span_attributes/development", false))
+            .setMessagingReceiveTelemetryEnabled(
                 ExperimentalConfig.get().messagingReceiveInstrumentationEnabled());
-    PRODUCER_INSTRUMENTER = instrumenterFactory.createProducerInstrumenter();
-    CONSUMER_RECEIVE_INSTRUMENTER = instrumenterFactory.createConsumerReceiveInstrumenter();
-    CONSUMER_PROCESS_INSTRUMENTER = instrumenterFactory.createConsumerProcessInstrumenter();
-  }
-
-  public static boolean isProducerPropagationEnabled() {
-    return PRODUCER_PROPAGATION_ENABLED;
+    producerInstrumenter = instrumenterFactory.createProducerInstrumenter();
+    consumerReceiveInstrumenter = instrumenterFactory.createConsumerReceiveInstrumenter();
+    consumerProcessInstrumenter = instrumenterFactory.createConsumerProcessInstrumenter();
   }
 
   public static Instrumenter<KafkaProducerRequest, RecordMetadata> producerInstrumenter() {
-    return PRODUCER_INSTRUMENTER;
+    return producerInstrumenter;
   }
 
   public static Instrumenter<KafkaReceiveRequest, Void> consumerReceiveInstrumenter() {
-    return CONSUMER_RECEIVE_INSTRUMENTER;
+    return consumerReceiveInstrumenter;
   }
 
   public static Instrumenter<KafkaProcessRequest, Void> consumerProcessInstrumenter() {
-    return CONSUMER_PROCESS_INSTRUMENTER;
+    return consumerProcessInstrumenter;
+  }
+
+  public static MessagingTelemetryCarrier<ConsumerRecord<?, ?>> recordTelemetry() {
+    return recordTelemetry;
   }
 
   private KafkaSingletons() {}

@@ -5,47 +5,75 @@
 
 package io.opentelemetry.javaagent.instrumentation.lettuce.v5_0;
 
+import static java.util.Collections.emptyList;
+
 import io.lettuce.core.protocol.RedisCommand;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.DbConfig;
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesGetter;
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.RedisCommandSanitizer;
 import io.opentelemetry.instrumentation.lettuce.common.LettuceArgSplitter;
-import io.opentelemetry.javaagent.bootstrap.internal.AgentCommonConfig;
-import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
-import java.util.Collections;
+import io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues;
+import java.net.InetSocketAddress;
 import java.util.List;
 import javax.annotation.Nullable;
 
-final class LettuceDbAttributesGetter
-    implements DbClientAttributesGetter<RedisCommand<?, ?, ?>, Void> {
+class LettuceDbAttributesGetter implements DbClientAttributesGetter<RedisCommand<?, ?, ?>, Void> {
 
   private static final RedisCommandSanitizer sanitizer =
-      RedisCommandSanitizer.create(AgentCommonConfig.get().isStatementSanitizationEnabled());
+      RedisCommandSanitizer.create(
+          DbConfig.isQuerySanitizationEnabled(GlobalOpenTelemetry.get(), "lettuce"));
 
-  @SuppressWarnings("deprecation") // using deprecated DbSystemIncubatingValues
   @Override
-  public String getDbSystem(RedisCommand<?, ?, ?> request) {
-    return DbIncubatingAttributes.DbSystemIncubatingValues.REDIS;
+  public String getDbSystemName(RedisCommand<?, ?, ?> request) {
+    return DbSystemNameIncubatingValues.REDIS;
   }
 
   @Override
   @Nullable
   public String getDbNamespace(RedisCommand<?, ?, ?> request) {
+    // Lettuce does not expose database changes made through SELECT, so report the index established
+    // when the connection was created.
+    Integer databaseIndex = LettuceSingletons.COMMAND_DATABASE_INDEX.get(request);
+    return databaseIndex != null ? String.valueOf(databaseIndex) : null;
+  }
+
+  @Deprecated // to be removed in 3.0
+  @Override
+  @Nullable
+  public String getDbName(RedisCommand<?, ?, ?> request) {
+    // old semconv reports the redis database index as db.redis.database_index, not db.name
     return null;
   }
 
-  @Deprecated
   @Override
   public String getDbQueryText(RedisCommand<?, ?, ?> request) {
     String command = LettuceInstrumentationUtil.getCommandName(request);
     List<String> args =
         request.getArgs() == null
-            ? Collections.emptyList()
+            ? emptyList()
             : LettuceArgSplitter.splitArgs(request.getArgs().toCommandString());
     return sanitizer.sanitize(command, args);
   }
 
   @Override
   public String getDbOperationName(RedisCommand<?, ?, ?> request) {
-    return request.getType().name();
+    // use toString() (not name()) so it stays compatible with lettuce 6.5+, where ProtocolKeyword
+    // no longer declares name()
+    return request.getType().toString();
+  }
+
+  @Nullable
+  @Override
+  public String getServerAddress(RedisCommand<?, ?, ?> request) {
+    InetSocketAddress serverAddress = LettuceSingletons.COMMAND_ADDRESS.get(request);
+    return serverAddress != null ? serverAddress.getHostString() : null;
+  }
+
+  @Nullable
+  @Override
+  public Integer getServerPort(RedisCommand<?, ?, ?> request) {
+    InetSocketAddress serverAddress = LettuceSingletons.COMMAND_ADDRESS.get(request);
+    return serverAddress != null ? serverAddress.getPort() : null;
   }
 }

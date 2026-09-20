@@ -7,16 +7,20 @@ package io.opentelemetry.instrumentation.api.instrumenter;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptySet;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-import io.opentelemetry.api.internal.InstrumentationUtil;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.impl.InstrumentationUtil;
+import io.opentelemetry.api.incubator.ExtendedOpenTelemetry;
+import io.opentelemetry.api.incubator.config.ConfigProvider;
+import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.instrumentation.api.internal.Experimental;
 import io.opentelemetry.instrumentation.api.internal.SpanKey;
 import java.util.HashSet;
 import java.util.Set;
@@ -26,15 +30,86 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junitpioneer.jupiter.SetSystemProperty;
 
 class SpanSuppressionStrategyTest {
 
   static final Span span = Span.getInvalid();
 
+  @Test
+  @SetSystemProperty(
+      key = "otel.instrumentation.experimental.span-suppression-strategy",
+      value = "none")
+  void programmaticSpanSuppressionStrategyShouldOverrideDeprecatedProperty() {
+    InstrumenterBuilder<String, String> builder =
+        Instrumenter.<String, String>builder(OpenTelemetry.noop(), "test", request -> "test");
+    Experimental.setSpanSuppressionStrategy(builder, "span-kind");
+
+    SpanSuppressor suppressor = builder.buildSpanSuppressor();
+    Context context = suppressor.storeInContext(Context.root(), SpanKind.CLIENT, span);
+
+    assertThat(suppressor.shouldSuppress(context, SpanKind.CLIENT)).isTrue();
+  }
+
+  @Test
+  void programmaticSpanSuppressionStrategyShouldRejectNull() {
+    InstrumenterBuilder<String, String> builder =
+        Instrumenter.<String, String>builder(OpenTelemetry.noop(), "test", request -> "test");
+
+    assertThatThrownBy(() -> Experimental.setSpanSuppressionStrategy(builder, null))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessage("spanSuppressionStrategy");
+  }
+
+  @Test
+  void programmaticSpanSuppressionStrategyShouldRejectUnknownValue() {
+    InstrumenterBuilder<String, String> builder =
+        Instrumenter.<String, String>builder(OpenTelemetry.noop(), "test", request -> "test");
+
+    assertThatThrownBy(() -> Experimental.setSpanSuppressionStrategy(builder, "spanKind"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Unrecognized span suppression strategy: spanKind");
+  }
+
+  @Test
+  @SetSystemProperty(
+      key = "otel.instrumentation.experimental.span-suppression-strategy",
+      value = "span-kind")
+  void shouldUseDeprecatedProperty() {
+    InstrumenterBuilder<String, String> builder =
+        Instrumenter.<String, String>builder(OpenTelemetry.noop(), "test", request -> "test");
+
+    SpanSuppressor suppressor = builder.buildSpanSuppressor();
+    Context context = suppressor.storeInContext(Context.root(), SpanKind.CLIENT, span);
+
+    assertThat(suppressor.shouldSuppress(context, SpanKind.CLIENT)).isTrue();
+  }
+
+  @Test
+  @SetSystemProperty(
+      key = "otel.instrumentation.experimental.span-suppression-strategy",
+      value = "span-kind")
+  void shouldIgnoreDeprecatedPropertyWhenConfiguredV3PreviewIsEnabled() {
+    ExtendedOpenTelemetry openTelemetry = mock(ExtendedOpenTelemetry.class);
+    ConfigProvider configProvider = mock(ConfigProvider.class);
+    DeclarativeConfigProperties commonConfig = mock(DeclarativeConfigProperties.class);
+    when(openTelemetry.getConfigProvider()).thenReturn(configProvider);
+    when(configProvider.getInstrumentationConfig("common")).thenReturn(commonConfig);
+    when(openTelemetry.getInstrumentationConfig("common")).thenReturn(commonConfig);
+    when(commonConfig.getBoolean("v3_preview")).thenReturn(true);
+
+    InstrumenterBuilder<String, String> builder =
+        Instrumenter.<String, String>builder(openTelemetry, "test", request -> "test");
+    SpanSuppressor suppressor = builder.buildSpanSuppressor();
+
+    Context context = suppressor.storeInContext(Context.root(), SpanKind.CLIENT, span);
+    assertThat(context).isSameAs(Context.root());
+  }
+
   @ParameterizedTest
   @MethodSource("configArgs")
   void shouldParseConfig(String value, SpanSuppressionStrategy expectedStrategy) {
-    assertEquals(expectedStrategy, SpanSuppressionStrategy.fromConfig(value));
+    assertThat(SpanSuppressionStrategy.fromConfig(value)).isEqualTo(expectedStrategy);
   }
 
   private static Stream<Arguments> configArgs() {
@@ -56,7 +131,7 @@ class SpanSuppressionStrategyTest {
 
     Context context = spanKey.storeInContext(Context.root(), span);
 
-    assertFalse(suppressor.shouldSuppress(context, spanKind));
+    assertThat(suppressor.shouldSuppress(context, spanKind)).isFalse();
   }
 
   @ParameterizedTest
@@ -67,7 +142,7 @@ class SpanSuppressionStrategyTest {
 
     Context newContext = suppressor.storeInContext(context, spanKind, span);
 
-    assertSame(newContext, context);
+    assertThat(context).isSameAs(newContext);
   }
 
   @ParameterizedTest
@@ -78,8 +153,8 @@ class SpanSuppressionStrategyTest {
 
     Context newContext = suppressor.storeInContext(context, spanKind, span);
 
-    assertNotSame(newContext, context);
-    assertSame(span, spanKey.fromContextOrNull(newContext));
+    assertThat(context).isNotSameAs(newContext);
+    assertThat(spanKey.fromContextOrNull(newContext)).isSameAs(span);
   }
 
   @ParameterizedTest
@@ -90,8 +165,8 @@ class SpanSuppressionStrategyTest {
 
     Context newContext = suppressor.storeInContext(context, spanKind, span);
 
-    assertNotSame(newContext, context);
-    assertSame(span, spanKey.fromContextOrNull(newContext));
+    assertThat(context).isNotSameAs(newContext);
+    assertThat(spanKey.fromContextOrNull(newContext)).isSameAs(span);
   }
 
   private static Stream<Arguments> spanKindsAndKeys() {
@@ -107,10 +182,10 @@ class SpanSuppressionStrategyTest {
     SpanSuppressor suppressor = SpanSuppressionStrategy.SEMCONV.create(emptySet());
     Context context = Context.root();
 
-    assertFalse(suppressor.shouldSuppress(context, SpanKind.SERVER));
+    assertThat(suppressor.shouldSuppress(context, SpanKind.SERVER)).isFalse();
 
     Context newContext = suppressor.storeInContext(context, SpanKind.SERVER, span);
-    assertSame(newContext, context);
+    assertThat(context).isSameAs(newContext);
   }
 
   @Test
@@ -120,9 +195,9 @@ class SpanSuppressionStrategyTest {
     Context context = Context.root();
 
     Context newContext = suppressor.storeInContext(context, SpanKind.SERVER, span);
-    assertNotSame(newContext, context);
+    assertThat(context).isNotSameAs(newContext);
 
-    spanKeys.forEach(key -> assertSame(span, key.fromContextOrNull(newContext)));
+    spanKeys.forEach(key -> assertThat(key.fromContextOrNull(newContext)).isSameAs(span));
   }
 
   @Test
@@ -134,7 +209,7 @@ class SpanSuppressionStrategyTest {
         SpanKey.RPC_CLIENT.storeInContext(
             SpanKey.DB_CLIENT.storeInContext(Context.root(), span), span);
 
-    assertTrue(suppressor.shouldSuppress(context, SpanKind.SERVER));
+    assertThat(suppressor.shouldSuppress(context, SpanKind.SERVER)).isTrue();
   }
 
   @Test
@@ -146,7 +221,7 @@ class SpanSuppressionStrategyTest {
         SpanKey.HTTP_CLIENT.storeInContext(
             SpanKey.DB_CLIENT.storeInContext(Context.root(), span), span);
 
-    assertFalse(suppressor.shouldSuppress(context, SpanKind.SERVER));
+    assertThat(suppressor.shouldSuppress(context, SpanKind.SERVER)).isFalse();
   }
 
   @Test
@@ -156,7 +231,7 @@ class SpanSuppressionStrategyTest {
           SpanSuppressor suppressor =
               new SpanSuppressors.ByContextKey(SpanSuppressionStrategy.NONE.create(emptySet()));
 
-          assertTrue(suppressor.shouldSuppress(Context.current(), SpanKind.CLIENT));
+          assertThat(suppressor.shouldSuppress(Context.current(), SpanKind.CLIENT)).isTrue();
         });
   }
 
@@ -166,6 +241,6 @@ class SpanSuppressionStrategyTest {
     SpanSuppressor suppressor =
         new SpanSuppressors.ByContextKey(SpanSuppressionStrategy.NONE.create(emptySet()));
 
-    assertFalse(suppressor.shouldSuppress(context, SpanKind.CLIENT));
+    assertThat(suppressor.shouldSuppress(context, SpanKind.CLIENT)).isFalse();
   }
 }

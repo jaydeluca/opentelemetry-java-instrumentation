@@ -5,6 +5,8 @@
 
 package io.opentelemetry.javaagent.instrumentation.joddhttp.v4_2;
 
+import io.opentelemetry.instrumentation.api.internal.HttpConstants;
+import io.opentelemetry.instrumentation.api.internal.HttpProtocolUtil;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesGetter;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -53,12 +55,7 @@ final class JoddHttpHttpAttributesGetter
     if (httpVersion == null && response != null) {
       httpVersion = response.httpVersion();
     }
-    if (httpVersion != null) {
-      if (httpVersion.contains("/")) {
-        httpVersion = httpVersion.substring(httpVersion.lastIndexOf("/") + 1);
-      }
-    }
-    return httpVersion;
+    return HttpProtocolUtil.getVersion(httpVersion);
   }
 
   @Override
@@ -68,7 +65,8 @@ final class JoddHttpHttpAttributesGetter
   }
 
   @Override
+  @Nullable
   public Integer getServerPort(HttpRequest request) {
-    return request.port();
+    return HttpConstants.portOrDefaultFromScheme(request.port(), request.protocol());
   }
 }

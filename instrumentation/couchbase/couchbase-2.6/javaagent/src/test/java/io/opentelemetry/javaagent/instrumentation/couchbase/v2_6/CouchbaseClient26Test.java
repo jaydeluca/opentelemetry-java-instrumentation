@@ -10,6 +10,7 @@ import static io.opentelemetry.semconv.DbAttributes.DB_OPERATION_NAME;
 import static io.opentelemetry.semconv.DbAttributes.DB_SYSTEM_NAME;
 import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_ADDRESS;
 import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_PORT;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.couchbase.client.java.CouchbaseCluster;
@@ -17,8 +18,6 @@ import com.couchbase.client.java.cluster.BucketSettings;
 import com.couchbase.client.java.cluster.ClusterManager;
 import com.couchbase.client.java.env.DefaultCouchbaseEnvironment;
 import io.opentelemetry.instrumentation.couchbase.AbstractCouchbaseClientTest;
-import io.opentelemetry.sdk.testing.assertj.AttributeAssertion;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class CouchbaseClient26Test extends AbstractCouchbaseClientTest {
@@ -30,28 +29,13 @@ class CouchbaseClient26Test extends AbstractCouchbaseClientTest {
   }
 
   @Override
-  protected List<AttributeAssertion> couchbaseAttributes() {
-    return Couchbase26Util.couchbaseAttributes();
-  }
-
-  @Override
-  protected List<AttributeAssertion> couchbaseQueryAttributes() {
-    return Couchbase26Util.couchbaseQueryAttributes();
-  }
-
-  @Override
-  protected List<AttributeAssertion> couchbaseClusterManagerAttributes() {
-    return Couchbase26Util.couchbaseClusterManagerAttributes();
-  }
-
-  @Override
-  protected List<AttributeAssertion> couchbaseN1qlAttributes() {
-    return Couchbase26Util.couchbaseN1qlAttributes();
+  protected boolean includesNetworkAttributes() {
+    return true;
   }
 
   @Test
   void hasDurationMetric() {
-    CouchbaseCluster cluster = prepareCluster(bucketCouchbase);
+    CouchbaseCluster cluster = getCluster(bucketCouchbase);
     ClusterManager manager = cluster.clusterManager(USERNAME, PASSWORD);
 
     testing.waitForTraces(1);
@@ -67,6 +51,7 @@ class CouchbaseClient26Test extends AbstractCouchbaseClientTest {
         DB_SYSTEM_NAME,
         DB_OPERATION_NAME,
         NETWORK_PEER_ADDRESS,
-        NETWORK_PEER_PORT);
+        NETWORK_PEER_PORT,
+        SERVER_ADDRESS);
   }
 }

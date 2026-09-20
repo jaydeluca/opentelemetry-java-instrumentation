@@ -5,6 +5,10 @@
 
 package io.opentelemetry.javaagent.tooling.instrumentation.indy;
 
+import static java.util.Arrays.asList;
+import static java.util.logging.Level.FINE;
+import static java.util.logging.Level.SEVERE;
+
 import io.opentelemetry.javaagent.bootstrap.IndyBootstrapDispatcher;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import java.lang.invoke.CallSite;
@@ -15,12 +19,14 @@ import java.lang.invoke.MethodType;
 import java.lang.invoke.MutableCallSite;
 import java.lang.reflect.Method;
 import java.security.PrivilegedAction;
-import java.util.Arrays;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.utility.JavaConstant;
+import org.objectweb.asm.Handle;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 
 /**
  * We instruct Byte Buddy (via {@link Advice.WithCustomMapping#bootstrap(java.lang.reflect.Method)})
@@ -62,13 +68,6 @@ public class IndyBootstrap {
   private static final Logger logger = Logger.getLogger(IndyBootstrap.class.getName());
 
   private static final Method indyBootstrapMethod;
-
-  private static final String BOOTSTRAP_KIND_ADVICE = "advice";
-  private static final String BOOTSTRAP_KIND_PROXY = "proxy";
-
-  private static final String PROXY_KIND_STATIC = "static";
-  private static final String PROXY_KIND_CONSTRUCTOR = "constructor";
-  private static final String PROXY_KIND_VIRTUAL = "virtual";
 
   static {
     try {
@@ -118,41 +117,34 @@ public class IndyBootstrap {
     // callsite resolution needs privileged access to call Class#getClassLoader() and
     // MethodHandles$Lookup#findStatic
     return java.security.AccessController.doPrivileged(
-        (PrivilegedAction<CallSite>)
-            () -> internalBootstrap(lookup, adviceMethodName, adviceMethodType, args));
+        // using an anonymous class here instead of lambda because using a lambda here could trigger
+        // a nested bootstrap call from lambda instrumentation which could lead to stack overflow
+        new PrivilegedAction<CallSite>() {
+          @Override
+          @Nullable
+          public CallSite run() {
+            return internalBootstrap(lookup, adviceMethodName, adviceMethodType, args);
+          }
+        });
   }
 
+  @Nullable
   private static CallSite internalBootstrap(
       MethodHandles.Lookup lookup,
       String adviceMethodName,
       MethodType adviceMethodType,
       Object[] args) {
     try {
-      String kind = (String) args[0];
-      switch (kind) {
-        case BOOTSTRAP_KIND_ADVICE:
-          // See the getAdviceBootstrapArguments method for the argument definitions
-          return bootstrapAdvice(
-              lookup,
-              adviceMethodName,
-              adviceMethodType,
-              (String) args[1],
-              (String) args[2],
-              (String) args[3]);
-        case BOOTSTRAP_KIND_PROXY:
-          // See getProxyFactory for the argument definitions
-          return bootstrapProxyMethod(
-              lookup,
-              adviceMethodName,
-              adviceMethodType,
-              (String) args[1],
-              (String) args[2],
-              (String) args[3]);
-        default:
-          throw new IllegalArgumentException("Unknown bootstrapping kind: " + kind);
-      }
+      // See the getAdviceBootstrapArguments method for the argument definitions
+      return bootstrapAdvice(
+          lookup,
+          adviceMethodName,
+          adviceMethodType,
+          (String) args[0],
+          (String) args[1],
+          (String) args[2]);
     } catch (Exception e) {
-      logger.log(Level.SEVERE, e.getMessage(), e);
+      logger.log(SEVERE, e.getMessage(), e);
       return null;
     }
   }
@@ -207,8 +199,9 @@ public class IndyBootstrap {
         // There have been nested bootstrapping attempts
         // Update the callsite of those to run the actual instrumentation
         logger.log(
-            Level.FINE,
-            "Fixing nested instrumentation invokedynamic instruction bootstrapping for instrumented class {0} and advice {1}.{2}, the instrumentation should be active now",
+            FINE,
+            "Fixing nested instrumentation invokedynamic instruction bootstrapping for instrumented"
+                + " class {0} and advice {1}.{2}, the instrumentation should be active now",
             new Object[] {lookup.lookupClass().getName(), adviceClassName, adviceMethodName});
         nestedBootstrapCallSite.setTarget(methodHandle);
         MutableCallSite.syncAll(new MutableCallSite[] {nestedBootstrapCallSite});
@@ -224,87 +217,30 @@ public class IndyBootstrap {
     String moduleName = instrumentationModule.getClass().getName();
     return (adviceMethod, exit) ->
         (instrumentedType, instrumentedMethod) ->
-            Arrays.asList(
-                JavaConstant.Simple.ofLoaded(BOOTSTRAP_KIND_ADVICE),
+            asList(
                 JavaConstant.Simple.ofLoaded(moduleName),
                 JavaConstant.Simple.ofLoaded(adviceMethod.getDescriptor()),
                 JavaConstant.Simple.ofLoaded(adviceMethod.getDeclaringType().getName()));
   }
 
-  private static ConstantCallSite bootstrapProxyMethod(
-      MethodHandles.Lookup lookup,
-      String proxyMethodName,
-      MethodType expectedMethodType,
-      String moduleClassName,
-      String proxyClassName,
-      String methodKind)
-      throws NoSuchMethodException, IllegalAccessException, ClassNotFoundException {
-    InstrumentationModuleClassLoader instrumentationClassloader =
-        IndyModuleRegistry.getInstrumentationClassLoader(
-            moduleClassName, lookup.lookupClass().getClassLoader());
-
-    Class<?> proxiedClass = instrumentationClassloader.loadClass(proxyClassName);
-
-    MethodHandle target;
-    switch (methodKind) {
-      case PROXY_KIND_STATIC:
-        target =
-            MethodHandles.publicLookup()
-                .findStatic(proxiedClass, proxyMethodName, expectedMethodType);
-        break;
-      case PROXY_KIND_CONSTRUCTOR:
-        target =
-            MethodHandles.publicLookup()
-                .findConstructor(proxiedClass, expectedMethodType.changeReturnType(void.class))
-                .asType(expectedMethodType); // return type is the proxied class, but proxies expect
-        // Object
-        break;
-      case PROXY_KIND_VIRTUAL:
-        target =
-            MethodHandles.publicLookup()
-                .findVirtual(
-                    proxiedClass, proxyMethodName, expectedMethodType.dropParameterTypes(0, 1))
-                .asType(
-                    expectedMethodType); // first argument type is the proxied class, but proxies
-        // expect Object
-        break;
-      default:
-        throw new IllegalStateException("unknown proxy method kind: " + methodKind);
-    }
-    return new ConstantCallSite(target);
-  }
-
-  /**
-   * Creates a proxy factory for generating proxies for classes which are loaded by an {@link
-   * InstrumentationModuleClassLoader} for the provided {@link InstrumentationModule}.
-   *
-   * @param instrumentationModule the instrumentation module used to load the proxied target classes
-   * @return a factory for generating proxy classes
-   */
-  public static IndyProxyFactory getProxyFactory(InstrumentationModule instrumentationModule) {
-    String moduleName = instrumentationModule.getClass().getName();
-    return new IndyProxyFactory(
-        getIndyBootstrapMethod(),
-        (proxiedType, proxiedMethod) -> {
-          String methodKind;
-          if (proxiedMethod.isConstructor()) {
-            methodKind = PROXY_KIND_CONSTRUCTOR;
-          } else if (proxiedMethod.isMethod()) {
-            if (proxiedMethod.isStatic()) {
-              methodKind = PROXY_KIND_STATIC;
-            } else {
-              methodKind = PROXY_KIND_VIRTUAL;
-            }
-          } else {
-            throw new IllegalArgumentException(
-                "Unknown type of method: " + proxiedMethod.getName());
-          }
-
-          return Arrays.asList(
-              JavaConstant.Simple.ofLoaded(BOOTSTRAP_KIND_PROXY),
-              JavaConstant.Simple.ofLoaded(moduleName),
-              JavaConstant.Simple.ofLoaded(proxiedType.getName()),
-              JavaConstant.Simple.ofLoaded(methodKind));
-        });
+  /** Emit invokedynamic instruction that will call the given helper class static method. */
+  public static void emitIndyStaticCall(
+      MethodVisitor mv,
+      String name,
+      String descriptor,
+      Class<?> instrumentationModule,
+      String helperClassDotName) {
+    mv.visitInvokeDynamicInsn(
+        name,
+        descriptor,
+        new Handle(
+            Opcodes.H_INVOKESTATIC,
+            Type.getInternalName(IndyBootstrapDispatcher.class),
+            "bootstrap",
+            "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;",
+            false),
+        instrumentationModule.getName(),
+        descriptor,
+        helperClassDotName);
   }
 }

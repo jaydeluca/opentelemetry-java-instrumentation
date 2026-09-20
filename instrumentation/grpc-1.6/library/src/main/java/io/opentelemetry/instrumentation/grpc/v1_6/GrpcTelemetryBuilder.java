@@ -5,12 +5,16 @@
 
 package io.opentelemetry.instrumentation.grpc.v1_6;
 
+import static io.opentelemetry.instrumentation.api.incubator.semconv.rpc.internal.RpcExceptionEventExtractors.setRpcClientExceptionEventExtractor;
+import static io.opentelemetry.instrumentation.api.incubator.semconv.rpc.internal.RpcExceptionEventExtractors.setRpcServerExceptionEventExtractor;
+
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.grpc.Status;
 import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcClientAttributesExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcClientMetrics;
+import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcMetricsContextCustomizers;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcServerAttributesExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcServerMetrics;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcSizeAttributesExtractor;
@@ -19,12 +23,12 @@ import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanKindExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanNameExtractor;
+import io.opentelemetry.instrumentation.api.internal.DeprecatedCaptureNames;
 import io.opentelemetry.instrumentation.api.internal.Experimental;
 import io.opentelemetry.instrumentation.api.semconv.network.NetworkAttributesExtractor;
 import io.opentelemetry.instrumentation.api.semconv.network.ServerAttributesExtractor;
 import io.opentelemetry.instrumentation.grpc.v1_6.internal.GrpcClientNetworkAttributesGetter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.function.UnaryOperator;
 import javax.annotation.Nullable;
@@ -33,11 +37,8 @@ import javax.annotation.Nullable;
 public final class GrpcTelemetryBuilder {
 
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.grpc-1.6";
-  // copied from PeerIncubatingAttributes
-  private static final AttributeKey<String> PEER_SERVICE = AttributeKey.stringKey("peer.service");
 
   private final OpenTelemetry openTelemetry;
-  @Nullable private String peerService;
 
   private UnaryOperator<SpanNameExtractor<GrpcRequest>> clientSpanNameExtractorCustomizer =
       UnaryOperator.identity();
@@ -52,8 +53,8 @@ public final class GrpcTelemetryBuilder {
 
   private boolean captureExperimentalSpanAttributes;
   private boolean emitMessageEvents = true;
-  private List<String> capturedClientRequestMetadata = Collections.emptyList();
-  private List<String> capturedServerRequestMetadata = Collections.emptyList();
+  @Nullable private IncludeExclude clientRequestMetadata;
+  @Nullable private IncludeExclude serverRequestMetadata;
 
   GrpcTelemetryBuilder(OpenTelemetry openTelemetry) {
     this.openTelemetry = openTelemetry;
@@ -95,18 +96,6 @@ public final class GrpcTelemetryBuilder {
   }
 
   /**
-   * Sets custom client {@link SpanNameExtractor} via transform function.
-   *
-   * @deprecated Use {@link #setClientSpanNameExtractorCustomizer(UnaryOperator)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public GrpcTelemetryBuilder setClientSpanNameExtractor(
-      UnaryOperator<SpanNameExtractor<GrpcRequest>> clientSpanNameExtractor) {
-    return setClientSpanNameExtractorCustomizer(clientSpanNameExtractor);
-  }
-
-  /**
    * Sets a customizer that receives the default client {@link SpanNameExtractor} and returns a
    * customized one.
    */
@@ -118,18 +107,6 @@ public final class GrpcTelemetryBuilder {
   }
 
   /**
-   * Sets custom server {@link SpanNameExtractor} via transform function.
-   *
-   * @deprecated Use {@link #setServerSpanNameExtractorCustomizer(UnaryOperator)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public GrpcTelemetryBuilder setServerSpanNameExtractor(
-      UnaryOperator<SpanNameExtractor<GrpcRequest>> serverSpanNameExtractor) {
-    return setServerSpanNameExtractorCustomizer(serverSpanNameExtractor);
-  }
-
-  /**
    * Sets a customizer that receives the default server {@link SpanNameExtractor} and returns a
    * customized one.
    */
@@ -137,13 +114,6 @@ public final class GrpcTelemetryBuilder {
   public GrpcTelemetryBuilder setServerSpanNameExtractorCustomizer(
       UnaryOperator<SpanNameExtractor<GrpcRequest>> serverSpanNameExtractorCustomizer) {
     this.serverSpanNameExtractorCustomizer = serverSpanNameExtractorCustomizer;
-    return this;
-  }
-
-  /** Sets the {@code peer.service} attribute for http client spans. */
-  @CanIgnoreReturnValue
-  public GrpcTelemetryBuilder setPeerService(String peerService) {
-    this.peerService = peerService;
     return this;
   }
 
@@ -169,23 +139,80 @@ public final class GrpcTelemetryBuilder {
     return this;
   }
 
-  /** Sets which metadata request values should be captured as span attributes on client spans. */
+  /**
+   * Sets which ASCII request metadata should be captured as span attributes on client spans.
+   *
+   * <p>Metadata keys and selector patterns are matched case-insensitively. {@code ?} matches any
+   * single character and {@code *} matches any number of characters, including none. Excluded
+   * patterns take precedence over included patterns. No metadata is captured unless a selector is
+   * configured; a selector with only excluded patterns captures every ASCII metadata key that it
+   * does not exclude.
+   */
   @CanIgnoreReturnValue
-  public GrpcTelemetryBuilder setCapturedClientRequestMetadata(
-      List<String> capturedClientRequestMetadata) {
-    this.capturedClientRequestMetadata = capturedClientRequestMetadata;
+  public GrpcTelemetryBuilder setClientRequestMetadata(IncludeExclude clientRequestMetadata) {
+    this.clientRequestMetadata = clientRequestMetadata;
     return this;
   }
 
-  /** Sets which metadata request values should be captured as span attributes on server spans. */
+  /**
+   * Sets which metadata request values should be captured as span attributes on client spans.
+   *
+   * <p>The metadata keys are matched literally. Keys containing {@code *} or {@code ?} are ignored
+   * and logged, since this setting never supported wildcards.
+   *
+   * @deprecated Use {@link #setClientRequestMetadata(IncludeExclude)} instead. May be removed in
+   *     the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
+  @CanIgnoreReturnValue
+  public GrpcTelemetryBuilder setCapturedClientRequestMetadata(
+      List<String> capturedClientRequestMetadata) {
+    clientRequestMetadata =
+        DeprecatedCaptureNames.toSelector(
+            capturedClientRequestMetadata,
+            "GrpcTelemetryBuilder.setCapturedClientRequestMetadata()",
+            "setClientRequestMetadata(IncludeExclude)");
+    return this;
+  }
+
+  /**
+   * Sets which ASCII request metadata should be captured as span attributes on server spans.
+   *
+   * <p>Metadata keys and selector patterns are matched case-insensitively. {@code ?} matches any
+   * single character and {@code *} matches any number of characters, including none. Excluded
+   * patterns take precedence over included patterns. No metadata is captured unless a selector is
+   * configured; a selector with only excluded patterns captures every ASCII metadata key that it
+   * does not exclude.
+   */
+  @CanIgnoreReturnValue
+  public GrpcTelemetryBuilder setServerRequestMetadata(IncludeExclude serverRequestMetadata) {
+    this.serverRequestMetadata = serverRequestMetadata;
+    return this;
+  }
+
+  /**
+   * Sets which metadata request values should be captured as span attributes on server spans.
+   *
+   * <p>The metadata keys are matched literally. Keys containing {@code *} or {@code ?} are ignored
+   * and logged, since this setting never supported wildcards.
+   *
+   * @deprecated Use {@link #setServerRequestMetadata(IncludeExclude)} instead. May be removed in
+   *     the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public GrpcTelemetryBuilder setCapturedServerRequestMetadata(
       List<String> capturedServerRequestMetadata) {
-    this.capturedServerRequestMetadata = capturedServerRequestMetadata;
+    serverRequestMetadata =
+        DeprecatedCaptureNames.toSelector(
+            capturedServerRequestMetadata,
+            "GrpcTelemetryBuilder.setCapturedServerRequestMetadata()",
+            "setServerRequestMetadata(IncludeExclude)");
     return this;
   }
 
   /** Returns a new {@link GrpcTelemetry} with the settings of this {@link GrpcTelemetryBuilder}. */
+  @SuppressWarnings("deprecation") // RpcMetricsContextCustomizers is deprecated for removal in 3.0
   public GrpcTelemetry build() {
     SpanNameExtractor<GrpcRequest> originalSpanNameExtractor = new GrpcSpanNameExtractor();
     SpanNameExtractor<? super GrpcRequest> clientSpanNameExtractor =
@@ -200,9 +227,9 @@ public final class GrpcTelemetryBuilder {
 
     GrpcClientNetworkAttributesGetter netClientAttributesGetter =
         new GrpcClientNetworkAttributesGetter();
-    GrpcNetworkServerAttributesGetter netServerAttributesGetter =
-        new GrpcNetworkServerAttributesGetter();
-    GrpcRpcAttributesGetter rpcAttributesGetter = GrpcRpcAttributesGetter.INSTANCE;
+    GrpcServerNetworkAttributesGetter netServerAttributesGetter =
+        new GrpcServerNetworkAttributesGetter();
+    GrpcRpcAttributesGetter rpcAttributesGetter = new GrpcRpcAttributesGetter();
 
     clientInstrumenterBuilder
         .setSpanStatusExtractor(GrpcSpanStatusExtractor.CLIENT)
@@ -212,9 +239,11 @@ public final class GrpcTelemetryBuilder {
         .addAttributesExtractor(NetworkAttributesExtractor.create(netClientAttributesGetter))
         .addAttributesExtractors(additionalClientExtractors)
         .addAttributesExtractor(
-            new GrpcAttributesExtractor(
-                GrpcRpcAttributesGetter.INSTANCE, capturedClientRequestMetadata))
-        .addOperationMetrics(RpcClientMetrics.get());
+            new GrpcAttributesExtractor(rpcAttributesGetter, clientRequestMetadata))
+        .addOperationMetrics(RpcClientMetrics.get())
+        .addContextCustomizer(
+            RpcMetricsContextCustomizers.dualEmitContextCustomizer(rpcAttributesGetter));
+    setRpcClientExceptionEventExtractor(clientInstrumenterBuilder);
     Experimental.addOperationListenerAttributesExtractor(
         clientInstrumenterBuilder, RpcSizeAttributesExtractor.create(rpcAttributesGetter));
     serverInstrumenterBuilder
@@ -224,20 +253,17 @@ public final class GrpcTelemetryBuilder {
         .addAttributesExtractor(ServerAttributesExtractor.create(netServerAttributesGetter))
         .addAttributesExtractor(NetworkAttributesExtractor.create(netServerAttributesGetter))
         .addAttributesExtractor(
-            new GrpcAttributesExtractor(
-                GrpcRpcAttributesGetter.INSTANCE, capturedServerRequestMetadata))
+            new GrpcAttributesExtractor(rpcAttributesGetter, serverRequestMetadata))
         .addAttributesExtractors(additionalServerExtractors)
-        .addOperationMetrics(RpcServerMetrics.get());
+        .addOperationMetrics(RpcServerMetrics.get())
+        .addContextCustomizer(
+            RpcMetricsContextCustomizers.dualEmitContextCustomizer(rpcAttributesGetter));
+    setRpcServerExceptionEventExtractor(serverInstrumenterBuilder);
     Experimental.addOperationListenerAttributesExtractor(
         serverInstrumenterBuilder, RpcSizeAttributesExtractor.create(rpcAttributesGetter));
 
-    if (peerService != null) {
-      clientInstrumenterBuilder.addAttributesExtractor(
-          AttributesExtractor.constant(PEER_SERVICE, peerService));
-    }
-
     return new GrpcTelemetry(
-        serverInstrumenterBuilder.buildServerInstrumenter(GrpcRequestGetter.INSTANCE),
+        serverInstrumenterBuilder.buildServerInstrumenter(new GrpcRequestGetter()),
         // gRPC client interceptors require two phases, one to set up request and one to execute.
         // So we go ahead and inject manually in this instrumentation.
         clientInstrumenterBuilder.buildInstrumenter(SpanKindExtractor.alwaysClient()),

@@ -20,7 +20,7 @@ otelJava {
 }
 
 tasks {
-  withType<Test>().configureEach {
-    jvmArgs("-Dotel.instrumentation.servlet.experimental.capture-request-parameters=test-parameter")
+  test {
+    jvmArgs("-Dotel.instrumentation.servlet.experimental.request-parameters.included=test-?arameter")
   }
 }

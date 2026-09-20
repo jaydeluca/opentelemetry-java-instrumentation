@@ -5,6 +5,8 @@
 
 package io.opentelemetry.instrumentation.nats.v2_17;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
 import io.nats.client.Message;
@@ -26,28 +28,40 @@ import java.util.concurrent.CompletableFuture;
 final class OpenTelemetryConnection implements InvocationHandler {
 
   private final Connection delegate;
-  private final Instrumenter<NatsRequest, NatsRequest> producerInstrumenter;
+  private final Instrumenter<NatsRequest, NatsRequest> publishInstrumenter;
+  private final Instrumenter<NatsRequest, NatsRequest> requestInstrumenter;
+  private final Instrumenter<NatsRequest, NatsRequest> settleInstrumenter;
   private final Instrumenter<NatsRequest, Void> consumerProcessInstrumenter;
 
-  public OpenTelemetryConnection(
+  private OpenTelemetryConnection(
       Connection connection,
-      Instrumenter<NatsRequest, NatsRequest> producerInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> publishInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> requestInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> settleInstrumenter,
       Instrumenter<NatsRequest, Void> consumerProcessInstrumenter) {
     this.delegate = connection;
-    this.producerInstrumenter = producerInstrumenter;
+    this.publishInstrumenter = publishInstrumenter;
+    this.requestInstrumenter = requestInstrumenter;
+    this.settleInstrumenter = settleInstrumenter;
     this.consumerProcessInstrumenter = consumerProcessInstrumenter;
   }
 
-  public static Connection wrap(
+  static Connection wrap(
       Connection connection,
-      Instrumenter<NatsRequest, NatsRequest> producerInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> publishInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> requestInstrumenter,
+      Instrumenter<NatsRequest, NatsRequest> settleInstrumenter,
       Instrumenter<NatsRequest, Void> consumerProcessInstrumenter) {
     return (Connection)
         Proxy.newProxyInstance(
             OpenTelemetryConnection.class.getClassLoader(),
             new Class<?>[] {Connection.class},
             new OpenTelemetryConnection(
-                connection, producerInstrumenter, consumerProcessInstrumenter));
+                connection,
+                publishInstrumenter,
+                requestInstrumenter,
+                settleInstrumenter,
+                consumerProcessInstrumenter));
   }
 
   @Override
@@ -81,8 +95,8 @@ final class OpenTelemetryConnection implements InvocationHandler {
   private static Object invokeMethod(Method method, Object target, Object[] args) throws Throwable {
     try {
       return method.invoke(target, args);
-    } catch (InvocationTargetException exception) {
-      throw exception.getCause();
+    } catch (InvocationTargetException e) {
+      throw e.getCause();
     }
   }
 
@@ -142,12 +156,16 @@ final class OpenTelemetryConnection implements InvocationHandler {
       natsRequest = NatsRequest.create(delegate, subject, replyTo, headers, body);
     }
 
-    if (natsRequest == null || !producerInstrumenter.shouldStart(parentContext, natsRequest)) {
+    Instrumenter<NatsRequest, NatsRequest> instrumenter =
+        natsRequest == null
+            ? publishInstrumenter
+            : instrumenterFor(natsRequest, publishInstrumenter);
+    if (natsRequest == null || !instrumenter.shouldStart(parentContext, natsRequest)) {
       invokeMethod(method, delegate, args);
       return;
     }
 
-    Context context = producerInstrumenter.start(parentContext, natsRequest);
+    Context context = instrumenter.start(parentContext, natsRequest);
     Throwable throwable = null;
     try (Scope ignored = context.makeCurrent()) {
       delegate.publish(subject, replyTo, headers, body);
@@ -155,7 +173,7 @@ final class OpenTelemetryConnection implements InvocationHandler {
       throwable = t;
       throw t;
     } finally {
-      producerInstrumenter.end(context, natsRequest, null, throwable);
+      instrumenter.end(context, natsRequest, null, throwable);
     }
   }
 
@@ -201,13 +219,17 @@ final class OpenTelemetryConnection implements InvocationHandler {
       natsRequest = NatsRequest.create(delegate, subject, null, headers, body);
     }
 
+    Instrumenter<NatsRequest, NatsRequest> instrumenter =
+        natsRequest == null
+            ? requestInstrumenter
+            : instrumenterFor(natsRequest, requestInstrumenter);
     if (timeout == null
         || natsRequest == null
-        || !producerInstrumenter.shouldStart(parentContext, natsRequest)) {
+        || !instrumenter.shouldStart(parentContext, natsRequest)) {
       return (Message) invokeMethod(method, delegate, args);
     }
 
-    Context context = producerInstrumenter.start(parentContext, natsRequest);
+    Context context = instrumenter.start(parentContext, natsRequest);
     NatsRequest response = null;
     Throwable throwable = null;
 
@@ -223,7 +245,7 @@ final class OpenTelemetryConnection implements InvocationHandler {
       throwable = t;
       throw t;
     } finally {
-      producerInstrumenter.end(context, natsRequest, response, throwable);
+      instrumenter.end(context, natsRequest, response, throwable);
     }
   }
 
@@ -290,12 +312,16 @@ final class OpenTelemetryConnection implements InvocationHandler {
       natsRequest = NatsRequest.create(delegate, subject, null, headers, body);
     }
 
-    if (natsRequest == null || !producerInstrumenter.shouldStart(parentContext, natsRequest)) {
+    Instrumenter<NatsRequest, NatsRequest> instrumenter =
+        natsRequest == null
+            ? requestInstrumenter
+            : instrumenterFor(natsRequest, requestInstrumenter);
+    if (natsRequest == null || !instrumenter.shouldStart(parentContext, natsRequest)) {
       return (CompletableFuture<Message>) invokeMethod(method, delegate, args);
     }
 
     NatsRequest notNullNatsRequest = natsRequest;
-    Context context = producerInstrumenter.start(parentContext, notNullNatsRequest);
+    Context context = instrumenter.start(parentContext, notNullNatsRequest);
 
     CompletableFuture<Message> future;
     try {
@@ -305,7 +331,7 @@ final class OpenTelemetryConnection implements InvocationHandler {
         future = delegate.request(subject, headers, body);
       }
     } catch (Throwable t) {
-      producerInstrumenter.end(context, notNullNatsRequest, null, t);
+      instrumenter.end(context, notNullNatsRequest, null, t);
       throw t;
     }
 
@@ -313,11 +339,18 @@ final class OpenTelemetryConnection implements InvocationHandler {
         (result, exception) -> {
           if (result != null) {
             NatsRequest response = NatsRequest.create(delegate, result);
-            producerInstrumenter.end(context, notNullNatsRequest, response, exception);
+            instrumenter.end(context, notNullNatsRequest, response, exception);
           } else {
-            producerInstrumenter.end(context, notNullNatsRequest, null, exception);
+            instrumenter.end(context, notNullNatsRequest, null, exception);
           }
         });
+  }
+
+  private Instrumenter<NatsRequest, NatsRequest> instrumenterFor(
+      NatsRequest request, Instrumenter<NatsRequest, NatsRequest> defaultInstrumenter) {
+    return emitStableMessagingSemconv() && request.isJetStreamSettlement()
+        ? settleInstrumenter
+        : defaultInstrumenter;
   }
 
   // public Dispatcher createDispatcher()

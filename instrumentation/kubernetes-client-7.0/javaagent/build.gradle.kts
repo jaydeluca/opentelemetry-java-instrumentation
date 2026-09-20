@@ -19,14 +19,30 @@ dependencies {
   latestDepTestLibrary("io.kubernetes:client-java-api:19.+") // see test suite below
 }
 
+val testJavaVersion = otelProps.testJavaVersion ?: JavaVersion.current()
+
 testing {
   suites {
-    val version20Test by registering(JvmTestSuite::class) {
+    // version22Test reuses the same test source against `latest.release` in latest-deps mode
+    // (currently 26.x), and against 22.0.0 otherwise, to exercise the upper end of the v20+
+    // builder API line.
+    register<JvmTestSuite>("version22Test") {
+      sources {
+        java {
+          setSrcDirs(listOf("src/version20Test/java"))
+        }
+      }
       dependencies {
-        if (findProperty("testLatestDeps") as Boolean) {
-          implementation("io.kubernetes:client-java-api:latest.release")
-        } else {
-          implementation("io.kubernetes:client-java-api:20.0.0")
+        implementation("io.kubernetes:client-java-api:${baseVersion("22.0.0").orLatest()}")
+      }
+      targets {
+        all {
+          testTask.configure {
+            // client-java-api 22.0.0+ requires Java 11+
+            if (testJavaVersion.isJava8) {
+              enabled = false
+            }
+          }
         }
       }
     }
@@ -41,18 +57,42 @@ tasks {
 
 tasks {
   withType<Test>().configureEach {
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  val testExperimental by registering(Test::class) {
-    testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
+  val experimentalSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}Experimental") {
+        val sourceTask = named<Test>(suite.name).get()
+        setJvmArgs(sourceTask.jvmArgs)
+        setSystemProperties(sourceTask.systemProperties)
 
-    jvmArgs("-Dotel.instrumentation.kubernetes-client.experimental-span-attributes=true")
-    systemProperty("metadataConfig", "otel.instrumentation.kubernetes-client.experimental-span-attributes=true")
-  }
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        val experimentalConfig = "otel.instrumentation.kubernetes-client.experimental-span-attributes=true"
+        jvmArgs("-D$experimentalConfig")
+        systemProperty(
+          "metadataConfig",
+          listOfNotNull(sourceTask.systemProperties["metadataConfig"], experimentalConfig).joinToString(","),
+        )
+        isEnabled = sourceTask.enabled
+      }
+    }
+
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}StableSemconv") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+        systemProperty("metadataConfig", "otel.semconv-stability.opt-in=service.peer")
+        isEnabled = project.tasks.named(suite.name).get().enabled
+      }
+    }
 
   check {
-    dependsOn(testExperimental)
+    dependsOn(experimentalSuites, stableSemconvSuites)
   }
 }

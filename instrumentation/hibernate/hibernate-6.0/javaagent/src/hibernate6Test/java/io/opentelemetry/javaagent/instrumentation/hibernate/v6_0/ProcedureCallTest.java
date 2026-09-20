@@ -7,16 +7,24 @@ package io.opentelemetry.javaagent.instrumentation.hibernate.v6_0;
 
 import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 import static io.opentelemetry.instrumentation.testing.junit.db.SemconvStabilityUtil.maybeStable;
+import static io.opentelemetry.javaagent.instrumentation.hibernate.ExperimentalTestHelper.HIBERNATE_SESSION_ID;
+import static io.opentelemetry.javaagent.instrumentation.hibernate.ExperimentalTestHelper.experimentalSatisfies;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
+import static io.opentelemetry.semconv.DbAttributes.DB_QUERY_SUMMARY;
+import static io.opentelemetry.semconv.DbAttributes.DB_STORED_PROCEDURE_NAME;
+import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_MESSAGE;
+import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_STACKTRACE;
+import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_TYPE;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_CONNECTION_STRING;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_USER;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.HSQLDB;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
@@ -39,34 +47,33 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 class ProcedureCallTest {
-  protected static SessionFactory sessionFactory;
-  protected static List<Value> prepopulated;
+  private static SessionFactory sessionFactory;
+  private static List<Value> prepopulated;
 
   @RegisterExtension
-  protected static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
+  private static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
   @BeforeAll
   static void setup() throws SQLException {
     sessionFactory =
         new Configuration().configure("procedure-call-hibernate.cfg.xml").buildSessionFactory();
     // Pre-populate the DB, so delete/update can be tested.
-    Session writer = sessionFactory.openSession();
-    writer.beginTransaction();
-    prepopulated = new ArrayList<>();
-    for (int i = 0; i < 2; i++) {
-      prepopulated.add(new Value("Hello :) " + i));
-      writer.persist(prepopulated.get(i));
+    try (Session writer = sessionFactory.openSession()) {
+      writer.beginTransaction();
+      prepopulated = new ArrayList<>();
+      for (int i = 0; i < 2; i++) {
+        prepopulated.add(new Value("Hello :) " + i));
+        writer.persist(prepopulated.get(i));
+      }
+      writer.getTransaction().commit();
     }
-    writer.getTransaction().commit();
-    writer.close();
 
     // Create a stored procedure.
-    Connection conn = DriverManager.getConnection("jdbc:hsqldb:mem:test", "sa", "1");
-    Statement stmt = conn.createStatement();
-    stmt.execute(
-        "CREATE PROCEDURE TEST_PROC() MODIFIES SQL DATA BEGIN ATOMIC INSERT INTO Value VALUES (420, 'fred'); END");
-    stmt.close();
-    conn.close();
+    try (Connection conn = DriverManager.getConnection("jdbc:hsqldb:mem:test", "sa", "1");
+        Statement stmt = conn.createStatement()) {
+      stmt.execute(
+          "CREATE PROCEDURE TEST_PROC() MODIFIES SQL DATA BEGIN ATOMIC INSERT INTO Value VALUES (420, 'fred'); END");
+    }
   }
 
   @AfterAll
@@ -101,33 +108,45 @@ class ProcedureCallTest {
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            satisfies(
-                                AttributeKey.stringKey("hibernate.session_id"),
-                                val -> val.isInstanceOf(String.class))),
+                            experimentalSatisfies(
+                                HIBERNATE_SESSION_ID,
+                                val -> assertThat(val).isInstanceOf(String.class))),
                 span ->
-                    span.hasName("CALL test.TEST_PROC")
+                    span.hasName(
+                            emitStableDatabaseSemconv() ? "call TEST_PROC" : "CALL test.TEST_PROC")
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), "hsqldb"),
+                            equalTo(maybeStable(DB_SYSTEM), HSQLDB),
                             equalTo(maybeStable(DB_NAME), "test"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
                                 DB_CONNECTION_STRING,
                                 emitStableDatabaseSemconv() ? null : "hsqldb:mem:"),
                             equalTo(maybeStable(DB_STATEMENT), "{call TEST_PROC()}"),
-                            equalTo(maybeStable(DB_OPERATION), "CALL")),
+                            equalTo(
+                                DB_QUERY_SUMMARY,
+                                emitStableDatabaseSemconv() ? "call TEST_PROC" : null),
+                            equalTo(
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv() ? null : "CALL"),
+                            equalTo(
+                                DB_STORED_PROCEDURE_NAME,
+                                emitStableDatabaseSemconv() ? "TEST_PROC" : null)),
                 span ->
                     span.hasName("Transaction.commit")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(
-                                AttributeKey.stringKey("hibernate.session_id"),
-                                trace
-                                    .getSpan(1)
-                                    .getAttributes()
-                                    .get(AttributeKey.stringKey("hibernate.session_id"))))));
+                            experimentalSatisfies(
+                                HIBERNATE_SESSION_ID,
+                                val ->
+                                    assertThat(val)
+                                        .isEqualTo(
+                                            trace
+                                                .getSpan(1)
+                                                .getAttributes()
+                                                .get(HIBERNATE_SESSION_ID))))));
   }
 
   @Test
@@ -144,7 +163,7 @@ class ProcedureCallTest {
           call.setParameter(parameterRegistration, 420L);
           try {
             call.getOutputs();
-          } catch (RuntimeException e) {
+          } catch (RuntimeException ignored) {
             // We expected this.
           }
           session.getTransaction().commit();
@@ -166,28 +185,29 @@ class ProcedureCallTest {
                                     .hasName("exception")
                                     .hasAttributesSatisfyingExactly(
                                         equalTo(
-                                            AttributeKey.stringKey("exception.type"),
+                                            EXCEPTION_TYPE,
                                             "org.hibernate.exception.SQLGrammarException"),
                                         satisfies(
-                                            AttributeKey.stringKey("exception.message"),
+                                            EXCEPTION_MESSAGE,
                                             val -> val.startsWith("could not prepare statement")),
-                                        satisfies(
-                                            AttributeKey.stringKey("exception.stacktrace"),
-                                            val -> val.isNotNull())))
+                                        satisfies(EXCEPTION_STACKTRACE, val -> val.isNotNull())))
                         .hasAttributesSatisfyingExactly(
-                            satisfies(
-                                AttributeKey.stringKey("hibernate.session_id"),
-                                val -> val.isInstanceOf(String.class))),
+                            experimentalSatisfies(
+                                HIBERNATE_SESSION_ID,
+                                val -> assertThat(val).isInstanceOf(String.class))),
                 span ->
                     span.hasName("Transaction.commit")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(
-                                AttributeKey.stringKey("hibernate.session_id"),
-                                trace
-                                    .getSpan(1)
-                                    .getAttributes()
-                                    .get(AttributeKey.stringKey("hibernate.session_id"))))));
+                            experimentalSatisfies(
+                                HIBERNATE_SESSION_ID,
+                                val ->
+                                    assertThat(val)
+                                        .isEqualTo(
+                                            trace
+                                                .getSpan(1)
+                                                .getAttributes()
+                                                .get(HIBERNATE_SESSION_ID))))));
   }
 }

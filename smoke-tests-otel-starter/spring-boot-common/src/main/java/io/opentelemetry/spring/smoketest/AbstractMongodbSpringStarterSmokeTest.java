@@ -7,10 +7,11 @@ package io.opentelemetry.spring.smoketest;
 
 import static io.opentelemetry.instrumentation.api.internal.SemconvStability.stableDbSystemName;
 import static io.opentelemetry.instrumentation.testing.junit.db.SemconvStabilityUtil.maybeStable;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.MONGODB;
 
 import com.mongodb.client.MongoClient;
 import io.opentelemetry.api.trace.SpanKind;
-import io.opentelemetry.semconv.incubating.DbIncubatingAttributes;
 import java.util.ArrayList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,22 +23,26 @@ abstract class AbstractMongodbSpringStarterSmokeTest extends AbstractSpringStart
   @SuppressWarnings("deprecation") // uses deprecated semconv
   @Test
   void mongodb() {
-    testing.runWithSpan(
-        "server",
+    runMongoClientTest(
         () -> {
-          mongoClient.listDatabaseNames().into(new ArrayList<>());
-        });
+          testing.runWithSpan(
+              "server",
+              () -> {
+                mongoClient.listDatabaseNames().into(new ArrayList<>());
+              });
 
-    testing.waitAndAssertTraces(
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("server"),
-                span ->
-                    span.hasKind(SpanKind.CLIENT)
-                        .hasName("listDatabases admin")
-                        .hasAttribute(
-                            maybeStable(DbIncubatingAttributes.DB_SYSTEM),
-                            stableDbSystemName(
-                                DbIncubatingAttributes.DbSystemIncubatingValues.MONGODB))));
+          testing.waitAndAssertTraces(
+              trace ->
+                  trace.hasSpansSatisfyingExactly(
+                      span -> span.hasName("server"),
+                      span ->
+                          span.hasKind(SpanKind.CLIENT)
+                              .hasName("listDatabases admin")
+                              .hasAttribute(maybeStable(DB_SYSTEM), stableDbSystemName(MONGODB))));
+        });
+  }
+
+  protected void runMongoClientTest(Runnable runnable) {
+    runnable.run();
   }
 }

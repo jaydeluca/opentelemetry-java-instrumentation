@@ -20,9 +20,6 @@ dependencies {
   testImplementation("org.hsqldb:hsqldb:2.0.0")
   testImplementation("com.h2database:h2:1.4.197")
   testImplementation("io.r2dbc:r2dbc-h2:1.0.0.RELEASE")
-
-  // latest version of spring data is not yet compatible with spring 7 yet
-  latestDepTestLibrary("org.springframework:spring-test:6.+") // documented limitation
 }
 
 otelJava {
@@ -31,10 +28,9 @@ otelJava {
 
 testing {
   suites {
-    val reactiveTest by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("reactiveTest") {
       dependencies {
         implementation("org.springframework.data:spring-data-r2dbc:3.0.0")
-        implementation("org.testcontainers:testcontainers")
         implementation("io.r2dbc:r2dbc-h2:1.0.0.RELEASE")
         implementation("com.h2database:h2:1.4.197")
       }
@@ -47,16 +43,18 @@ tasks {
     jvmArgs("--add-opens=java.base/java.lang.invoke=ALL-UNNAMED")
     jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
     jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
-    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
   }
 
-  val testStableSemconv by registering(Test::class) {
-    testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
-    jvmArgs("-Dotel.semconv-stability.opt-in=database")
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class).map { suite ->
+    register<Test>("${suite.name}StableSemconv") {
+      testClassesDirs = suite.sources.output.classesDirs
+      classpath = suite.sources.runtimeClasspath
+
+      jvmArgs("-Dotel.semconv-stability.opt-in=database,service.peer")
+    }
   }
 
   check {
-    dependsOn(testing.suites, testStableSemconv)
+    dependsOn(testing.suites, stableSemconvSuites)
   }
 }

@@ -10,7 +10,7 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.TimeoutException;
 
-public final class GcUtils {
+public class GcUtils {
 
   private static final StringBuilder garbage = new StringBuilder();
 
@@ -30,14 +30,19 @@ public final class GcUtils {
         throw new InterruptedException();
       }
       // generate garbage to give gc some work
-      for (int i = 0; i < 26; i++) {
-        if (garbage.length() == 0) {
-          garbage.append("ab");
-        } else {
-          garbage.append(garbage);
+      try {
+        for (int i = 0; i < 26; i++) {
+          if (garbage.length() == 0) {
+            garbage.append("ab");
+          } else {
+            garbage.append(garbage);
+          }
         }
+      } catch (OutOfMemoryError ignored) {
+        // ignore, we just want to trigger GC
       }
       garbage.setLength(0);
+      garbage.trimToSize();
       System.gc();
     }
     if (ref.get() != null) {

@@ -5,11 +5,13 @@
 
 package io.opentelemetry.instrumentation.netty.common.v4_0.internal.client;
 
+import static io.opentelemetry.instrumentation.api.incubator.builder.internal.DefaultHttpClientInstrumenterBuilder.setHttpClientExceptionEventExtractor;
+
 import io.netty.channel.Channel;
 import io.netty.handler.codec.http.HttpResponse;
+import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.instrumentation.api.incubator.builder.internal.DefaultHttpClientInstrumenterBuilder;
-import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpClientPeerServiceAttributesExtractor;
-import io.opentelemetry.instrumentation.api.incubator.semconv.net.PeerServiceResolver;
+import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpClientServicePeerAttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanKindExtractor;
@@ -17,8 +19,7 @@ import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesExt
 import io.opentelemetry.instrumentation.api.semconv.network.NetworkAttributesExtractor;
 import io.opentelemetry.instrumentation.api.semconv.network.ServerAttributesExtractor;
 import io.opentelemetry.instrumentation.netty.common.internal.NettyConnectionRequest;
-import io.opentelemetry.instrumentation.netty.common.v4_0.NettyRequest;
-import javax.annotation.Nullable;
+import io.opentelemetry.instrumentation.netty.common.v4_0.internal.NettyCommonRequest;
 
 /**
  * This class is internal and is hence not for public use. Its APIs are unstable and can change at
@@ -26,12 +27,12 @@ import javax.annotation.Nullable;
  */
 public final class NettyClientInstrumenterFactory {
 
-  private final DefaultHttpClientInstrumenterBuilder<NettyRequest, HttpResponse> builder;
+  private final DefaultHttpClientInstrumenterBuilder<NettyCommonRequest, HttpResponse> builder;
   private final NettyConnectionInstrumentationFlag connectionTelemetryState;
   private final NettyConnectionInstrumentationFlag sslTelemetryState;
 
   public NettyClientInstrumenterFactory(
-      DefaultHttpClientInstrumenterBuilder<NettyRequest, HttpResponse> builder,
+      DefaultHttpClientInstrumenterBuilder<NettyCommonRequest, HttpResponse> builder,
       NettyConnectionInstrumentationFlag connectionTelemetryState,
       NettyConnectionInstrumentationFlag sslTelemetryState) {
     this.builder = builder;
@@ -39,19 +40,20 @@ public final class NettyClientInstrumenterFactory {
     this.sslTelemetryState = sslTelemetryState;
   }
 
-  public Instrumenter<NettyRequest, HttpResponse> instrumenter() {
+  public Instrumenter<NettyCommonRequest, HttpResponse> instrumenter() {
     return builder.build();
   }
 
-  public NettyConnectionInstrumenter createConnectionInstrumenter(
-      @Nullable PeerServiceResolver peerServiceResolver) {
+  // TODO: replace OpenTelemetry parameter with ConfigProvider once it is stabilized and available
+  // via openTelemetry.getConfigProvider()
+  public NettyConnectionInstrumenter createConnectionInstrumenter(OpenTelemetry openTelemetry) {
     if (connectionTelemetryState == NettyConnectionInstrumentationFlag.DISABLED) {
-      return NoopConnectionInstrumenter.INSTANCE;
+      return new NoopConnectionInstrumenter();
     }
 
     boolean connectionTelemetryFullyEnabled =
         connectionTelemetryState == NettyConnectionInstrumentationFlag.ENABLED;
-    NettyConnectHttpAttributesGetter getter = NettyConnectHttpAttributesGetter.INSTANCE;
+    NettyConnectHttpAttributesGetter getter = new NettyConnectHttpAttributesGetter();
 
     InstrumenterBuilder<NettyConnectionRequest, Channel> builder =
         this.builder.instrumenterBuilder(NettyConnectionRequest::spanName);
@@ -68,9 +70,11 @@ public final class NettyClientInstrumenterFactory {
       builder.addAttributesExtractor(HttpClientAttributesExtractor.create(getter));
     }
 
-    if (peerServiceResolver != null) {
-      builder.addAttributesExtractor(
-          HttpClientPeerServiceAttributesExtractor.create(getter, peerServiceResolver));
+    builder.addAttributesExtractor(
+        HttpClientServicePeerAttributesExtractor.create(getter, openTelemetry));
+
+    if (!connectionTelemetryFullyEnabled) {
+      setHttpClientExceptionEventExtractor(builder);
     }
 
     Instrumenter<NettyConnectionRequest, Channel> instrumenter =
@@ -86,7 +90,7 @@ public final class NettyClientInstrumenterFactory {
 
   public NettySslInstrumenter createSslInstrumenter() {
     if (sslTelemetryState == NettyConnectionInstrumentationFlag.DISABLED) {
-      return NoopSslInstrumenter.INSTANCE;
+      return new NoopSslInstrumenter();
     }
 
     boolean sslTelemetryFullyEnabled =

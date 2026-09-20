@@ -6,6 +6,8 @@ muzzle {
   pass {
     group.set("io.lettuce")
     module.set("lettuce-core")
+    // by default this module only applies to pre-5.1 (see classLoaderMatcher); under v3-preview it
+    // also covers 5.1+, but muzzle cannot evaluate that runtime branch
     versions.set("[5.0.0.RELEASE,5.1.0.RELEASE)")
     assertInverse.set(true)
   }
@@ -26,16 +28,91 @@ dependencies {
   latestDepTestLibrary("io.lettuce:lettuce-core:5.0.+") // see lettuce-5.1 module
 }
 
+testing {
+  suites {
+    register<JvmTestSuite>("v3PreviewLettuce51Test") {
+      sources {
+        java {
+          setSrcDirs(listOf("src/test/java"))
+        }
+      }
+
+      dependencies {
+        val lettuceVersion = baseVersion("5.1.0.RELEASE").orLatest("5.+")
+        implementation("com.google.guava:guava")
+        implementation("io.lettuce:lettuce-core:$lettuceVersion")
+        implementation("org.testcontainers:testcontainers")
+      }
+
+      targets.all {
+        testTask.configure {
+          jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+          systemProperty("metadataConfig", "otel.instrumentation.common.v3-preview=true")
+        }
+      }
+    }
+
+    register<JvmTestSuite>("v3PreviewLettuce60Test") {
+      sources {
+        java {
+          setSrcDirs(listOf("src/test/java"))
+        }
+      }
+
+      dependencies {
+        val lettuceVersion = baseVersion("6.0.0.RELEASE").orLatest("6.4.+")
+        implementation("com.google.guava:guava")
+        implementation("io.lettuce:lettuce-core:$lettuceVersion")
+        implementation("org.testcontainers:testcontainers")
+      }
+
+      targets.all {
+        testTask.configure {
+          jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+          systemProperty("metadataConfig", "otel.instrumentation.common.v3-preview=true")
+        }
+      }
+    }
+
+    register<JvmTestSuite>("v3PreviewLettuce65Test") {
+      sources {
+        java {
+          setSrcDirs(listOf("src/test/java"))
+        }
+      }
+
+      dependencies {
+        val lettuceVersion = baseVersion("6.5.0.RELEASE").orLatest()
+        implementation("com.google.guava:guava")
+        implementation("io.lettuce:lettuce-core:$lettuceVersion")
+        implementation("org.testcontainers:testcontainers")
+      }
+
+      targets.all {
+        testTask.configure {
+          jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+          systemProperty("metadataConfig", "otel.instrumentation.common.v3-preview=true")
+        }
+      }
+    }
+  }
+}
+
 tasks {
   withType<Test>().configureEach {
-    jvmArgs("-Dotel.instrumentation.lettuce.connection-telemetry.enabled=true")
-    jvmArgs("-Dotel.instrumentation.lettuce.experimental.command-encoding-events.enabled=true")
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
 
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  val testExperimental by registering(Test::class) {
+  if (otelProps.denyUnsafe) {
+    // Lettuce 5.1.0 pulls in Reactor 3.2.0, whose RingBuffer accesses sun.misc.Unsafe directly.
+    named("v3PreviewLettuce51Test", Test::class) {
+      enabled = false
+    }
+  }
+
+  val testExperimental = register<Test>("testExperimental") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
@@ -43,14 +120,52 @@ tasks {
     systemProperty("metadataConfig", "otel.instrumentation.lettuce.experimental-span-attributes=true")
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val testConnectionTelemetryEnabled = register<Test>("testConnectionTelemetryEnabled") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
-    jvmArgs("-Dotel.semconv-stability.opt-in=database")
-    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+
+    jvmArgs("-Dotel.instrumentation.lettuce.connection-telemetry.enabled=true")
+    systemProperty("metadataConfig", "otel.instrumentation.lettuce.connection-telemetry.enabled=true")
+  }
+
+  val testStableSemconv = register<Test>("testStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.semconv-stability.opt-in=database,service.peer")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database,service.peer")
+  }
+
+  val testConnectionTelemetryEnabledStableSemconv =
+    register<Test>("testConnectionTelemetryEnabledStableSemconv") {
+      testClassesDirs = sourceSets.test.get().output.classesDirs
+      classpath = sourceSets.test.get().runtimeClasspath
+      jvmArgs(
+        "-Dotel.instrumentation.lettuce.connection-telemetry.enabled=true",
+        "-Dotel.semconv-stability.opt-in=database,service.peer"
+      )
+      systemProperty(
+        "metadataConfig",
+        "otel.instrumentation.lettuce.connection-telemetry.enabled=true,otel.semconv-stability.opt-in=database,service.peer"
+      )
+    }
+
+  // exercises the v3-preview path, where this advice-based module supersedes the SPI-based
+  // lettuce-5.1 javaagent module (which is disabled under v3-preview)
+  val testV3Preview = register<Test>("testV3Preview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+    systemProperty("metadataConfig", "otel.instrumentation.common.v3-preview=true")
   }
 
   check {
-    dependsOn(testStableSemconv, testExperimental)
+    dependsOn(
+      testing.suites,
+      testConnectionTelemetryEnabled,
+      testConnectionTelemetryEnabledStableSemconv,
+      testStableSemconv,
+      testExperimental,
+      testV3Preview
+    )
   }
 }

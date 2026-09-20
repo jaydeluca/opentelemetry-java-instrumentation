@@ -13,9 +13,12 @@ import com.amazonaws.handlers.RequestHandler2;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.internal.MessagingConfig;
 import io.opentelemetry.instrumentation.awssdk.v1_11.AwsSdkTelemetry;
-import io.opentelemetry.javaagent.bootstrap.internal.AgentInstrumentationConfig;
+import io.opentelemetry.instrumentation.awssdk.v1_11.AwsSdkTelemetryBuilder;
 import io.opentelemetry.javaagent.bootstrap.internal.ExperimentalConfig;
+import javax.annotation.Nullable;
 
 /**
  * A {@link RequestHandler2} for use in the agent. Unlike library instrumentation, the agent will
@@ -33,16 +36,28 @@ public class TracingRequestHandler extends RequestHandler2 {
   public static final HandlerContextKey<Scope> SCOPE =
       new HandlerContextKey<>(Scope.class.getName());
 
-  public static final RequestHandler2 tracingHandler =
-      AwsSdkTelemetry.builder(GlobalOpenTelemetry.get())
-          .setCaptureExperimentalSpanAttributes(
-              AgentInstrumentationConfig.get()
-                  .getBoolean("otel.instrumentation.aws-sdk.experimental-span-attributes", false))
-          .setMessagingReceiveInstrumentationEnabled(
-              ExperimentalConfig.get().messagingReceiveInstrumentationEnabled())
-          .setCapturedHeaders(ExperimentalConfig.get().getMessagingHeaders())
-          .build()
-          .newRequestHandler();
+  private static final RequestHandler2 tracingHandler = createTracingHandler();
+
+  public static RequestHandler2 tracingHandler() {
+    return tracingHandler;
+  }
+
+  private static RequestHandler2 createTracingHandler() {
+    AwsSdkTelemetryBuilder builder =
+        AwsSdkTelemetry.builder(GlobalOpenTelemetry.get())
+            .setCaptureExperimentalSpanAttributes(
+                DeclarativeConfigUtil.getInstrumentationConfig(GlobalOpenTelemetry.get(), "aws_sdk")
+                    .getBoolean("experimental_span_attributes/development", false))
+            .setMessagingReceiveTelemetryEnabled(
+                ExperimentalConfig.get().messagingReceiveInstrumentationEnabled())
+            .setHeaders(ExperimentalConfig.get().getMessagingHeaders());
+    return builder
+        .setBatchSendMessageCreationSpansEnabled(
+            MessagingConfig.isBatchSendMessageCreationSpansEnabled(
+                GlobalOpenTelemetry.get(), "aws_sdk"))
+        .build()
+        .createRequestHandler();
+  }
 
   @Override
   public void beforeRequest(Request<?> request) {
@@ -66,7 +81,7 @@ public class TracingRequestHandler extends RequestHandler2 {
   }
 
   @Override
-  public void afterError(Request<?> request, Response<?> response, Exception e) {
+  public void afterError(Request<?> request, @Nullable Response<?> response, Exception e) {
     tracingHandler.afterError(request, response, e);
     finish(request);
   }

@@ -5,7 +5,7 @@
 
 package io.opentelemetry.javaagent.instrumentation.servlet.v3_0;
 
-import static io.opentelemetry.javaagent.instrumentation.servlet.ServletHelper.CONTEXT_ATTRIBUTE;
+import static io.opentelemetry.javaagent.instrumentation.servlet.common.ServletHelper.CONTEXT_ATTRIBUTE;
 
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
@@ -18,7 +18,7 @@ import net.bytebuddy.asm.Advice;
 @SuppressWarnings("unused")
 public class AsyncDispatchAdvice {
 
-  @Advice.OnMethodEnter(suppress = Throwable.class)
+  @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
   public static CallDepth enter(
       @Advice.This AsyncContext context, @Advice.AllArguments Object[] args) {
     CallDepth callDepth = CallDepth.forClass(AsyncContext.class);
@@ -43,7 +43,7 @@ public class AsyncDispatchAdvice {
     return callDepth;
   }
 
-  @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+  @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
   public static void exit(@Advice.Enter CallDepth callDepth) {
     callDepth.decrementAndGet();
   }

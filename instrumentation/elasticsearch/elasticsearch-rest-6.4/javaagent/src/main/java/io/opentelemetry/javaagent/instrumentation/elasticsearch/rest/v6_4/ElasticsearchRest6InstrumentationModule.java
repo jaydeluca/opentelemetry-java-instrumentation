@@ -6,36 +6,31 @@
 package io.opentelemetry.javaagent.instrumentation.elasticsearch.rest.v6_4;
 
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
-import static java.util.Collections.singletonList;
+import static java.util.Arrays.asList;
 import static net.bytebuddy.matcher.ElementMatchers.not;
 
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
 import net.bytebuddy.matcher.ElementMatcher;
 
 @AutoService(InstrumentationModule.class)
-public class ElasticsearchRest6InstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class ElasticsearchRest6InstrumentationModule extends InstrumentationModule {
   public ElasticsearchRest6InstrumentationModule() {
     super("elasticsearch-rest", "elasticsearch-rest-6.4", "elasticsearch");
   }
 
   @Override
   public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
-    // class introduced in 7.0.0
-    return not(hasClassesNamed("org.elasticsearch.client.RestClient$InternalRequest"));
+    // added in 6.4.0
+    return hasClassesNamed("org.elasticsearch.client.Request")
+        // added in 7.0.0
+        .and(not(hasClassesNamed("org.elasticsearch.client.RestClient$InternalRequest")));
   }
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return singletonList(new RestClientInstrumentation());
-  }
-
-  @Override
-  public boolean isIndyReady() {
-    return true;
+    return asList(new RestClientConstructorInstrumentation(), new RestClientInstrumentation());
   }
 }

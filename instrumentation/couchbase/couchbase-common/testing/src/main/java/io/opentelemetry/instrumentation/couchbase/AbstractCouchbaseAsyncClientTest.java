@@ -5,11 +5,24 @@
 
 package io.opentelemetry.instrumentation.couchbase;
 
+import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 import static io.opentelemetry.instrumentation.testing.junit.db.SemconvStabilityUtil.maybeStable;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
+import static io.opentelemetry.semconv.DbAttributes.DB_QUERY_SUMMARY;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_ADDRESS;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_PORT;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_TYPE;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.COUCHBASE;
+import static java.util.Collections.singletonList;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Named.named;
 
@@ -25,24 +38,21 @@ import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
-import java.util.Collections;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import rx.Observable;
 
 @SuppressWarnings("deprecation") // using deprecated semconv
 public abstract class AbstractCouchbaseAsyncClientTest extends AbstractCouchbaseTest {
 
-  private static final int TIMEOUT_SECONDS = 10;
+  private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
   @RegisterExtension
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
@@ -64,20 +74,18 @@ public abstract class AbstractCouchbaseAsyncClientTest extends AbstractCouchbase
   void setUpClusters() {
     environmentCouchbase = envBuilder(bucketCouchbase).build();
     clusterCouchbase =
-        CouchbaseAsyncCluster.create(environmentCouchbase, Collections.singletonList("127.0.0.1"));
+        CouchbaseAsyncCluster.create(environmentCouchbase, singletonList("127.0.0.1"));
+    cleanup.deferAfterAll(environmentCouchbase::shutdown);
+    cleanup.deferAfterAll(() -> disconnect(clusterCouchbase));
 
     environmentMemcache = envBuilder(bucketMemcache).build();
-    clusterMemcache =
-        CouchbaseAsyncCluster.create(environmentMemcache, Collections.singletonList("127.0.0.1"));
+    clusterMemcache = CouchbaseAsyncCluster.create(environmentMemcache, singletonList("127.0.0.1"));
+    cleanup.deferAfterAll(environmentMemcache::shutdown);
+    cleanup.deferAfterAll(() -> disconnect(clusterMemcache));
   }
 
-  @AfterAll
-  void cleanUpClusters() {
-    clusterCouchbase.disconnect().timeout(10, TimeUnit.SECONDS).toBlocking().single();
-    environmentCouchbase.shutdown();
-
-    clusterMemcache.disconnect().timeout(10, TimeUnit.SECONDS).toBlocking().single();
-    environmentMemcache.shutdown();
+  private static void disconnect(CouchbaseAsyncCluster cluster) {
+    cluster.disconnect().timeout(TIMEOUT.toMillis(), MILLISECONDS).toBlocking().single();
   }
 
   private CouchbaseAsyncCluster getCluster(BucketSettings bucketSettings) {
@@ -91,8 +99,7 @@ public abstract class AbstractCouchbaseAsyncClientTest extends AbstractCouchbase
 
   @ParameterizedTest
   @MethodSource("bucketSettings")
-  void hasBucket(BucketSettings bucketSettings)
-      throws ExecutionException, InterruptedException, TimeoutException {
+  void hasBucket(BucketSettings bucketSettings) {
     CouchbaseAsyncCluster cluster = getCluster(bucketSettings);
     AsyncClusterManager manager = cluster.clusterManager(USERNAME, PASSWORD).toBlocking().single();
 
@@ -105,27 +112,46 @@ public abstract class AbstractCouchbaseAsyncClientTest extends AbstractCouchbase
         .subscribe(
             bucket -> manager.hasBucket(bucketSettings.name()).subscribe(hasBucket::complete));
 
-    assertThat(hasBucket.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+    assertThat(hasBucket).succeedsWithin(TIMEOUT).isEqualTo(true);
 
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("Cluster.openBucket")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Cluster.openBucket 127.0.0.1"
+                                : "Cluster.openBucket")
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
                             equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
-                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket")),
+                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket"),
+                            equalTo(
+                                SERVER_ADDRESS, emitStableDatabaseSemconv() ? "127.0.0.1" : null)),
                 span ->
-                    assertCouchbaseSpan(span, "ClusterManager.hasBucket")
-                        .hasParent(trace.getSpan(0))));
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "ClusterManager.hasBucket 127.0.0.1"
+                                : "ClusterManager.hasBucket")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_OPERATION), "ClusterManager.hasBucket"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"),
+                                experimentalLocalAddress()))));
   }
 
   @ParameterizedTest
   @MethodSource("bucketSettings")
-  void upsert(BucketSettings bucketSettings)
-      throws ExecutionException, InterruptedException, TimeoutException {
+  void upsert(BucketSettings bucketSettings) {
     CouchbaseAsyncCluster cluster = getCluster(bucketSettings);
 
     JsonObject content = JsonObject.create().put("hello", "world");
@@ -142,7 +168,9 @@ public abstract class AbstractCouchbaseAsyncClientTest extends AbstractCouchbase
                           .subscribe(inserted::complete));
         });
 
-    assertThat(inserted.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).content().getString("hello"))
+    assertThat(inserted)
+        .succeedsWithin(TIMEOUT)
+        .extracting(result -> result.content().getString("hello"))
         .isEqualTo("world");
 
     testing.waitAndAssertTraces(
@@ -150,21 +178,42 @@ public abstract class AbstractCouchbaseAsyncClientTest extends AbstractCouchbase
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("someTrace").hasKind(SpanKind.INTERNAL).hasNoParent(),
                 span ->
-                    span.hasName("Cluster.openBucket")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Cluster.openBucket 127.0.0.1"
+                                : "Cluster.openBucket")
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
                             equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
-                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket")),
+                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket"),
+                            equalTo(
+                                SERVER_ADDRESS, emitStableDatabaseSemconv() ? "127.0.0.1" : null)),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.upsert", bucketSettings.name())
-                        .hasParent(trace.getSpan(1))));
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketSettings.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(1))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketSettings.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId()))));
   }
 
   @ParameterizedTest
   @MethodSource("bucketSettings")
-  void upsertAndGet(BucketSettings bucketSettings)
-      throws ExecutionException, InterruptedException, TimeoutException {
+  void upsertAndGet(BucketSettings bucketSettings) {
     CouchbaseAsyncCluster cluster = getCluster(bucketSettings);
 
     JsonObject content = JsonObject.create().put("hello", "world");
@@ -186,32 +235,73 @@ public abstract class AbstractCouchbaseAsyncClientTest extends AbstractCouchbase
                               }));
         });
 
-    JsonDocument insertedResult = inserted.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-    JsonDocument foundResult = found.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-    assertThat(foundResult).isEqualTo(insertedResult);
-    assertThat(foundResult.content().getString("hello")).isEqualTo("world");
+    assertThat(inserted).succeedsWithin(TIMEOUT);
+    assertThat(found)
+        .succeedsWithin(TIMEOUT)
+        .isEqualTo(inserted.join())
+        .extracting(result -> result.content().getString("hello"))
+        .isEqualTo("world");
 
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("someTrace").hasKind(SpanKind.INTERNAL).hasNoParent(),
                 span ->
-                    span.hasName("Cluster.openBucket")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Cluster.openBucket 127.0.0.1"
+                                : "Cluster.openBucket")
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
                             equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
-                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket")),
+                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket"),
+                            equalTo(
+                                SERVER_ADDRESS, emitStableDatabaseSemconv() ? "127.0.0.1" : null)),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.upsert", bucketSettings.name())
-                        .hasParent(trace.getSpan(1)),
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketSettings.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(1))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketSettings.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId())),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.get", bucketSettings.name())
-                        .hasParent(trace.getSpan(2))));
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.get " + bucketSettings.name()
+                                : "Bucket.get")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(2))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketSettings.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.get"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId()))));
   }
 
   @Test
-  void query() throws ExecutionException, InterruptedException, TimeoutException {
+  void query() {
     // Only couchbase buckets support queries.
     CouchbaseAsyncCluster cluster = getCluster(bucketCouchbase);
 
@@ -232,26 +322,131 @@ public abstract class AbstractCouchbaseAsyncClientTest extends AbstractCouchbase
                           .subscribe(row -> queryResult.complete(row.value())));
         });
 
-    assertThat(queryResult.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).get("row")).isEqualTo("value");
+    assertThat(queryResult)
+        .succeedsWithin(TIMEOUT)
+        .extracting(result -> result.get("row"))
+        .isEqualTo("value");
 
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("someTrace").hasKind(SpanKind.INTERNAL).hasNoParent(),
                 span ->
-                    span.hasName("Cluster.openBucket")
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Cluster.openBucket 127.0.0.1"
+                                : "Cluster.openBucket")
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
                             equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
-                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket")),
+                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket"),
+                            equalTo(
+                                SERVER_ADDRESS, emitStableDatabaseSemconv() ? "127.0.0.1" : null)),
                 span ->
-                    assertCouchbaseSpan(
-                            span,
-                            "SELECT " + bucketCouchbase.name(),
-                            "SELECT",
-                            bucketCouchbase.name(),
-                            "SELECT mockrow")
-                        .hasParent(trace.getSpan(1))));
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "SELECT"
+                                : "SELECT " + bucketCouchbase.name())
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(1))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            equalTo(maybeStable(DB_OPERATION), "SELECT"),
+                            satisfies(
+                                maybeStable(DB_STATEMENT), val -> val.startsWith("SELECT mockrow")),
+                            equalTo(
+                                DB_QUERY_SUMMARY, emitStableDatabaseSemconv() ? "SELECT" : null),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId()))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("bucketSettings")
+  void repeatedSubscription(BucketSettings bucketSettings) {
+    CouchbaseAsyncCluster cluster = getCluster(bucketSettings);
+
+    JsonObject content = JsonObject.create().put("hello", "world");
+    CompletableFuture<JsonDocument> first = new CompletableFuture<>();
+    CompletableFuture<JsonDocument> second = new CompletableFuture<>();
+    testing.runWithSpan(
+        "someTrace",
+        () ->
+            cluster
+                .openBucket(bucketSettings.name(), bucketSettings.password())
+                .subscribe(
+                    bucket -> {
+                      Observable<JsonDocument> upsert =
+                          bucket.upsert(JsonDocument.create("helloworld", content));
+                      upsert.subscribe(first::complete);
+                      upsert.subscribe(second::complete);
+                    }));
+
+    assertThat(first).succeedsWithin(TIMEOUT);
+    assertThat(second).succeedsWithin(TIMEOUT);
+
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span -> span.hasName("someTrace").hasKind(SpanKind.INTERNAL).hasNoParent(),
+                span ->
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Cluster.openBucket 127.0.0.1"
+                                : "Cluster.openBucket")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_OPERATION), "Cluster.openBucket"),
+                            equalTo(SERVER_ADDRESS, configuredServerAddress())),
+                span ->
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketSettings.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(1))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketSettings.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId())),
+                span ->
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketSettings.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(1))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketSettings.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId()))));
   }
 }

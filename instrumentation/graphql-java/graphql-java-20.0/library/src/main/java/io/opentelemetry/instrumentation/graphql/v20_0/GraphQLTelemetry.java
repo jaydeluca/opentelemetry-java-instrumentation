@@ -9,10 +9,13 @@ import graphql.execution.instrumentation.Instrumentation;
 import graphql.schema.DataFetchingEnvironment;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
-import io.opentelemetry.instrumentation.graphql.internal.OpenTelemetryInstrumentationHelper;
+import io.opentelemetry.instrumentation.graphql.common.v12_0.internal.OpenTelemetryInstrumentationHelper;
 
 @SuppressWarnings({"AbbreviationAsWordInName", "MemberName"})
 public final class GraphQLTelemetry {
+  private final OpenTelemetryInstrumentationHelper helper;
+  private final Instrumenter<DataFetchingEnvironment, Object> dataFetcherInstrumenter;
+  private final boolean createSpansForTrivialDataFetcher;
 
   /** Returns a new {@link GraphQLTelemetry} configured with the given {@link OpenTelemetry}. */
   public static GraphQLTelemetry create(OpenTelemetry openTelemetry) {
@@ -25,10 +28,6 @@ public final class GraphQLTelemetry {
   public static GraphQLTelemetryBuilder builder(OpenTelemetry openTelemetry) {
     return new GraphQLTelemetryBuilder(openTelemetry);
   }
-
-  private final OpenTelemetryInstrumentationHelper helper;
-  private final Instrumenter<DataFetchingEnvironment, Object> dataFetcherInstrumenter;
-  private final boolean createSpansForTrivialDataFetcher;
 
   GraphQLTelemetry(
       OpenTelemetry openTelemetry,
@@ -47,7 +46,7 @@ public final class GraphQLTelemetry {
   /**
    * Returns a new {@link Instrumentation} that generates telemetry for received GraphQL requests.
    */
-  public Instrumentation newInstrumentation() {
+  public Instrumentation createInstrumentation() {
     return new OpenTelemetryInstrumentation(
         helper, dataFetcherInstrumenter, createSpansForTrivialDataFetcher);
   }

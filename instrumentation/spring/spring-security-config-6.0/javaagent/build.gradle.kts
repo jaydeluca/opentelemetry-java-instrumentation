@@ -8,9 +8,12 @@ muzzle {
     group.set("org.springframework.security")
     module.set("spring-security-config")
     versions.set("[6.0.0,]")
+    assertInverse.set(true)
 
     extraDependency("jakarta.servlet:jakarta.servlet-api:6.0.0")
-    extraDependency("org.springframework.security:spring-security-web:6.0.0")
+    // deliberately not using 6.0.0 because it would also pull in spring-security-core 6.0.0 which
+    // contains the class that we check for to disable the instrumentation on older versions
+    extraDependency("org.springframework.security:spring-security-web:5.5.0")
     extraDependency("io.projectreactor:reactor-core:3.5.0")
   }
 }
@@ -31,7 +34,7 @@ dependencies {
   // parent POM, switch back to testLibrary when a new version is released
   // testLibrary("jakarta.servlet:jakarta.servlet-api:6.0.0")
   testImplementation("jakarta.servlet:jakarta.servlet-api:6.0.0")
-  latestDepTestLibrary("jakarta.servlet:jakarta.servlet-api:6.1.0") // documented limitation
+  latestDepTestLibrary("jakarta.servlet:jakarta.servlet-api:6.1.0") // related dependency
 }
 
 otelJava {
@@ -43,5 +46,17 @@ tasks {
     systemProperty("otel.instrumentation.common.enduser.id.enabled", "true")
     systemProperty("otel.instrumentation.common.enduser.role.enabled", "true")
     systemProperty("otel.instrumentation.common.enduser.scope.enabled", "true")
+  }
+
+  val testV3Preview = register<Test>("testV3Preview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+    systemProperty("otel.instrumentation.common.user.name.enabled", "true")
+    systemProperty("otel.instrumentation.common.user.roles.enabled", "true")
+  }
+
+  check {
+    dependsOn(testV3Preview)
   }
 }

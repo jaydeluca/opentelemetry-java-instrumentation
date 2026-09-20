@@ -3,7 +3,7 @@ plugins {
 }
 
 dependencies {
-  library("io.r2dbc:r2dbc-spi:1.0.0.RELEASE")
+  library("io.r2dbc:r2dbc-spi:0.9.0.RELEASE")
   implementation("io.r2dbc:r2dbc-proxy")
 
   testImplementation(project(":instrumentation:r2dbc-1.0:testing"))
@@ -16,7 +16,7 @@ tasks {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     jvmArgs("-Dotel.semconv-stability.opt-in=database")

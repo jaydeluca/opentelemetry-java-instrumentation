@@ -19,11 +19,16 @@ import javax.annotation.Nullable;
 public abstract class NatsRequest {
 
   public static NatsRequest create(
-      Connection connection, String subject, String replyTo, Headers headers, byte[] body) {
+      Connection connection,
+      String subject,
+      @Nullable String replyTo,
+      @Nullable Headers headers,
+      @Nullable byte[] body) {
     return new AutoValue_NatsRequest(
         replyTo,
         connection.getServerInfo().getClientId(),
         subject,
+        NatsSubject.getJetStreamSettlementOperationName(subject, body),
         headers,
         getDataSize(body),
         connection.getOptions().getInboxPrefix());
@@ -34,6 +39,7 @@ public abstract class NatsRequest {
         message.getReplyTo(),
         connection.getServerInfo().getClientId(),
         message.getSubject(),
+        NatsSubject.getJetStreamSettlementOperationName(message.getSubject(), message.getData()),
         message.getHeaders(),
         getDataSize(message.getData()),
         connection.getOptions().getInboxPrefix());
@@ -46,12 +52,20 @@ public abstract class NatsRequest {
 
   public abstract String getSubject();
 
+  /** Returns whether this request targets a JetStream message settlement subject. */
+  public final boolean isJetStreamSettlement() {
+    return NatsSubject.isJetStreamSettlement(getSubject());
+  }
+
+  @Nullable
+  public abstract String getJetStreamSettlementOperationName();
+
   @Nullable
   public abstract Headers getHeaders();
 
   public abstract long getDataSize();
 
-  private static long getDataSize(byte[] data) {
+  private static long getDataSize(@Nullable byte[] data) {
     return data == null ? 0 : data.length;
   }
 

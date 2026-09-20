@@ -5,38 +5,65 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.rabbit.v1_0;
 
-import io.opentelemetry.api.GlobalOpenTelemetry;
-import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessageOperation;
-import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingAttributesExtractor;
-import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingSpanNameExtractor;
-import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
-import io.opentelemetry.javaagent.bootstrap.internal.ExperimentalConfig;
-import org.springframework.amqp.core.Message;
+import static io.opentelemetry.instrumentation.api.incubator.semconv.messaging.internal.MessagingExceptionEventExtractors.setMessagingProcessExceptionEventExtractor;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
 
-public final class SpringRabbitSingletons {
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingAttributesExtractor;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingConsumerMetrics;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingOperationType;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingProcessMetrics;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingSpanNameExtractor;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.internal.MessagingProcessInstrumenterFactory;
+import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
+import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
+import io.opentelemetry.instrumentation.api.semconv.network.NetworkAttributesExtractor;
+import io.opentelemetry.instrumentation.api.semconv.network.ServerAttributesExtractor;
+import io.opentelemetry.javaagent.bootstrap.internal.ExperimentalConfig;
+
+public class SpringRabbitSingletons {
 
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.spring-rabbit-1.0";
 
-  private static final Instrumenter<Message, Void> INSTRUMENTER;
+  private static final String PROCESS_OPERATION_NAME = "process";
+
+  private static final Instrumenter<SpringRabbitRequest, Void> instrumenter;
 
   static {
-    SpringRabbitMessageAttributesGetter getter = SpringRabbitMessageAttributesGetter.INSTANCE;
-    MessageOperation operation = MessageOperation.PROCESS;
+    OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
+    SpringRabbitMessageAttributesGetter getter = new SpringRabbitMessageAttributesGetter();
+    SpringRabbitNetAttributesGetter netAttributesGetter = new SpringRabbitNetAttributesGetter();
+    MessagingOperationType operationType = MessagingOperationType.PROCESS;
 
-    INSTRUMENTER =
-        Instrumenter.<Message, Void>builder(
-                GlobalOpenTelemetry.get(),
+    InstrumenterBuilder<SpringRabbitRequest, Void> builder =
+        Instrumenter.<SpringRabbitRequest, Void>builder(
+                openTelemetry,
                 INSTRUMENTATION_NAME,
-                MessagingSpanNameExtractor.create(getter, operation))
+                MessagingSpanNameExtractor.create(getter, operationType, PROCESS_OPERATION_NAME))
             .addAttributesExtractor(
-                MessagingAttributesExtractor.builder(getter, operation)
-                    .setCapturedHeaders(ExperimentalConfig.get().getMessagingHeaders())
+                MessagingAttributesExtractor.builder(getter, operationType, PROCESS_OPERATION_NAME)
+                    .setHeaders(ExperimentalConfig.get().getMessagingHeaders())
                     .build())
-            .buildConsumerInstrumenter(MessageHeaderGetter.INSTANCE);
+            .addAttributesExtractor(NetworkAttributesExtractor.create(netAttributesGetter))
+            .addAttributesExtractor(new SpringRabbitExtraAttributesExtractor())
+            .addOperationMetrics(MessagingProcessMetrics.get())
+            .addOperationMetrics(MessagingConsumerMetrics.getConsumedMessages());
+    if (emitStableMessagingSemconv()) {
+      builder.addAttributesExtractor(ServerAttributesExtractor.create(netAttributesGetter));
+    }
+    setMessagingProcessExceptionEventExtractor(builder);
+
+    instrumenter =
+        MessagingProcessInstrumenterFactory.create(
+            builder,
+            openTelemetry.getPropagators().getTextMapPropagator(),
+            new MessageHeaderGetter(),
+            false);
   }
 
-  public static Instrumenter<Message, Void> instrumenter() {
-    return INSTRUMENTER;
+  public static Instrumenter<SpringRabbitRequest, Void> instrumenter() {
+    return instrumenter;
   }
 
   private SpringRabbitSingletons() {}

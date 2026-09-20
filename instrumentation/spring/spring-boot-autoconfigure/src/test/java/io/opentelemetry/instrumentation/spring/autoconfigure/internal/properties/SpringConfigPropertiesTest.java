@@ -5,7 +5,9 @@
 
 package io.opentelemetry.instrumentation.spring.autoconfigure.internal.properties;
 
+import static java.util.Arrays.asList;
 import static java.util.Collections.emptyMap;
+import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.eq;
@@ -17,8 +19,8 @@ import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.instrumentation.spring.autoconfigure.OpenTelemetryAutoConfiguration;
 import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import io.opentelemetry.sdk.autoconfigure.spi.internal.DefaultConfigProperties;
+import java.time.Duration;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +36,6 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.core.env.Environment;
-import org.springframework.expression.spel.standard.SpelExpressionParser;
 
 class SpringConfigPropertiesTest {
   private final ApplicationContextRunner contextRunner =
@@ -43,7 +44,7 @@ class SpringConfigPropertiesTest {
           .withPropertyValues(
               "otel.traces.exporter=none", "otel.metrics.exporter=none", "otel.logs.exporter=none");
 
-  public static Stream<Arguments> headerKeys() {
+  static Stream<Arguments> headerKeys() {
     return Arrays.stream(
             new String[] {
               "otel.exporter.otlp.traces.headers",
@@ -68,7 +69,7 @@ class SpringConfigPropertiesTest {
               assertThat(config.getString("otel.exporter.otlp.compression")).isEqualTo("gzip");
               assertThat(config.getBoolean("otel.exporter.otlp.enabled")).isTrue();
               assertThat(config.getDuration("otel.exporter.otlp.timeout"))
-                  .isEqualByComparingTo(java.time.Duration.ofSeconds(1));
+                  .isEqualByComparingTo(Duration.ofSeconds(1));
             });
   }
 
@@ -109,22 +110,18 @@ class SpringConfigPropertiesTest {
                     .containsExactly(entry("a", "1"), entry("b", "2")));
   }
 
-  public static Stream<Arguments> listProperties() {
+  static Stream<Arguments> listProperties() {
     return Stream.of(
-        Arguments.of("otel.experimental.resource.disabled.keys", Arrays.asList("a", "b")),
-        Arguments.of("otel.propagators", Arrays.asList("baggage", "b3")),
-        Arguments.of("otel.logs.exporter", Collections.singletonList("console")),
-        Arguments.of("otel.metrics.exporter", Collections.singletonList("console")),
-        Arguments.of("otel.traces.exporter", Collections.singletonList("console")),
-        Arguments.of(
-            "otel.instrumentation.http.client.capture-request-headers", Arrays.asList("a", "b")),
-        Arguments.of(
-            "otel.instrumentation.http.client.capture-response-headers", Arrays.asList("a", "b")),
-        Arguments.of(
-            "otel.instrumentation.http.server.capture-request-headers", Arrays.asList("a", "b")),
-        Arguments.of(
-            "otel.instrumentation.http.server.capture-response-headers", Arrays.asList("a", "b")),
-        Arguments.of("otel.instrumentation.http.known-methods", Arrays.asList("a", "b")));
+        Arguments.of("otel.experimental.resource.disabled.keys", asList("a", "b")),
+        Arguments.of("otel.propagators", asList("baggage", "b3")),
+        Arguments.of("otel.logs.exporter", singletonList("console")),
+        Arguments.of("otel.metrics.exporter", singletonList("console")),
+        Arguments.of("otel.traces.exporter", singletonList("console")),
+        Arguments.of("otel.instrumentation.http.client.capture-request-headers", asList("a", "b")),
+        Arguments.of("otel.instrumentation.http.client.capture-response-headers", asList("a", "b")),
+        Arguments.of("otel.instrumentation.http.server.capture-request-headers", asList("a", "b")),
+        Arguments.of("otel.instrumentation.http.server.capture-response-headers", asList("a", "b")),
+        Arguments.of("otel.instrumentation.http.known-methods", asList("a", "b")));
   }
 
   @ParameterizedTest
@@ -168,7 +165,7 @@ class SpringConfigPropertiesTest {
             });
   }
 
-  public static Stream<Arguments> propertyCachingTestCases() {
+  static Stream<Arguments> propertyCachingTestCases() {
     return Stream.of(
         // property, typeClass, assertion
         Arguments.of(
@@ -203,7 +200,7 @@ class SpringConfigPropertiesTest {
             (Consumer<SpringConfigProperties>)
                 config ->
                     assertThat(config.getDuration("otel.bsp.export.timeout"))
-                        .isEqualByComparingTo(java.time.Duration.ofSeconds(30))),
+                        .isEqualByComparingTo(Duration.ofSeconds(30))),
         Arguments.of(
             "otel.attribute.value.length.limit=256",
             List.class,
@@ -230,7 +227,6 @@ class SpringConfigPropertiesTest {
               SpringConfigProperties config =
                   new SpringConfigProperties(
                       spyEnvironment,
-                      new SpelExpressionParser(),
                       context.getBean(OtlpExporterProperties.class),
                       context.getBean(OtelResourceProperties.class),
                       context.getBean(OtelSpringProperties.class),
@@ -249,7 +245,7 @@ class SpringConfigPropertiesTest {
   void mapPropertyCaching() {
     this.contextRunner
         .withSystemProperties(
-            "otel.instrumentation.common.peer-service-mapping={'host1':'serviceA','host2':'serviceB'}")
+            "otel.instrumentation.common.peer-service-mapping=host1=serviceA,host2=serviceB")
         .run(
             context -> {
               Environment realEnvironment = context.getBean("environment", Environment.class);
@@ -258,7 +254,6 @@ class SpringConfigPropertiesTest {
               SpringConfigProperties config =
                   new SpringConfigProperties(
                       spyEnvironment,
-                      new SpelExpressionParser(),
                       context.getBean(OtlpExporterProperties.class),
                       context.getBean(OtelResourceProperties.class),
                       context.getBean(OtelSpringProperties.class),
@@ -288,7 +283,6 @@ class SpringConfigPropertiesTest {
       AssertableApplicationContext context, Map<String, String> fallback) {
     return new SpringConfigProperties(
         context.getBean("environment", Environment.class),
-        new SpelExpressionParser(),
         context.getBean(OtlpExporterProperties.class),
         context.getBean(OtelResourceProperties.class),
         context.getBean(OtelSpringProperties.class),

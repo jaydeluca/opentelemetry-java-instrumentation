@@ -6,7 +6,6 @@
 package io.opentelemetry.instrumentation.spring.autoconfigure.internal.instrumentation.web;
 
 import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.instrumentation.api.incubator.config.internal.InstrumentationConfig;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.ConditionalOnEnabledInstrumentation;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -15,6 +14,8 @@ import org.springframework.boot.autoconfigure.web.client.RestClientAutoConfigura
 import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -33,18 +34,16 @@ public class RestClientInstrumentationAutoConfiguration {
 
   @Bean
   static RestClientBeanPostProcessor otelRestClientBeanPostProcessor(
-      ObjectProvider<OpenTelemetry> openTelemetryProvider,
-      ObjectProvider<InstrumentationConfig> configProvider) {
-    return new RestClientBeanPostProcessor(openTelemetryProvider, configProvider);
+      ObjectProvider<OpenTelemetry> openTelemetryProvider) {
+    return new RestClientBeanPostProcessor(openTelemetryProvider);
   }
 
   @Bean
+  @Order(Ordered.HIGHEST_PRECEDENCE + 10)
   RestClientCustomizer otelRestClientCustomizer(
-      ObjectProvider<OpenTelemetry> openTelemetryProvider,
-      ObjectProvider<InstrumentationConfig> configProvider) {
+      ObjectProvider<OpenTelemetry> openTelemetryProvider) {
     return builder ->
         builder.requestInterceptor(
-            RestClientBeanPostProcessor.getInterceptor(
-                openTelemetryProvider.getObject(), configProvider.getObject()));
+            RestClientBeanPostProcessor.getInterceptor(openTelemetryProvider.getObject()));
   }
 }

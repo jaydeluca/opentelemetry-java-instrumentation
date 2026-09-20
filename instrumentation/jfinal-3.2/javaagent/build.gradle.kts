@@ -11,7 +11,7 @@ muzzle {
   }
 }
 
-if (!(findProperty("testLatestDeps") as Boolean)) {
+if (!otelProps.testLatestDeps) {
   otelJava {
     // jfinal 3.2 doesn't work with Java 9+
     maxJavaVersionForTests.set(JavaVersion.VERSION_1_8)
@@ -23,10 +23,11 @@ dependencies {
   testLibrary("com.jfinal:jetty-server:2019.3")
   testInstrumentation(project(":instrumentation:jetty:jetty-8.0:javaagent"))
   testInstrumentation(project(":instrumentation:jetty:jetty-11.0:javaagent"))
-  testInstrumentation(project(":instrumentation:jetty:jetty-common:javaagent"))
+  testInstrumentation(project(":instrumentation:jetty:jetty-common-8.0:javaagent"))
 }
 
-tasks.withType<Test>().configureEach {
+tasks.test {
   jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
-  systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+  systemProperty("metadataConfig", "otel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+  systemProperty("collectMetadata", otelProps.collectMetadata)
 }

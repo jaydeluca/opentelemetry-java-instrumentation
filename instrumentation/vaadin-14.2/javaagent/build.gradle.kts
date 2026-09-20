@@ -21,7 +21,13 @@ muzzle {
   pass {
     group.set("com.vaadin")
     module.set("flow-server")
-    versions.set("[3.1.0,)")
+    versions.set("[3.1.0,25.0.0)")
+  }
+  // not supported yet
+  fail {
+    group.set("com.vaadin")
+    module.set("flow-server")
+    versions.set("[25.0.0,)")
   }
 }
 
@@ -41,21 +47,21 @@ dependencies {
 
 testing {
   suites {
-    val vaadin142Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("vaadin142Test") {
       dependencies {
         implementation(project(":instrumentation:vaadin-14.2:testing"))
         implementation("com.vaadin:vaadin-spring-boot-starter:14.2.0")
       }
     }
 
-    val vaadin16Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("vaadin16Test") {
       dependencies {
         implementation(project(":instrumentation:vaadin-14.2:testing"))
         implementation("com.vaadin:vaadin-spring-boot-starter:16.0.0")
       }
     }
 
-    val vaadin14LatestTest by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("vaadin14LatestTest") {
       dependencies {
         implementation(project(":instrumentation:vaadin-14.2:testing"))
         // 14.12 requires license
@@ -63,7 +69,7 @@ testing {
       }
     }
 
-    val vaadinLatestTest by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("vaadinLatestTest") {
       dependencies {
         implementation(project(":instrumentation:vaadin-14.2:testing"))
         // tests fail with 24.4.1
@@ -73,13 +79,29 @@ testing {
   }
 }
 
+// Vaadin's frontend tooling installs node and pnpm into the shared ~/.vaadin directory. Running two
+// test suites at once lets their npm installs clobber each other, which leaves ~/.vaadin corrupted
+// and fails every subsequent attempt with ENOTEMPTY, so only let one suite run at a time.
+abstract class VaadinBuildService : BuildService<BuildServiceParameters.None>
+
+val vaadinBuildService =
+  gradle.sharedServices.registerIfAbsent("vaadinBuildService", VaadinBuildService::class.java) {
+    maxParallelUsages.set(1)
+  }
+
 tasks {
   withType<Test>().configureEach {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
+    usesService(vaadinBuildService)
+
+    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+    // Enable legacy OpenSSL provider for Node.js 17+ compatibility with webpack 4
+    environment("NODE_OPTIONS", "--openssl-legacy-provider")
   }
 
   check {
-    if (findProperty("testLatestDeps") as Boolean) {
+    if (otelProps.testLatestDeps) {
       dependsOn(testing.suites.named("vaadin14LatestTest"), testing.suites.named("vaadinLatestTest"))
     } else {
       dependsOn(testing.suites.named("vaadin142Test"), testing.suites.named("vaadin16Test"))
@@ -95,7 +117,4 @@ configurations.configureEach {
       force("org.slf4j:slf4j-api:1.7.36")
     }
   }
-}
-tasks.withType<Test>().configureEach {
-  jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
 }

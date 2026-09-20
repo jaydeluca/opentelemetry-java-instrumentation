@@ -7,9 +7,11 @@ package io.opentelemetry.javaagent.tooling.muzzle;
 
 import static io.opentelemetry.javaagent.tooling.muzzle.references.Flag.MinimumVisibilityFlag.PACKAGE_OR_HIGHER;
 import static io.opentelemetry.javaagent.tooling.muzzle.references.Flag.MinimumVisibilityFlag.PROTECTED_OR_HIGHER;
+import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.entry;
+import static org.junit.jupiter.params.provider.Arguments.argumentSet;
 
 import external.instrumentation.ExternalHelper;
 import io.opentelemetry.context.Context;
@@ -23,7 +25,6 @@ import io.opentelemetry.javaagent.tooling.muzzle.references.Flag.ManifestationFl
 import io.opentelemetry.javaagent.tooling.muzzle.references.Flag.OwnershipFlag;
 import io.opentelemetry.javaagent.tooling.muzzle.references.Flag.VisibilityFlag;
 import io.opentelemetry.javaagent.tooling.muzzle.references.MethodRef;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import muzzle.TestClasses;
@@ -219,12 +220,12 @@ class ReferenceCollectorTest {
 
     assertThat(helperClasses)
         .containsSubsequence(
-            Arrays.asList(
+            asList(
                 TestHelperClasses.HelperInterface.class.getName(),
                 TestHelperClasses.Helper.class.getName()));
     assertThat(helperClasses)
         .containsSubsequence(
-            Arrays.asList(
+            asList(
                 TestHelperClasses.HelperSuperClass.class.getName(),
                 TestHelperClasses.Helper.class.getName()));
   }
@@ -239,17 +240,17 @@ class ReferenceCollectorTest {
 
     assertThat(helperClasses)
         .containsSubsequence(
-            Arrays.asList(
+            asList(
                 TestHelperClasses.HelperInterface.class.getName(),
                 TestHelperClasses.Helper.class.getName()));
     assertThat(helperClasses)
         .containsSubsequence(
-            Arrays.asList(
+            asList(
                 TestHelperClasses.HelperSuperClass.class.getName(),
                 TestHelperClasses.Helper.class.getName()));
     assertThat(helperClasses)
         .containsSubsequence(
-            Arrays.asList(
+            asList(
                 OtherTestHelperClasses.TestEnum.class.getName(),
                 OtherTestHelperClasses.TestEnum.class.getName() + "$1"));
 
@@ -291,19 +292,19 @@ class ReferenceCollectorTest {
     List<String> helperClasses = collector.getSortedHelperClasses();
     assertThat(helperClasses)
         .containsSubsequence(
-            Arrays.asList(
+            asList(
                 TestHelperClasses.HelperInterface.class.getName(),
                 TestHelperClasses.Helper.class.getName()));
     assertThat(helperClasses)
         .containsSubsequence(
-            Arrays.asList(
+            asList(
                 TestHelperClasses.HelperSuperClass.class.getName(),
                 TestHelperClasses.Helper.class.getName()));
   }
 
   @SuppressWarnings("unused")
   private static List<Arguments> shouldCollectHelperClassesFromResourceFile() {
-    return Arrays.asList(
+    return asList(
         Arguments.of("Java SPI", "META-INF/services/test.resource.file"),
         Arguments.of(
             "AWS SDK v2 global interceptors file",
@@ -377,10 +378,9 @@ class ReferenceCollectorTest {
             entry(VirtualFieldTestClasses.Key2.class.getName(), Context.class.getName()));
   }
 
-  @ParameterizedTest(name = "{0}")
+  @ParameterizedTest
   @MethodSource
-  public void shouldNotCollectVirtualFieldsForInvalidScenario(
-      @SuppressWarnings("unused") String desc, String adviceClassName) {
+  public void shouldNotCollectVirtualFieldsForInvalidScenario(String adviceClassName) {
     ReferenceCollector collector = new ReferenceCollector(s -> false);
 
     assertThatExceptionOfType(MuzzleCompilationException.class)
@@ -393,20 +393,20 @@ class ReferenceCollectorTest {
 
   @SuppressWarnings("unused")
   private static List<Arguments> shouldNotCollectVirtualFieldsForInvalidScenario() {
-    return Arrays.asList(
-        Arguments.of(
+    return asList(
+        argumentSet(
             "passing arbitrary variables or parameters to VirtualField.find()",
             VirtualFieldTestClasses.NotUsingClassRefAdvice.class.getName()),
-        Arguments.of(
+        argumentSet(
             "storing class ref in a local var",
             VirtualFieldTestClasses.PassingVariableAdvice.class.getName()),
-        Arguments.of(
+        argumentSet(
             "using array type as the field owner type",
             VirtualFieldTestClasses.UsingArrayAsOwnerAdvice.class.getName()),
-        Arguments.of(
+        argumentSet(
             "using primitive type as the field owner type",
             VirtualFieldTestClasses.UsingPrimitiveAsOwnerAdvice.class.getName()),
-        Arguments.of(
+        argumentSet(
             "using primitive type as the field type",
             VirtualFieldTestClasses.UsingPrimitiveAsFieldAdvice.class.getName()));
   }

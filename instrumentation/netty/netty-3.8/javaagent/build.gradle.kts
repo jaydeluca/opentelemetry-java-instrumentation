@@ -32,11 +32,10 @@ dependencies {
   testLibrary("com.ning:async-http-client:1.8.0")
 
   latestDepTestLibrary("io.netty:netty:3.+") // see netty-4.0 module
-  latestDepTestLibrary("com.ning:async-http-client:1.9.+") // see netty-4.0 module
 }
 
 // We need to force the dependency to the earliest supported version because other libraries declare newer versions.
-if (!(findProperty("testLatestDeps") as Boolean)) {
+if (!otelProps.testLatestDeps) {
   configurations.configureEach {
     if (!name.contains("muzzle")) {
       resolutionStrategy {
@@ -52,7 +51,18 @@ if (!(findProperty("testLatestDeps") as Boolean)) {
 }
 
 tasks {
-  test {
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+  withType<Test>().configureEach {
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+  }
+
+  val testStableSemconv = register<Test>("testStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=service.peer")
+  }
+
+  check {
+    dependsOn(testStableSemconv)
   }
 }

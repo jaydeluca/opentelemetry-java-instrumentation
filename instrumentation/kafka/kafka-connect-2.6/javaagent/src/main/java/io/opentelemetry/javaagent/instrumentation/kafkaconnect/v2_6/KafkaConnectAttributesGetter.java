@@ -6,17 +6,18 @@
 package io.opentelemetry.javaagent.instrumentation.kafkaconnect.v2_6;
 
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MessagingSystemIncubatingValues.KAFKA;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 
 import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingAttributesGetter;
-import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
 import org.apache.kafka.connect.header.Header;
 
-enum KafkaConnectAttributesGetter implements MessagingAttributesGetter<KafkaConnectTask, Void> {
-  INSTANCE;
+class KafkaConnectAttributesGetter implements MessagingAttributesGetter<KafkaConnectTask, Void> {
 
   @Override
   public String getSystem(KafkaConnectTask request) {
@@ -87,14 +88,23 @@ enum KafkaConnectAttributesGetter implements MessagingAttributesGetter<KafkaConn
         .flatMap(record -> StreamSupport.stream(record.headers().spliterator(), false))
         .filter(header -> name.equals(header.key()) && header.value() != null)
         .map(header -> convertHeaderValue(header))
-        .collect(Collectors.toList());
+        .collect(toList());
   }
 
   private static String convertHeaderValue(Header header) {
     Object value = header.value();
     if (value instanceof byte[]) {
-      return new String((byte[]) value, StandardCharsets.UTF_8);
+      return new String((byte[]) value, UTF_8);
     }
     return value.toString();
+  }
+
+  @Override
+  public Collection<String> getMessageHeaderNames(KafkaConnectTask request) {
+    return request.getRecords().stream()
+        .filter(record -> record.headers() != null)
+        .flatMap(record -> StreamSupport.stream(record.headers().spliterator(), false))
+        .map(Header::key)
+        .collect(toSet());
   }
 }

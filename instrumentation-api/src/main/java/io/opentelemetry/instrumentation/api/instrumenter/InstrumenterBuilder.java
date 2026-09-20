@@ -5,11 +5,16 @@
 
 package io.opentelemetry.instrumentation.api.instrumenter;
 
+import static io.opentelemetry.api.incubator.config.DeclarativeConfigProperties.empty;
 import static java.util.Objects.requireNonNull;
 import static java.util.logging.Level.WARNING;
+import static java.util.stream.Collectors.toSet;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.incubator.ExtendedOpenTelemetry;
+import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
+import io.opentelemetry.api.logs.LoggerBuilder;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.metrics.MeterBuilder;
 import io.opentelemetry.api.trace.SpanKind;
@@ -19,23 +24,25 @@ import io.opentelemetry.api.trace.TracerBuilder;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.propagation.TextMapGetter;
 import io.opentelemetry.context.propagation.TextMapSetter;
-import io.opentelemetry.instrumentation.api.internal.ConfigPropertiesUtil;
 import io.opentelemetry.instrumentation.api.internal.EmbeddedInstrumentationProperties;
 import io.opentelemetry.instrumentation.api.internal.Experimental;
 import io.opentelemetry.instrumentation.api.internal.InstrumenterBuilderAccess;
 import io.opentelemetry.instrumentation.api.internal.InstrumenterUtil;
+import io.opentelemetry.instrumentation.api.internal.InternalExceptionEventExtractor;
 import io.opentelemetry.instrumentation.api.internal.InternalInstrumenterCustomizer;
 import io.opentelemetry.instrumentation.api.internal.InternalInstrumenterCustomizerProvider;
 import io.opentelemetry.instrumentation.api.internal.InternalInstrumenterCustomizerUtil;
 import io.opentelemetry.instrumentation.api.internal.SchemaUrlProvider;
+import io.opentelemetry.instrumentation.api.internal.SemconvStability;
 import io.opentelemetry.instrumentation.api.internal.SpanKey;
 import io.opentelemetry.instrumentation.api.internal.SpanKeyProvider;
+import io.opentelemetry.instrumentation.api.internal.SystemProperty;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
@@ -48,11 +55,7 @@ import javax.annotation.Nullable;
 public final class InstrumenterBuilder<REQUEST, RESPONSE> {
 
   private static final Logger logger = Logger.getLogger(InstrumenterBuilder.class.getName());
-
-  private static final SpanSuppressionStrategy spanSuppressionStrategy =
-      SpanSuppressionStrategy.fromConfig(
-          ConfigPropertiesUtil.getString(
-              "otel.instrumentation.experimental.span-suppression-strategy"));
+  private static final AtomicBoolean spanSuppressionPropertyWarningLogged = new AtomicBoolean();
 
   final OpenTelemetry openTelemetry;
   final String instrumentationName;
@@ -73,6 +76,8 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
   SpanStatusExtractor<? super REQUEST, ? super RESPONSE> spanStatusExtractor =
       SpanStatusExtractor.getDefault();
   ErrorCauseExtractor errorCauseExtractor = ErrorCauseExtractor.getDefault();
+  @Nullable InternalExceptionEventExtractor<? super REQUEST> exceptionEventExtractor;
+  @Nullable private SpanSuppressionStrategy spanSuppressionStrategy;
   boolean propagateOperationListenersToOnEnd = false;
   boolean enabled = true;
 
@@ -82,6 +87,15 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
             builder.operationListenerAttributesExtractors.add(
                 requireNonNull(
                     operationListenerAttributesExtractor, "operationListenerAttributesExtractor")));
+    Experimental.internalSetExceptionEventExtractor(
+        (builder, exceptionEventExtractor) ->
+            builder.exceptionEventExtractor =
+                requireNonNull(exceptionEventExtractor, "exceptionEventExtractor"));
+    Experimental.internalSetSpanSuppressionStrategy(
+        (builder, strategy) ->
+            builder.spanSuppressionStrategy =
+                SpanSuppressionStrategy.fromProgrammatic(
+                    requireNonNull(strategy, "spanSuppressionStrategy")));
   }
 
   InstrumenterBuilder(
@@ -91,8 +105,6 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
     this.openTelemetry = openTelemetry;
     this.instrumentationName = instrumentationName;
     this.spanNameExtractor = spanNameExtractor;
-    this.instrumentationVersion =
-        EmbeddedInstrumentationProperties.findVersion(instrumentationName);
   }
 
   /**
@@ -299,6 +311,10 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
 
     applyCustomizers(this);
 
+    if (instrumentationVersion == null) {
+      instrumentationVersion = EmbeddedInstrumentationProperties.findVersion(instrumentationName);
+    }
+
     this.spanKindExtractor = spanKindExtractor;
     return constructor.create(this);
   }
@@ -314,6 +330,18 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
       tracerBuilder.setSchemaUrl(schemaUrl);
     }
     return tracerBuilder.build();
+  }
+
+  io.opentelemetry.api.logs.Logger buildLogger() {
+    LoggerBuilder loggerBuilder = openTelemetry.getLogsBridge().loggerBuilder(instrumentationName);
+    if (instrumentationVersion != null) {
+      loggerBuilder.setInstrumentationVersion(instrumentationVersion);
+    }
+    String schemaUrl = getSchemaUrl();
+    if (schemaUrl != null) {
+      loggerBuilder.setSchemaUrl(schemaUrl);
+    }
+    return loggerBuilder.build();
   }
 
   List<OperationListener> buildOperationListeners() {
@@ -357,7 +385,7 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
                   String url = provider.internalGetSchemaUrl();
                   return url == null ? Stream.of() : Stream.of(url);
                 })
-            .collect(Collectors.toSet());
+            .collect(toSet());
     switch (computedSchemaUrls.size()) {
       case 0:
         return null;
@@ -374,7 +402,37 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
 
   SpanSuppressor buildSpanSuppressor() {
     return new SpanSuppressors.ByContextKey(
-        spanSuppressionStrategy.create(getSpanKeysFromAttributesExtractors()));
+        getSpanSuppressionStrategy().create(getSpanKeysFromAttributesExtractors()));
+  }
+
+  private SpanSuppressionStrategy getSpanSuppressionStrategy() {
+    if (spanSuppressionStrategy != null) {
+      return spanSuppressionStrategy;
+    }
+    // we cannot use DeclarativeConfigUtil here because it's not available in instrumentation-api
+    DeclarativeConfigProperties commonConfig = empty();
+    if (openTelemetry instanceof ExtendedOpenTelemetry) {
+      commonConfig =
+          ((ExtendedOpenTelemetry) openTelemetry)
+              .getConfigProvider()
+              .getInstrumentationConfig("common");
+    }
+
+    String result = commonConfig.getString("span_suppression_strategy/development");
+    if (result == null && !SemconvStability.v3Preview(openTelemetry)) {
+      String deprecatedResult =
+          SystemProperty.getString("otel.instrumentation.experimental.span-suppression-strategy");
+      if (deprecatedResult != null) {
+        if (spanSuppressionPropertyWarningLogged.compareAndSet(false, true)) {
+          logger.warning(
+              "The otel.instrumentation.experimental.span-suppression-strategy setting is"
+                  + " deprecated and will be removed in 3.0. Use the programmatic API or equivalent"
+                  + " declarative instrumentation configuration instead.");
+        }
+        result = deprecatedResult;
+      }
+    }
+    return SpanSuppressionStrategy.fromConfig(result);
   }
 
   private Set<SpanKey> getSpanKeysFromAttributesExtractors() {
@@ -386,7 +444,7 @@ public final class InstrumenterBuilder<REQUEST, RESPONSE> {
               SpanKey spanKey = provider.internalGetSpanKey();
               return spanKey == null ? Stream.of() : Stream.of(spanKey);
             })
-        .collect(Collectors.toSet());
+        .collect(toSet());
   }
 
   private void propagateOperationListenersToOnEnd() {

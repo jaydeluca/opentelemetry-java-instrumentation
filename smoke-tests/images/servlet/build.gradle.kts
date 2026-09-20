@@ -1,5 +1,7 @@
 import com.bmuschko.gradle.docker.tasks.image.DockerBuildImage
 import com.bmuschko.gradle.docker.tasks.image.DockerPushImage
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
 
 plugins {
   id("otel.spotless-conventions")
@@ -15,6 +17,12 @@ data class ImageTarget(
   val war: String = "servlet-3.0",
   val windows: Boolean = true
 )
+
+abstract class DockerBuildService : BuildService<BuildServiceParameters.None>
+
+gradle.sharedServices.registerIfAbsent("dockerBuildService", DockerBuildService::class.java) {
+  maxParallelUsages.set(1)
+}
 
 val extraTag = findProperty("extraTag")
   ?: java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd.HHmmSS").format(java.time.LocalDateTime.now())
@@ -56,26 +64,28 @@ val targets = mapOf(
     ImageTarget(
       listOf("open-liberty:20.0.0.12-full-java11-openj9@sha256:2fa4af95d6c48e3db79edfd2b8a9c71e26c63a68c3fcae92f222fbb42c469ed2"),
       listOf("hotspot", "openj9"),
-      listOf("8", "11"),
-      mapOf("release" to "2020-11-11_0736")
+      listOf("8", "11")
     ),
     ImageTarget(
       listOf("open-liberty:21.0.0.12-full-java11-openj9@sha256:eb014c600b5e08b799cb0c5781e606cf1e7a28ad913ba956c9d9e7f8a2f528dc"),
       listOf("hotspot", "openj9"),
-      listOf("8", "11", "17"),
-      mapOf("release" to "2021-11-17_1256")
+      listOf("8", "11", "17")
     ),
     ImageTarget(
       listOf("open-liberty:22.0.0.12-full-java11-openj9@sha256:a06f1da35a564f00354b86c7d01d8cc9d6eef156ce88d5b59605c5c02bf48c72"),
       listOf("hotspot", "openj9"),
-      listOf("8", "11", "17"),
-      mapOf("release" to "22.0.0.12")
+      listOf("8", "11", "17")
     ),
     ImageTarget(
       listOf("open-liberty:23.0.0.12-full-java11-openj9@sha256:cd6aa69cffffb45427cbb6a5640cd00b13c98064f296a66894ea1decd181e1c3"),
       listOf("hotspot", "openj9"),
-      listOf("8", "11", "17", "21"),
-      mapOf("release" to "23.0.0.12")
+      listOf("8", "11", "17", "21")
+    ),
+    ImageTarget(
+      listOf("open-liberty:26.0.0.3-full-java11-openj9@sha256:0f1e49d15b6de21cdf65b032a20103598c30f20f764b45ba1044d36d762f6165"),
+      listOf("hotspot", "openj9"),
+      listOf("8", "11", "17", "21", "25"),
+      mapOf("release" to "26.0.0.3")
     ),
   ),
   "payara" to listOf(
@@ -149,8 +159,8 @@ val targets = mapOf(
   "websphere" to listOf(
     ImageTarget(
       listOf(
-        "ibmcom/websphere-traditional:8.5.5.22@sha256:2a385c56f3e6781cc595d873473efd5ef7cb4f34e88c6cf8381121332fb49c9c",
-        "ibmcom/websphere-traditional:9.0.5.14@sha256:7e569af2f4050bb0f3ac0fcab113e2dee20d9d6bdc4061cef4b97b79c2ea4fdd"
+        "icr.io/appcafe/websphere-traditional:8.5.5.29@sha256:5d11ebb08f1f99e43fc1386149b6df6378a2d61c0511ce48318b5c4ae8228f89",
+        "icr.io/appcafe/websphere-traditional:9.0.5.27@sha256:f9c5c9f4fb45ddf989c56dec48d75dd85579fa60d86be831c4cbfada94bca0d4"
       ),
       listOf("openj9"),
       listOf("8"),
@@ -178,12 +188,12 @@ val targets = mapOf(
 )
 
 tasks {
-  val buildLinuxTestImages by registering {
+  val buildLinuxTestImages = register<DefaultTask>("buildLinuxTestImages") {
     group = "build"
     description = "Builds all Linux Docker images for the test matrix"
   }
 
-  val buildWindowsTestImages by registering {
+  val buildWindowsTestImages = register<DefaultTask>("buildWindowsTestImages") {
     group = "build"
     description = "Builds all Windows Docker images for the test matrix"
   }
@@ -191,15 +201,21 @@ tasks {
   val linuxImages = createDockerTasks(buildLinuxTestImages, false)
   val windowsImages = createDockerTasks(buildWindowsTestImages, true)
 
-  val pushMatrix by registering(DockerPushImage::class) {
-    mustRunAfter(buildLinuxTestImages)
-    mustRunAfter(buildWindowsTestImages)
+  register<DockerPushImage>("pushLinuxImages") {
+    dependsOn(buildLinuxTestImages)
     group = "publishing"
-    description = "Push all Docker images for the test matrix"
-    images.set(linuxImages + windowsImages)
+    description = "Push Linux Docker images for the test matrix"
+    images.set(linuxImages)
   }
 
-  val printSmokeTestsConfigurations by registering {
+  register<DockerPushImage>("pushWindowsImages") {
+    dependsOn(buildWindowsTestImages)
+    group = "publishing"
+    description = "Push Windows Docker images for the test matrix"
+    images.set(windowsImages)
+  }
+
+  register<DefaultTask>("printSmokeTestsConfigurations") {
     doFirst {
       for ((server, matrices) in targets) {
         val smokeTestServer = findProperty("smokeTestServer")
@@ -254,10 +270,11 @@ fun configureImage(
     version = version.substringBefore("-")
   }
 
-  // Using separate build directory for different image
-  val dockerWorkingDir = layout.buildDirectory.dir("docker-$server-$version-jdk$jdk-$vm-$warProject")
   val dockerFileName = "$dockerfile.${if (isWindows) "windows." else ""}dockerfile"
   val platformSuffix = if (isWindows) "-windows" else ""
+
+  // Using separate build directory for different images
+  val dockerWorkingDir = layout.buildDirectory.dir("docker-$server-$version-jdk$jdk-$vm-$warProject-$platformSuffix")
 
   val prepareTask = tasks.register<Copy>("${server}ImagePrepare-$version-jdk$jdk-$vm$platformSuffix") {
     val warTask = project(":smoke-tests:images:servlet:$warProject").tasks.named<War>("war")
@@ -283,20 +300,20 @@ fun configureImage(
       "openjdk:$jdk"
     } else if (isWindows) {
       when (jdk) {
-        "8" -> "eclipse-temurin:8u472-b08-jdk-windowsservercore-ltsc2022@sha256:46d804b1c8a658fd84b8f3b3f39a1739b0f0ffccf41a682cea4847982de3bd08"
-        "11" -> "eclipse-temurin:11.0.29_7-jdk-windowsservercore-ltsc2022@sha256:3b16568beff29ff623e7d72018cd6b08f4003964a342a907ad410a0b953f40e6"
-        "17" -> "eclipse-temurin:17.0.17_10-jdk-windowsservercore-ltsc2022@sha256:7c9e423728d04540c0a30d68ca0922390665dfec20e012beb95861d80aa2dd70"
-        "21" -> "eclipse-temurin:21.0.9_10-jdk-windowsservercore-ltsc2022@sha256:45a3d356d018942a497b877633f19db401828ecb2a1de3cda635b98d08bfbaeb"
-        "25" -> "eclipse-temurin:25.0.1_8-jdk-windowsservercore-ltsc2022@sha256:556d727eb539fd9c6242e75d17e1a2bf59456ea8a37478cfbd6406ca6db0d2d1"
+        "8" -> "eclipse-temurin:8u472-b08-jdk-windowsservercore-ltsc2022@sha256:2f2dc58147a9877ecde8644961b1e3c0f26f838af038ec8b8fc04dfbea61a4d0"
+        "11" -> "eclipse-temurin:11.0.32_9-jdk-windowsservercore-ltsc2022@sha256:da84e48e0d15524af6515f5f157651417d6fa7fa0a9d0239f9b0c678857fcde9"
+        "17" -> "eclipse-temurin:17.0.20_8-jdk-windowsservercore-ltsc2022@sha256:032e399849e961825aa850bf71fb8bd89688d220379c3c0edbf1b2bdb94ad128"
+        "21" -> "eclipse-temurin:21.0.12_8-jdk-windowsservercore-ltsc2022@sha256:858958399710bd20a18ded95d68525c68a1bde1899284369d04a83b916093a15"
+        "25" -> "eclipse-temurin:25.0.4_7-jdk-windowsservercore-ltsc2022@sha256:f8f6b2870e7947150962bef62452ce234d29d8a39aefd88dccde777800751ba7"
         else -> throw GradleException("Unexpected jdk version for Windows: $jdk")
       }
     } else {
       when (jdk) {
-        "8" -> "eclipse-temurin:8u472-b08-jdk@sha256:b4e05de303ea02659ee17044d6b68caadfc462f1530f3a461482afee23379cdd"
-        "11" -> "eclipse-temurin:11.0.29_7-jdk@sha256:189ce1c8831fa5bdd801127dad99f68a17615f81f4aa839b1a4aae693261929a"
-        "17" -> "eclipse-temurin:17.0.17_10-jdk@sha256:5a66a3ffd8728ed6c76eb4ec674c37991ac679927381f71774f5aa44cf420082"
-        "21" -> "eclipse-temurin:21.0.9_10-jdk@sha256:ec2005c536f3661c6ef1253292c9c623e582186749a3ef2ed90903d1aaf74640"
-        "25" -> "eclipse-temurin:25.0.1_8-jdk@sha256:adc4533ea69967c783ac2327dac7ff548fcf6401a7e595e723b414c0a7920eb2"
+        "8" -> "eclipse-temurin:8u472-b08-jdk@sha256:0b793df1b9217f3d25c5f820d47e85a20b0a78b0ccd0ab6deb9051502493c855"
+        "11" -> "eclipse-temurin:11.0.32_9-jdk@sha256:3b930c2092310a926036ea1bb4feb019e2a83c7c9e55fb739d9a8a78ffebcf55"
+        "17" -> "eclipse-temurin:17.0.20_8-jdk@sha256:a27c79d44326d5f689668df5fedfee487652066d2a91e172747056cc7fbee6fc"
+        "21" -> "eclipse-temurin:21.0.12_8-jdk@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b"
+        "25" -> "eclipse-temurin:25.0.4_7-jdk@sha256:e787e08ef76f4c16866108cd7f9fcd96a68eef3ac6cc76866897d4d02d5a2262"
         else -> throw GradleException("Unexpected jdk version for Linux: $jdk")
       }
     }
@@ -306,11 +323,11 @@ fun configureImage(
       throw GradleException("Unexpected vm: $vm")
     } else {
       when (jdk) {
-        "8" -> "ibm-semeru-runtimes:open-8u472-b08-jdk@sha256:d92ff04da09450bb0dc9742e74d4fec66f73cb36bcfb03338cfc410c02a3506d"
-        "11" -> "ibm-semeru-runtimes:open-11.0.29_7-jdk@sha256:07c3fe25b1f5adff6a7ccdedc93e7b874a409448a97a9d6019092022cecbaffb"
-        "17" -> "ibm-semeru-runtimes:open-17-jdk@sha256:8fa5ce4c63b39bc83923e965956ee596dfd6e4a050d52d79043bf172caf59245"
-        "21" -> "ibm-semeru-runtimes:open-21.0.9_10-jdk@sha256:6236238cddc4fea7f294e4eb42f059b90ae3be854ed98c4e5f6694798e451909"
-        "25" -> "ibm-semeru-runtimes:open-25-jdk@sha256:b597266e56bd857c5a7fa9952419bb434e6d18d90733ef992556751f171e7f28"
+        "8" -> "ibm-semeru-runtimes:open-8u472-b08-jdk@sha256:779c0c1133ebac0d599012c5a908e67adaa993352072eac21d7ced8d6a47f14d"
+        "11" -> "ibm-semeru-runtimes:open-11.0.29_7-jdk@sha256:00bbefbb2cf3690546338c0e4ba4cf85ec658f40de5b292e77774b55e8267d66"
+        "17" -> "ibm-semeru-runtimes:open-17-jdk@sha256:abdf245947b47b60c61828e8ab4b9f78a42eeacd3a393a647c873e58a919d5ec"
+        "21" -> "ibm-semeru-runtimes:open-21.0.9_10-jdk@sha256:2edabc89c49cfa2b9f0c051aced57ca6dee81c2e6b8820a1257182e779b58a48"
+        "25" -> "ibm-semeru-runtimes:open-25-jdk@sha256:9a6a803ddce81050cda00f1207358ae3543a2961055e74eaadd470408b2bff70"
         else -> throw GradleException("Unexpected jdk version for openj9: $jdk")
       }
     }
@@ -331,13 +348,7 @@ fun configureImage(
 
   if (server == "wildfly") {
     // wildfly url without .zip or .tar.gz suffix
-    val majorVersion = version.substring(0, version.indexOf(".")).toInt()
-    val serverBaseUrl = if (majorVersion >= 25) {
-      "https://github.com/wildfly/wildfly/releases/download/$version/wildfly-$version"
-    } else {
-      "https://download.jboss.org/wildfly/$version/wildfly-$version"
-    }
-    extraArgs["baseDownloadUrl"] = serverBaseUrl
+    extraArgs["baseDownloadUrl"] = "https://repo1.maven.org/maven2/org/wildfly/wildfly-dist/$version/wildfly-dist-$version"
   } else if (server == "payara") {
     if (version == "5.2020.6") {
       extraArgs["domainName"] = "production"
@@ -350,6 +361,8 @@ fun configureImage(
     dependsOn(prepareTask)
     group = "build"
     description = "Builds Docker image with $server $version on JDK $jdk-$vm${if (isWindows) " on Windows" else ""}"
+
+    usesService(gradle.sharedServices.registrations["dockerBuildService"].service)
 
     inputDir.set(dockerWorkingDir)
     images.add(image)

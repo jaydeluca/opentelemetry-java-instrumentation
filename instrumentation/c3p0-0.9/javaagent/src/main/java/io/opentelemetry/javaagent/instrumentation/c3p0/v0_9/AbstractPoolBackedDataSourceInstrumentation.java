@@ -25,23 +25,27 @@ final class AbstractPoolBackedDataSourceInstrumentation implements TypeInstrumen
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        named("resetPoolManager"), this.getClass().getName() + "$ResetPoolManagerAdvice");
-    transformer.applyAdviceToMethod(named("close"), this.getClass().getName() + "$CloseAdvice");
+        named("resetPoolManager"), getClass().getName() + "$ResetPoolManagerAdvice");
+    transformer.applyAdviceToMethod(named("close"), getClass().getName() + "$CloseAdvice");
   }
 
   @SuppressWarnings("unused")
   public static class ResetPoolManagerAdvice {
 
-    @Advice.OnMethodExit(suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
     public static void onExit(@Advice.This AbstractPoolBackedDataSource dataSource) {
-      telemetry().registerMetrics(dataSource);
+      String dataSourceName = dataSource.getDataSourceName();
+      if (dataSourceName == null || dataSourceName.equals(dataSource.getIdentityToken())) {
+        dataSourceName = C3p0Singletons.getDataSourceName(dataSource);
+      }
+      telemetry().registerMetrics(dataSource, dataSourceName);
     }
   }
 
   @SuppressWarnings("unused")
   public static class CloseAdvice {
 
-    @Advice.OnMethodExit(suppress = Throwable.class, onThrowable = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, onThrowable = Throwable.class, inline = false)
     public static void onExit(@Advice.This AbstractPoolBackedDataSource dataSource) {
       telemetry().unregisterMetrics(dataSource);
     }

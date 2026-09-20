@@ -35,19 +35,15 @@ dependencies {
   testLibrary("io.projectreactor.kafka:reactor-kafka:1.0.0.RELEASE")
 }
 
-val testLatestDeps = findProperty("testLatestDeps") as Boolean
-
 testing {
   suites {
-    val testV1_3_3 by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testV1_3_3") {
       dependencies {
         implementation(project(":instrumentation:reactor:reactor-kafka-1.0:testing"))
 
-        if (testLatestDeps) {
-          implementation("io.projectreactor.kafka:reactor-kafka:latest.release")
+        implementation("io.projectreactor.kafka:reactor-kafka:${baseVersion("1.3.3").orLatest()}")
+        if (otelProps.testLatestDeps) {
           implementation("io.projectreactor:reactor-core:3.4.+")
-        } else {
-          implementation("io.projectreactor.kafka:reactor-kafka:1.3.3")
         }
       }
 
@@ -60,15 +56,13 @@ testing {
       }
     }
 
-    val testV1_3_21 by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testV1_3_21") {
       dependencies {
         implementation(project(":instrumentation:reactor:reactor-kafka-1.0:testing"))
 
-        if (testLatestDeps) {
-          implementation("io.projectreactor.kafka:reactor-kafka:latest.release")
+        implementation("io.projectreactor.kafka:reactor-kafka:${baseVersion("1.3.21").orLatest()}")
+        if (otelProps.testLatestDeps) {
           implementation("io.projectreactor:reactor-core:3.4.+")
-        } else {
-          implementation("io.projectreactor.kafka:reactor-kafka:1.3.21")
         }
       }
 
@@ -86,16 +80,114 @@ testing {
 tasks {
   withType<Test>().configureEach {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
-
-    jvmArgs("-Dotel.instrumentation.kafka.experimental-span-attributes=true")
-    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
+  val experimentalSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}Experimental") {
+        val sourceTask = named<Test>(suite.name).get()
+        setJvmArgs(sourceTask.jvmArgs)
+        setSystemProperties(sourceTask.systemProperties)
+
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        val experimentalConfig = "otel.instrumentation.kafka.experimental-span-attributes=true"
+        jvmArgs("-D$experimentalConfig")
+        systemProperty(
+          "metadataConfig",
+          listOfNotNull(sourceTask.systemProperties["metadataConfig"], experimentalConfig).joinToString(","),
+        )
+        isEnabled = sourceTask.enabled
+      }
+    }
+
+  val testReceiveSpansDisabled = register<Test>("testReceiveSpansDisabled") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    systemProperty("hasConsumerGroup", otelProps.testLatestDeps)
+  }
+
+  val messagingPreviewSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}MessagingPreview") {
+        val sourceTask = named<Test>(suite.name).get()
+        setJvmArgs(sourceTask.jvmArgs)
+        setSystemProperties(sourceTask.systemProperties)
+
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        val semconvConfig = "otel.semconv-stability.preview=messaging"
+        jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+        jvmArgs("-D$semconvConfig")
+        systemProperty(
+          "metadataConfig",
+          listOfNotNull(sourceTask.systemProperties["metadataConfig"], semconvConfig).joinToString(","),
+        )
+        isEnabled = sourceTask.enabled
+      }
+    }
+
+  val bothSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}BothSemconv") {
+        val sourceTask = named<Test>(suite.name).get()
+        setJvmArgs(sourceTask.jvmArgs)
+        setSystemProperties(sourceTask.systemProperties)
+
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        val semconvConfig = "otel.semconv-stability.preview=messaging/dup"
+        jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+        jvmArgs("-D$semconvConfig")
+        systemProperty(
+          "metadataConfig",
+          listOfNotNull(sourceTask.systemProperties["metadataConfig"], semconvConfig).joinToString(","),
+        )
+        isEnabled = sourceTask.enabled
+      }
+    }
+
+  val messagingPreviewReceiveSpansDisabledSuites =
+    testing.suites.withType(JvmTestSuite::class)
+      .map { suite ->
+        register<Test>("${suite.name}MessagingPreviewReceiveSpansDisabled") {
+          val sourceTask = named<Test>(suite.name).get()
+          setJvmArgs(sourceTask.jvmArgs)
+          setSystemProperties(sourceTask.systemProperties)
+
+          testClassesDirs = suite.sources.output.classesDirs
+          classpath = suite.sources.runtimeClasspath
+
+          val semconvConfig = "otel.semconv-stability.preview=messaging"
+          jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=false")
+          jvmArgs("-D$semconvConfig")
+          systemProperty("metadataConfig", semconvConfig)
+          isEnabled = sourceTask.enabled
+        }
+      }
+
   test {
-    systemProperty("hasConsumerGroup", testLatestDeps)
+    systemProperty("hasConsumerGroup", otelProps.testLatestDeps)
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    systemProperty(
+      "metadataConfig",
+      "otel.instrumentation.messaging.experimental.receive-telemetry.enabled=true",
+    )
   }
 
   check {
-    dependsOn(testing.suites)
+    dependsOn(
+      testing.suites,
+      experimentalSuites,
+      testReceiveSpansDisabled,
+      messagingPreviewSuites,
+      bothSemconvSuites,
+      messagingPreviewReceiveSpansDisabledSuites,
+    )
   }
 }

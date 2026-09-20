@@ -8,6 +8,8 @@ package io.opentelemetry.instrumentation.micrometer.v1_5;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.name;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.tagsAsAttributes;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.HistogramAdviceUtil.setExplicitBucketsIfConfigured;
+import static java.util.Collections.emptyList;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 import io.micrometer.core.instrument.AbstractTimer;
 import io.micrometer.core.instrument.Clock;
@@ -23,12 +25,14 @@ import io.opentelemetry.api.metrics.DoubleHistogram;
 import io.opentelemetry.api.metrics.DoubleHistogramBuilder;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.metrics.ObservableDoubleGauge;
-import java.util.Collections;
+import io.opentelemetry.instrumentation.micrometer.v1_5.internal.OpenTelemetryInstrument;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.DoubleAdder;
 import java.util.concurrent.atomic.LongAdder;
+import javax.annotation.Nullable;
 
-final class OpenTelemetryTimer extends AbstractTimer implements RemovableMeter {
+final class OpenTelemetryTimer extends AbstractTimer
+    implements RemovableMeter, OpenTelemetryInstrument {
 
   private final Measurements measurements;
   private final TimeWindowMax max;
@@ -36,7 +40,9 @@ final class OpenTelemetryTimer extends AbstractTimer implements RemovableMeter {
   // TODO: use bound instruments when they're available
   private final DoubleHistogram otelHistogram;
   private final Attributes attributes;
-  private final ObservableDoubleGauge observableMax;
+  // the <name> / <name>.max pair violates the metric naming rules, and OpenTelemetry histograms
+  // already carry a max, so this gauge is not emitted in the v3 preview (to be removed in 3.0)
+  @Nullable private final ObservableDoubleGauge observableMax;
 
   private volatile boolean removed = false;
 
@@ -48,7 +54,9 @@ final class OpenTelemetryTimer extends AbstractTimer implements RemovableMeter {
       DistributionStatisticConfigModifier modifier,
       PauseDetector pauseDetector,
       TimeUnit baseTimeUnit,
-      Meter otelMeter) {
+      boolean emitMaxGauge,
+      Meter otelMeter,
+      Bridging bridging) {
     super(
         id,
         clock,
@@ -71,17 +79,19 @@ final class OpenTelemetryTimer extends AbstractTimer implements RemovableMeter {
     DoubleHistogramBuilder otelHistogramBuilder =
         otelMeter
             .histogramBuilder(name)
-            .setDescription(Bridging.description(id))
+            .setDescription(bridging.description(name, id))
             .setUnit(TimeUnitHelper.getUnitString(baseTimeUnit));
     setExplicitBucketsIfConfigured(otelHistogramBuilder, distributionStatisticConfig, baseTimeUnit);
     this.otelHistogram = otelHistogramBuilder.build();
     this.observableMax =
-        otelMeter
-            .gaugeBuilder(name + ".max")
-            .setDescription(Bridging.description(id))
-            .setUnit(TimeUnitHelper.getUnitString(baseTimeUnit))
-            .buildWithCallback(
-                new DoubleMeasurementRecorder<>(max, m -> m.poll(baseTimeUnit), attributes));
+        emitMaxGauge
+            ? otelMeter
+                .gaugeBuilder(name + ".max")
+                .setDescription(bridging.description(name + ".max", id))
+                .setUnit(TimeUnitHelper.getUnitString(baseTimeUnit))
+                .buildWithCallback(
+                    new DoubleMeasurementRecorder<>(max, m -> m.poll(baseTimeUnit), attributes))
+            : null;
   }
 
   boolean isUsingMicrometerHistograms() {
@@ -95,7 +105,7 @@ final class OpenTelemetryTimer extends AbstractTimer implements RemovableMeter {
       double time = TimeUtils.nanosToUnit(nanos, baseTimeUnit);
       otelHistogram.record(time, attributes);
       measurements.record(nanos);
-      max.record(nanos, TimeUnit.NANOSECONDS);
+      max.record(nanos, NANOSECONDS);
     }
   }
 
@@ -117,13 +127,15 @@ final class OpenTelemetryTimer extends AbstractTimer implements RemovableMeter {
   @Override
   public Iterable<Measurement> measure() {
     UnsupportedReadLogger.logWarning();
-    return Collections.emptyList();
+    return emptyList();
   }
 
   @Override
   public void onRemove() {
     removed = true;
-    observableMax.close();
+    if (observableMax != null) {
+      observableMax.close();
+    }
   }
 
   private interface Measurements {
@@ -136,7 +148,7 @@ final class OpenTelemetryTimer extends AbstractTimer implements RemovableMeter {
 
   // if micrometer histograms are not being used then there's no need to keep any local state
   // OpenTelemetry metrics bridge does not support reading measurements
-  enum NoopMeasurements implements Measurements {
+  private enum NoopMeasurements implements Measurements {
     INSTANCE;
 
     @Override

@@ -18,10 +18,11 @@ import io.opentelemetry.instrumentation.testing.junit.{
 import io.opentelemetry.javaagent.testing.common.Java8BytecodeBridge
 import io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo
 import io.opentelemetry.sdk.testing.assertj.{SpanDataAssert, TraceAssert}
+import io.opentelemetry.semconv.DbAttributes.DB_QUERY_SUMMARY
 import io.opentelemetry.semconv.incubating.DbIncubatingAttributes._
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.extension.RegisterExtension
-import org.junit.jupiter.api.{Test, TestInstance}
+import org.junit.jupiter.api.{AfterAll, Test, TestInstance}
 import slick.jdbc.H2Profile.api._
 
 import java.util.function.Consumer
@@ -80,7 +81,10 @@ class SlickTest {
             new Consumer[SpanDataAssert] {
               override def accept(span: SpanDataAssert): Unit =
                 span
-                  .hasName(s"SELECT ${Db}")
+                  .hasName(
+                    if (emitStableDatabaseSemconv()) "SELECT"
+                    else s"SELECT ${Db}"
+                  )
                   .hasKind(SpanKind.CLIENT)
                   .hasParent(trace.getSpan(0))
                   .hasAttributesSatisfyingExactly(
@@ -97,8 +101,19 @@ class SlickTest {
                       DB_CONNECTION_STRING,
                       if (emitStableDatabaseSemconv()) null else "h2:mem:"
                     ),
-                    equalTo(maybeStable(DB_STATEMENT), "SELECT ?"),
-                    equalTo(maybeStable(DB_OPERATION), "SELECT")
+                    equalTo(
+                      maybeStable(DB_STATEMENT),
+                      if (emitStableDatabaseSemconv()) "SELECT 3"
+                      else "SELECT ?"
+                    ),
+                    equalTo(
+                      DB_QUERY_SUMMARY,
+                      if (emitStableDatabaseSemconv()) "SELECT" else null
+                    ),
+                    equalTo(
+                      maybeStable(DB_OPERATION),
+                      if (emitStableDatabaseSemconv()) null else "SELECT"
+                    )
                   )
             }
           )
@@ -154,6 +169,11 @@ class SlickTest {
           )
       }
     )
+  }
+
+  @AfterAll
+  def closeDatabase(): Unit = {
+    database.close()
   }
 
   private def startQuery(query: String): Future[Vector[Int]] = {

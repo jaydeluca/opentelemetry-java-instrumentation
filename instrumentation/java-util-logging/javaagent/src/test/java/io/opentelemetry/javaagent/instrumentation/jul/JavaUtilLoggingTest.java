@@ -11,14 +11,21 @@ import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satis
 import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_MESSAGE;
 import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_STACKTRACE;
 import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_TYPE;
+import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_ID;
+import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_NAME;
+import static java.util.Collections.singletonList;
+import static java.util.logging.Level.FINE;
+import static java.util.logging.Level.INFO;
+import static java.util.logging.Level.SEVERE;
+import static java.util.logging.Level.WARNING;
 
+import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
 import io.opentelemetry.sdk.logs.data.LogRecordData;
-import io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes;
-import io.opentelemetry.testing.internal.armeria.common.annotation.Nullable;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
@@ -28,8 +35,17 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class JavaUtilLoggingTest {
-  private static final boolean isExperimentalAttributesEnabled =
+  private static final AttributeKey<String> LOG_BODY_TEMPLATE =
+      AttributeKey.stringKey("log.body.template");
+  private static final AttributeKey<List<String>> LOG_BODY_PARAMETERS =
+      AttributeKey.stringArrayKey("log.body.parameters");
+
+  private static final boolean EXPERIMENTAL_ATTRIBUTES =
       Boolean.getBoolean("otel.instrumentation.java-util-logging.experimental-log-attributes");
+  private static final boolean CAPTURE_TEMPLATE =
+      Boolean.getBoolean("otel.instrumentation.java-util-logging.experimental.capture-template");
+  private static final boolean CAPTURE_ARGUMENTS =
+      Boolean.getBoolean("otel.instrumentation.java-util-logging.experimental.capture-arguments");
 
   private static final Logger logger = Logger.getLogger("abc");
 
@@ -50,22 +66,14 @@ class JavaUtilLoggingTest {
 
   @ParameterizedTest
   @MethodSource("provideParameters")
-  public void test(boolean withParam, boolean logException, boolean withParent)
+  void test(boolean withParam, boolean logException, boolean withParent)
       throws InterruptedException {
-    test(Level.FINE, Logger::fine, withParam, logException, withParent, null, null, null);
+    test(FINE, Logger::fine, withParam, logException, withParent, null, null, null);
+    testing.clearData();
+    test(INFO, Logger::info, withParam, logException, withParent, "abc", Severity.INFO, "INFO");
     testing.clearData();
     test(
-        Level.INFO,
-        Logger::info,
-        withParam,
-        logException,
-        withParent,
-        "abc",
-        Severity.INFO,
-        "INFO");
-    testing.clearData();
-    test(
-        Level.WARNING,
+        WARNING,
         Logger::warning,
         withParam,
         logException,
@@ -75,7 +83,7 @@ class JavaUtilLoggingTest {
         "WARNING");
     testing.clearData();
     test(
-        Level.SEVERE,
+        SEVERE,
         Logger::severe,
         withParam,
         logException,
@@ -117,29 +125,31 @@ class JavaUtilLoggingTest {
           .hasInstrumentationScope(InstrumentationScopeInfo.builder(expectedLoggerName).build())
           .hasSeverity(expectedSeverity)
           .hasSeverityText(expectedSeverityText);
-      if (logException) {
-        assertThat(log)
-            .hasAttributesSatisfyingExactly(
-                equalTo(
-                    ThreadIncubatingAttributes.THREAD_NAME,
-                    experimental(Thread.currentThread().getName())),
-                equalTo(
-                    ThreadIncubatingAttributes.THREAD_ID,
-                    experimental(Thread.currentThread().getId())),
-                equalTo(EXCEPTION_TYPE, IllegalStateException.class.getName()),
-                equalTo(EXCEPTION_MESSAGE, "hello"),
-                satisfies(
-                    EXCEPTION_STACKTRACE, v -> v.contains(JavaUtilLoggingTest.class.getName())));
-      } else {
-        assertThat(log)
-            .hasAttributesSatisfyingExactly(
-                equalTo(
-                    ThreadIncubatingAttributes.THREAD_NAME,
-                    experimental(Thread.currentThread().getName())),
-                equalTo(
-                    ThreadIncubatingAttributes.THREAD_ID,
-                    experimental(Thread.currentThread().getId())));
-      }
+      // logging via the Supplier + Throwable overload used below for logException doesn't support
+      // parameters, so the template/arguments attributes are only captured in the plain
+      // withParam case
+      boolean withTemplateOrArguments = withParam && !logException;
+      assertThat(log)
+          .hasAttributesSatisfyingExactly(
+              equalTo(THREAD_NAME, experimental(Thread.currentThread().getName())),
+              equalTo(THREAD_ID, experimental(Thread.currentThread().getId())),
+              equalTo(EXCEPTION_TYPE, logException ? IllegalStateException.class.getName() : null),
+              equalTo(EXCEPTION_MESSAGE, logException ? "hello" : null),
+              satisfies(
+                  EXCEPTION_STACKTRACE,
+                  val -> {
+                    if (logException) {
+                      val.contains(JavaUtilLoggingTest.class.getName());
+                    } else {
+                      val.isNull();
+                    }
+                  }),
+              equalTo(
+                  LOG_BODY_TEMPLATE,
+                  CAPTURE_TEMPLATE && withTemplateOrArguments ? "xyz: {0}" : null),
+              equalTo(
+                  LOG_BODY_PARAMETERS,
+                  CAPTURE_ARGUMENTS && withTemplateOrArguments ? singletonList("123") : null));
 
       if (withParent) {
         assertThat(log).hasSpanContext(testing.spans().get(0).getSpanContext());
@@ -172,23 +182,11 @@ class JavaUtilLoggingTest {
   }
 
   @FunctionalInterface
-  interface LoggerMethod {
+  private interface LoggerMethod {
     void call(Logger logger, String msg);
   }
 
-  @Nullable
-  public static String experimental(String value) {
-    if (isExperimentalAttributesEnabled) {
-      return value;
-    }
-    return null;
-  }
-
-  @Nullable
-  public static Long experimental(long value) {
-    if (isExperimentalAttributesEnabled) {
-      return value;
-    }
-    return null;
+  private static <T> T experimental(T value) {
+    return EXPERIMENTAL_ATTRIBUTES ? value : null;
   }
 }

@@ -5,6 +5,7 @@
 
 package io.opentelemetry.instrumentation.elasticsearch.rest.v7_0;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.v3Preview;
 import static io.opentelemetry.instrumentation.testing.GlobalTraceUtil.runWithSpan;
 import static io.opentelemetry.instrumentation.testing.junit.db.SemconvStabilityUtil.maybeStable;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
@@ -12,22 +13,25 @@ import static io.opentelemetry.semconv.HttpAttributes.HTTP_REQUEST_METHOD;
 import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
 import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
 import static io.opentelemetry.semconv.UrlAttributes.URL_FULL;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.ELASTICSEARCH;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.LibraryInstrumentationExtension;
+import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import org.apache.http.HttpHost;
 import org.elasticsearch.client.Request;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.ResponseListener;
 import org.elasticsearch.client.RestClient;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -37,6 +41,8 @@ import org.testcontainers.elasticsearch.ElasticsearchContainer;
 class ElasticsearchRest7Test {
   @RegisterExtension
   static final InstrumentationExtension testing = LibraryInstrumentationExtension.create();
+
+  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
   static ElasticsearchContainer elasticsearch;
 
@@ -49,7 +55,8 @@ class ElasticsearchRest7Test {
   @BeforeAll
   static void setUp() {
     elasticsearch =
-        new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch-oss:7.10.2");
+        new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.10.2");
+    cleanup.deferAfterAll(elasticsearch::stop);
     // limit memory usage
     elasticsearch.withEnv(
         "ES_JAVA_OPTS",
@@ -66,18 +73,14 @@ class ElasticsearchRest7Test {
                         .setConnectTimeout(Integer.MAX_VALUE)
                         .setSocketTimeout(Integer.MAX_VALUE))
             .build();
+    cleanup.deferAfterAll(client);
     client = ElasticsearchRest7Telemetry.create(testing.getOpenTelemetry()).wrap(client);
 
     objectMapper = new ObjectMapper();
   }
 
-  @AfterAll
-  static void cleanUp() {
-    elasticsearch.stop();
-  }
-
   @Test
-  void elasticsearchStatus() throws Exception {
+  void elasticsearchStatus() throws IOException {
     Response response = client.performRequest(new Request("GET", "_cluster/health"));
     Map<?, ?> result = objectMapper.readValue(response.getEntity().getContent(), Map.class);
     assertThat(result.get("status")).isEqualTo("green");
@@ -90,7 +93,7 @@ class ElasticsearchRest7Test {
                         .hasKind(SpanKind.CLIENT)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), "elasticsearch"),
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
                             equalTo(HTTP_REQUEST_METHOD, "GET"),
                             equalTo(SERVER_ADDRESS, httpHost.getHostName()),
                             equalTo(SERVER_PORT, httpHost.getPort()),
@@ -98,7 +101,33 @@ class ElasticsearchRest7Test {
   }
 
   @Test
-  public void elasticsearchStatusAsync() throws Exception {
+  void searchQueryCaptureFollowsV3Preview() throws IOException {
+    Request request = new Request("POST", "/_search");
+    request.setJsonEntity("{\"query\":{\"match\":{\"title\":\"secret user data\"}}}");
+
+    Response response = client.performRequest(request);
+
+    assertThat(response.getStatusLine().getStatusCode()).isEqualTo(200);
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span ->
+                    span.hasName("POST")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasNoParent()
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
+                            equalTo(
+                                maybeStable(DB_STATEMENT),
+                                v3Preview() ? "{\"query\":{\"match\":{\"title\":\"?\"}}}" : null),
+                            equalTo(HTTP_REQUEST_METHOD, "POST"),
+                            equalTo(SERVER_ADDRESS, httpHost.getHostName()),
+                            equalTo(SERVER_PORT, httpHost.getPort()),
+                            equalTo(URL_FULL, httpHost.toURI() + "/_search"))));
+  }
+
+  @Test
+  void elasticsearchStatusAsync() throws Exception {
     AsyncRequest asyncRequest = new AsyncRequest();
     CountDownLatch countDownLatch = new CountDownLatch(1);
     ResponseListener responseListener =
@@ -128,12 +157,9 @@ class ElasticsearchRest7Test {
     runWithSpan(
         "parent",
         () -> client.performRequestAsync(new Request("GET", "_cluster/health"), responseListener));
-    //noinspection ResultOfMethodCallIgnored
-    countDownLatch.await(10, TimeUnit.SECONDS);
+    assertThat(countDownLatch.await(10, SECONDS)).isTrue();
 
-    if (asyncRequest.getException() != null) {
-      throw asyncRequest.getException();
-    }
+    assertThat(asyncRequest.getException()).isNull();
 
     Map<?, ?> result =
         objectMapper.readValue(
@@ -149,7 +175,7 @@ class ElasticsearchRest7Test {
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), "elasticsearch"),
+                            equalTo(maybeStable(DB_SYSTEM), ELASTICSEARCH),
                             equalTo(HTTP_REQUEST_METHOD, "GET"),
                             equalTo(SERVER_ADDRESS, httpHost.getHostName()),
                             equalTo(SERVER_PORT, httpHost.getPort()),

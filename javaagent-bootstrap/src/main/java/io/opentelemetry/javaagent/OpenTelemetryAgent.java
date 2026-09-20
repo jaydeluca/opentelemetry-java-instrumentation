@@ -23,10 +23,11 @@ import javax.annotation.Nullable;
  * <p>The bootstrap process of the agent is somewhat complicated and care has to be taken to make
  * sure things do not get broken by accident.
  *
- * <p>JVM loads this class onto app's class loader, afterwards agent needs to inject its classes
- * onto bootstrap classpath. This leads to this class being visible on bootstrap. This in turn means
- * that this class may be loaded again on bootstrap by accident if we ever reference it after
- * bootstrap has been setup.
+ * <p>The JVM normally loads this class onto the application's class loader, after which the agent
+ * injects its classes onto the bootstrap class path. This leads to this class being visible on
+ * bootstrap. This in turn means that this class may be loaded again on bootstrap by accident if we
+ * ever reference it after bootstrap has been set up. When the agent jar is already on the bootstrap
+ * class path, the JVM loads this class from bootstrap and no injection is needed.
  *
  * <p>In order to avoid this we need to make sure we do a few things:
  *
@@ -42,11 +43,11 @@ import javax.annotation.Nullable;
 @SuppressWarnings("SystemOut")
 public final class OpenTelemetryAgent {
 
-  public static void premain(String agentArgs, Instrumentation inst) {
+  public static void premain(@Nullable String agentArgs, Instrumentation inst) {
     startAgent(inst, agentArgs, true);
   }
 
-  public static void agentmain(String agentArgs, Instrumentation inst) {
+  public static void agentmain(@Nullable String agentArgs, Instrumentation inst) {
     startAgent(inst, agentArgs, false);
   }
 
@@ -57,10 +58,10 @@ public final class OpenTelemetryAgent {
       InstrumentationHolder.setInstrumentation(inst);
       JavaagentFileHolder.setJavaagentFile(javaagentFile);
       AgentInitializer.initialize(inst, javaagentFile, fromPremain, agentArgs);
-    } catch (Throwable ex) {
+    } catch (Throwable t) {
       // Don't rethrow.  We don't have a log manager here, so just print.
       System.err.println("ERROR " + OpenTelemetryAgent.class.getName());
-      ex.printStackTrace();
+      t.printStackTrace();
     }
   }
 
@@ -69,7 +70,8 @@ public final class OpenTelemetryAgent {
     // we are not using OpenTelemetryAgent.class.getProtectionDomain().getCodeSource() to get agent
     // location because getProtectionDomain does a permission check with security manager
     ClassLoader classLoader = OpenTelemetryAgent.class.getClassLoader();
-    if (classLoader == null) {
+    boolean loadedByBootstrap = classLoader == null;
+    if (loadedByBootstrap) {
       classLoader = ClassLoader.getSystemClassLoader();
     }
     URL url =
@@ -93,9 +95,12 @@ public final class OpenTelemetryAgent {
 
     // verification is very slow before the JIT compiler starts up, which on Java 8 is not until
     // after premain execution completes
-    JarFile agentJar = new JarFile(javaagentFile, false);
-    verifyJarManifestMainClassIsThis(javaagentFile, agentJar);
-    inst.appendToBootstrapClassLoaderSearch(agentJar);
+    try (JarFile agentJar = new JarFile(javaagentFile, false)) {
+      verifyJarManifestMainClassIsThis(javaagentFile, agentJar);
+      if (!loadedByBootstrap) {
+        inst.appendToBootstrapClassLoaderSearch(agentJar);
+      }
+    }
     return javaagentFile;
   }
 

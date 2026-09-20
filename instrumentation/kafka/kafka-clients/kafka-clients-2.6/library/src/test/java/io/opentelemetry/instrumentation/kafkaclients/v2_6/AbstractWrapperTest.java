@@ -5,13 +5,13 @@
 
 package io.opentelemetry.instrumentation.kafkaclients.v2_6;
 
-import static java.util.Collections.singletonList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaClientBaseTest;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.LibraryInstrumentationExtension;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -20,7 +20,7 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 abstract class AbstractWrapperTest extends KafkaClientBaseTest {
 
@@ -29,14 +29,22 @@ abstract class AbstractWrapperTest extends KafkaClientBaseTest {
 
   static final String greeting = "Hello Kafka!";
 
+  protected long consumedOffset;
+
   @ParameterizedTest
-  @ValueSource(booleans = {true, false})
-  void testWrappers(boolean testHeaders) throws InterruptedException {
+  @CsvSource({
+    "true, true",
+    "false, false",
+  })
+  void testWrappers(boolean testHeaders, boolean testExperimental) throws InterruptedException {
     KafkaTelemetryBuilder telemetryBuilder =
         KafkaTelemetry.builder(testing.getOpenTelemetry())
-            .setCapturedHeaders(singletonList("Test-Message-Header"))
-            // TODO run tests both with and without experimental span attributes
-            .setCaptureExperimentalSpanAttributes(true);
+            .setHeaders(
+                IncludeExclude.builder()
+                    .setIncluded("Test-Message-*")
+                    .setExcluded("*-Excluded-Header")
+                    .build())
+            .setCaptureExperimentalSpanAttributes(testExperimental);
     configure(telemetryBuilder);
     KafkaTelemetry telemetry = telemetryBuilder.build();
 
@@ -48,9 +56,8 @@ abstract class AbstractWrapperTest extends KafkaClientBaseTest {
           ProducerRecord<Integer, String> producerRecord =
               new ProducerRecord<>(SHARED_TOPIC, greeting);
           if (testHeaders) {
-            producerRecord
-                .headers()
-                .add("Test-Message-Header", "test".getBytes(StandardCharsets.UTF_8));
+            producerRecord.headers().add("Test-Message-Header", "test".getBytes(UTF_8));
+            producerRecord.headers().add("Uncaptured-Header", "password".getBytes(UTF_8));
           }
           wrappedProducer.send(
               producerRecord,
@@ -70,13 +77,14 @@ abstract class AbstractWrapperTest extends KafkaClientBaseTest {
     for (ConsumerRecord<?, ?> record : records) {
       assertThat(record.value()).isEqualTo(greeting);
       assertThat(record.key()).isNull();
+      consumedOffset = record.offset();
       testing.runWithSpan("process child", () -> {});
     }
 
-    assertTraces(testHeaders);
+    assertTraces(testHeaders, testExperimental);
   }
 
   abstract void configure(KafkaTelemetryBuilder builder);
 
-  abstract void assertTraces(boolean testHeaders);
+  abstract void assertTraces(boolean testHeaders, boolean testExperimental);
 }

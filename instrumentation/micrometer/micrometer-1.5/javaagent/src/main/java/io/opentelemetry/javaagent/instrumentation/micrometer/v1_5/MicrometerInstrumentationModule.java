@@ -6,12 +6,12 @@
 package io.opentelemetry.javaagent.instrumentation.micrometer.v1_5;
 
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
+import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
 
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
-import java.util.Collections;
 import java.util.List;
 import net.bytebuddy.matcher.ElementMatcher;
 
@@ -23,7 +23,7 @@ public class MicrometerInstrumentationModule extends InstrumentationModule {
   }
 
   @Override
-  public boolean defaultEnabled(ConfigProperties config) {
+  public boolean defaultEnabled() {
     // produces a lot of metrics that are already captured - e.g. JVM memory usage
     return false;
   }
@@ -36,6 +36,13 @@ public class MicrometerInstrumentationModule extends InstrumentationModule {
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return Collections.singletonList(new MetricsInstrumentation());
+    return asList(new MetricsInstrumentation(), new AbstractCompositeMeterInstrumentation());
+  }
+
+  @Override
+  public List<String> exposedClassNames() {
+    // we use asm to call a method in MicrometerSingletons
+    return singletonList(
+        "io.opentelemetry.javaagent.instrumentation.micrometer.v1_5.MicrometerSingletons");
   }
 }

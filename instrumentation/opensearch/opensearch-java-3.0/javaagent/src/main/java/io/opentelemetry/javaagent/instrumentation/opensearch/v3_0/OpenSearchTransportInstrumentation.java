@@ -5,9 +5,11 @@
 
 package io.opentelemetry.javaagent.instrumentation.opensearch.v3_0;
 
+import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.implementsInterface;
+import static io.opentelemetry.javaagent.instrumentation.opensearch.v3_0.OpenSearchSingletons.CAPTURE_SEARCH_QUERY;
+import static io.opentelemetry.javaagent.instrumentation.opensearch.v3_0.OpenSearchSingletons.SANITIZE_SEARCH_QUERY;
 import static io.opentelemetry.javaagent.instrumentation.opensearch.v3_0.OpenSearchSingletons.instrumenter;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
@@ -21,9 +23,18 @@ import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
+import org.opensearch.client.json.JsonpMapper;
+import org.opensearch.client.opensearch.core.MsearchRequest;
+import org.opensearch.client.opensearch.core.SearchRequest;
 import org.opensearch.client.transport.Endpoint;
+import org.opensearch.client.transport.OpenSearchTransport;
 
-public class OpenSearchTransportInstrumentation implements TypeInstrumentation {
+class OpenSearchTransportInstrumentation implements TypeInstrumentation {
+  @Override
+  public ElementMatcher<ClassLoader> classLoaderOptimization() {
+    return hasClassesNamed("org.opensearch.client.transport.OpenSearchTransport");
+  }
+
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
     return implementsInterface(named("org.opensearch.client.transport.OpenSearchTransport"));
@@ -32,47 +43,83 @@ public class OpenSearchTransportInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(isPublic())
+        isPublic()
             .and(named("performRequest"))
             .and(takesArgument(0, Object.class))
             .and(takesArgument(1, named("org.opensearch.client.transport.Endpoint"))),
-        this.getClass().getName() + "$PerformRequestAdvice");
+        getClass().getName() + "$PerformRequestAdvice");
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(isPublic())
+        isPublic()
             .and(named("performRequestAsync"))
             .and(takesArgument(0, Object.class))
             .and(takesArgument(1, named("org.opensearch.client.transport.Endpoint"))),
-        this.getClass().getName() + "$PerformRequestAsyncAdvice");
+        getClass().getName() + "$PerformRequestAsyncAdvice");
   }
 
   public static class AdviceScope {
     private final OpenSearchRequest otelRequest;
+    private final Context parentContext;
     private final Context context;
     private final Scope scope;
 
-    private AdviceScope(OpenSearchRequest otelRequest, Context context, Scope scope) {
+    private AdviceScope(
+        OpenSearchRequest otelRequest, Context parentContext, Context context, Scope scope) {
       this.otelRequest = otelRequest;
+      this.parentContext = parentContext;
       this.context = context;
       this.scope = scope;
     }
 
     @Nullable
-    public static AdviceScope start(Object request, Endpoint<Object, Object, Object> endpoint) {
+    public static AdviceScope start(
+        OpenSearchTransport transport,
+        Object request,
+        Endpoint<Object, Object, Object> endpoint,
+        JsonpMapper jsonpMapper) {
       Context parentContext = Context.current();
+
+      String queryBody = null;
+
+      if (CAPTURE_SEARCH_QUERY
+          && (request instanceof SearchRequest || request instanceof MsearchRequest)) {
+        queryBody = OpenSearchBodyExtractor.extract(jsonpMapper, request, SANITIZE_SEARCH_QUERY);
+      }
+
       OpenSearchRequest otelRequest =
-          OpenSearchRequest.create(endpoint.method(request), endpoint.requestUrl(request));
+          OpenSearchRequest.create(
+              endpoint.method(request),
+              endpoint.requestUrl(request),
+              queryBody,
+              OpenSearchServerTargets.get(transport));
+
       if (!instrumenter().shouldStart(parentContext, otelRequest)) {
         return null;
       }
       Context context = instrumenter().start(parentContext, otelRequest);
-      return new AdviceScope(otelRequest, context, context.makeCurrent());
+      return new AdviceScope(otelRequest, parentContext, context, context.makeCurrent());
     }
 
     public CompletableFuture<Object> wrapFuture(CompletableFuture<Object> future) {
-      return future.whenComplete(new OpenSearchResponseHandler(context, otelRequest));
+      return wrapFuture(
+          future.whenComplete(new OpenSearchResponseHandler(context, otelRequest)), parentContext);
+    }
+
+    private static <T> CompletableFuture<T> wrapFuture(
+        CompletableFuture<T> future, Context context) {
+      CompletableFuture<T> result = new CompletableFuture<>();
+      future.whenComplete(
+          (T value, Throwable throwable) -> {
+            try (Scope ignored = context.makeCurrent()) {
+              if (throwable != null) {
+                result.completeExceptionally(throwable);
+              } else {
+                result.complete(value);
+              }
+            }
+          });
+
+      return result;
     }
 
     public void end(@Nullable Throwable throwable) {
@@ -92,14 +139,17 @@ public class OpenSearchTransportInstrumentation implements TypeInstrumentation {
   @SuppressWarnings("unused")
   public static class PerformRequestAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    @Nullable
     public static AdviceScope onEnter(
+        @Advice.This OpenSearchTransport openSearchTransport,
         @Advice.Argument(0) Object request,
         @Advice.Argument(1) Endpoint<Object, Object, Object> endpoint) {
-      return AdviceScope.start(request, endpoint);
+      return AdviceScope.start(
+          openSearchTransport, request, endpoint, openSearchTransport.jsonpMapper());
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable AdviceScope adviceScope) {
@@ -112,24 +162,28 @@ public class OpenSearchTransportInstrumentation implements TypeInstrumentation {
   @SuppressWarnings("unused")
   public static class PerformRequestAsyncAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static Object[] onEnter(
+    @Nullable
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    public static AdviceScope onEnter(
+        @Advice.This OpenSearchTransport openSearchTransport,
         @Advice.Argument(0) Object request,
         @Advice.Argument(1) Endpoint<Object, Object, Object> endpoint) {
-      AdviceScope adviceScope = AdviceScope.start(request, endpoint);
-      return new Object[] {adviceScope};
+      return AdviceScope.start(
+          openSearchTransport, request, endpoint, openSearchTransport.jsonpMapper());
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     @Advice.AssignReturned.ToReturned
+    @Nullable
     public static CompletableFuture<Object> stopSpan(
-        @Advice.Return CompletableFuture<Object> future,
+        @Advice.Return @Nullable CompletableFuture<Object> future,
         @Advice.Thrown @Nullable Throwable throwable,
-        @Advice.Enter Object[] enterResult) {
-      AdviceScope adviceScope = (AdviceScope) enterResult[0];
+        @Advice.Enter @Nullable AdviceScope adviceScope) {
       if (adviceScope != null) {
         adviceScope.endAsync(throwable);
-        return adviceScope.wrapFuture(future);
+        if (future != null) {
+          return adviceScope.wrapFuture(future);
+        }
       }
       return future;
     }

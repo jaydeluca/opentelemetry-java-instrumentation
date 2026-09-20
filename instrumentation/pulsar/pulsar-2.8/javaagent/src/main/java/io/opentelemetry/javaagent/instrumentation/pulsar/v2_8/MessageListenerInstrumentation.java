@@ -6,7 +6,6 @@
 package io.opentelemetry.javaagent.instrumentation.pulsar.v2_8;
 
 import static io.opentelemetry.javaagent.instrumentation.pulsar.v2_8.telemetry.PulsarSingletons.consumerProcessInstrumenter;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 
@@ -26,7 +25,7 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageListener;
 import org.apache.pulsar.client.impl.conf.ConsumerConfigurationData;
 
-public class MessageListenerInstrumentation implements TypeInstrumentation {
+class MessageListenerInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -38,19 +37,22 @@ public class MessageListenerInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        isMethod().and(isPublic()).and(named("getMessageListener")),
-        MessageListenerInstrumentation.class.getName() + "$ConsumerConfigurationDataMethodAdvice");
+        isPublic().and(named("getMessageListener")),
+        getClass().getName() + "$ConsumerConfigurationDataMethodAdvice");
   }
 
   @SuppressWarnings("unused")
   public static class ConsumerConfigurationDataMethodAdvice {
 
     @AssignReturned.ToReturned
-    @Advice.OnMethodExit(suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
     public static MessageListener<?> after(
         @Advice.This ConsumerConfigurationData<?> data,
         @Advice.Return(typing = Assigner.Typing.DYNAMIC) MessageListener<?> listener) {
-      return listener == null ? null : new MessageListenerWrapper<>(listener);
+      if (listener == null || listener instanceof MessageListenerWrapper) {
+        return listener;
+      }
+      return new MessageListenerWrapper<>(listener);
     }
   }
 
@@ -68,7 +70,7 @@ public class MessageListenerInstrumentation implements TypeInstrumentation {
       Context parent = VirtualFieldStore.extract(message);
 
       Instrumenter<PulsarRequest, Void> instrumenter = consumerProcessInstrumenter();
-      PulsarRequest request = PulsarRequest.create(message);
+      PulsarRequest request = PulsarRequest.create(message, consumer);
       if (!instrumenter.shouldStart(parent, request)) {
         this.delegate.received(consumer, message);
         return;

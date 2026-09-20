@@ -7,6 +7,7 @@ package io.opentelemetry.instrumentation.awssdk.v2_2.internal;
 
 import static java.util.Collections.emptyList;
 
+import io.opentelemetry.instrumentation.api.internal.HttpConstants;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesGetter;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -17,23 +18,28 @@ class AwsSdkHttpAttributesGetter
     implements HttpClientAttributesGetter<ExecutionAttributes, Response> {
 
   @Override
+  @Nullable
   public String getUrlFull(ExecutionAttributes request) {
     SdkHttpRequest httpRequest =
         request.getAttribute(TracingExecutionInterceptor.SDK_HTTP_REQUEST_ATTRIBUTE);
-    return httpRequest.getUri().toString();
+    return httpRequest == null ? null : httpRequest.getUri().toString();
   }
 
   @Override
+  @Nullable
   public String getHttpRequestMethod(ExecutionAttributes request) {
     SdkHttpRequest httpRequest =
         request.getAttribute(TracingExecutionInterceptor.SDK_HTTP_REQUEST_ATTRIBUTE);
-    return httpRequest.method().name();
+    return httpRequest == null ? null : httpRequest.method().name();
   }
 
   @Override
   public List<String> getHttpRequestHeader(ExecutionAttributes request, String name) {
     SdkHttpRequest httpRequest =
         request.getAttribute(TracingExecutionInterceptor.SDK_HTTP_REQUEST_ATTRIBUTE);
+    if (httpRequest == null) {
+      return emptyList();
+    }
     List<String> value = httpRequest.headers().get(name);
     return value == null ? emptyList() : value;
   }
@@ -56,13 +62,16 @@ class AwsSdkHttpAttributesGetter
   public String getServerAddress(ExecutionAttributes request) {
     SdkHttpRequest httpRequest =
         request.getAttribute(TracingExecutionInterceptor.SDK_HTTP_REQUEST_ATTRIBUTE);
-    return httpRequest.host();
+    return httpRequest == null ? null : httpRequest.host();
   }
 
   @Override
+  @Nullable
   public Integer getServerPort(ExecutionAttributes request) {
     SdkHttpRequest httpRequest =
         request.getAttribute(TracingExecutionInterceptor.SDK_HTTP_REQUEST_ATTRIBUTE);
-    return httpRequest.port();
+    return httpRequest == null
+        ? null
+        : HttpConstants.portOrDefaultFromScheme(httpRequest.port(), httpRequest.protocol());
   }
 }

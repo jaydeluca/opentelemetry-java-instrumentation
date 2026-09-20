@@ -5,6 +5,7 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.jms.v2_0;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.implementsInterface;
 import static io.opentelemetry.javaagent.instrumentation.spring.jms.v2_0.SpringJmsSingletons.listenerInstrumenter;
@@ -15,18 +16,20 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.javaagent.bootstrap.jms.JmsReceiveContextHolder;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
-import io.opentelemetry.javaagent.instrumentation.jms.MessageWithDestination;
+import io.opentelemetry.javaagent.instrumentation.jms.common.v1_1.MessageWithDestination;
 import io.opentelemetry.javaagent.instrumentation.jms.v1_1.JavaxMessageAdapter;
+import io.opentelemetry.javaagent.instrumentation.jms.v1_1.JmsSubscriptionNames;
 import javax.annotation.Nullable;
 import javax.jms.Message;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
-public class SpringJmsMessageListenerInstrumentation implements TypeInstrumentation {
+class SpringJmsMessageListenerInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<ClassLoader> classLoaderOptimization() {
@@ -46,18 +49,24 @@ public class SpringJmsMessageListenerInstrumentation implements TypeInstrumentat
             .and(isPublic())
             .and(takesArguments(2))
             .and(takesArgument(0, named("javax.jms.Message"))),
-        SpringJmsMessageListenerInstrumentation.class.getName() + "$MessageListenerAdvice");
+        getClass().getName() + "$MessageListenerAdvice");
   }
 
   @SuppressWarnings("unused")
   public static class MessageListenerAdvice {
 
     public static class AdviceScope {
+      private final Instrumenter<MessageWithDestination, Void> instrumenter;
       private final MessageWithDestination request;
       private final Context context;
       private final Scope scope;
 
-      private AdviceScope(MessageWithDestination request, Context context, Scope scope) {
+      private AdviceScope(
+          Instrumenter<MessageWithDestination, Void> instrumenter,
+          MessageWithDestination request,
+          Context context,
+          Scope scope) {
+        this.instrumenter = instrumenter;
         this.request = request;
         this.context = context;
         this.scope = scope;
@@ -66,34 +75,39 @@ public class SpringJmsMessageListenerInstrumentation implements TypeInstrumentat
       @Nullable
       public static AdviceScope enter(Message message) {
         Context parentContext = Context.current();
-        Context receiveContext = JmsReceiveContextHolder.getReceiveContext(parentContext);
-        if (receiveContext != null) {
-          parentContext = receiveContext;
+        if (!emitStableMessagingSemconv()) {
+          Context receiveContext = JmsReceiveContextHolder.getReceiveContext(parentContext);
+          if (receiveContext != null) {
+            parentContext = receiveContext;
+          }
         }
 
         MessageWithDestination request =
-            MessageWithDestination.create(JavaxMessageAdapter.create(message), null);
+            MessageWithDestination.create(
+                JavaxMessageAdapter.create(message), null, JmsSubscriptionNames.get(message));
 
-        if (!listenerInstrumenter().shouldStart(parentContext, request)) {
+        Instrumenter<MessageWithDestination, Void> instrumenter =
+            listenerInstrumenter(request.message().wereConsumedMessagesRecorded());
+        if (!instrumenter.shouldStart(parentContext, request)) {
           return null;
         }
-        Context context = listenerInstrumenter().start(parentContext, request);
-        return new AdviceScope(request, context, context.makeCurrent());
+        Context context = instrumenter.start(parentContext, request);
+        return new AdviceScope(instrumenter, request, context, context.makeCurrent());
       }
 
       public void exit(@Nullable Throwable throwable) {
         scope.close();
-        listenerInstrumenter().end(context, request, null, throwable);
+        instrumenter.end(context, request, null, throwable);
       }
     }
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     @Nullable
     public static AdviceScope onEnter(@Advice.Argument(0) Message message) {
       return AdviceScope.enter(message);
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable AdviceScope adviceScope) {

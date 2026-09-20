@@ -5,17 +5,23 @@
 
 package io.opentelemetry.instrumentation.jmx;
 
+import static java.util.Objects.requireNonNull;
 import static java.util.logging.Level.FINE;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.instrumentation.jmx.engine.MetricConfiguration;
-import io.opentelemetry.instrumentation.jmx.yaml.RuleParser;
+import io.opentelemetry.common.ComponentLoader;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
+import io.opentelemetry.instrumentation.jmx.internal.engine.MetricConfiguration;
+import io.opentelemetry.instrumentation.jmx.internal.engine.MetricDef;
+import io.opentelemetry.instrumentation.jmx.internal.handler.HandlerRegistry;
+import io.opentelemetry.instrumentation.jmx.internal.yaml.RuleParser;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.logging.Logger;
 
 /** Builder for {@link JmxTelemetry} */
@@ -26,6 +32,9 @@ public final class JmxTelemetryBuilder {
   private final OpenTelemetry openTelemetry;
   private final MetricConfiguration metricConfiguration;
   private long discoveryDelayMs;
+  private ComponentLoader componentLoader =
+      ComponentLoader.forClassLoader(JmxTelemetryBuilder.class.getClassLoader());
+  private IncludeExclude metrics = IncludeExclude.builder().build();
 
   JmxTelemetryBuilder(OpenTelemetry openTelemetry) {
     this.openTelemetry = openTelemetry;
@@ -49,28 +58,8 @@ public final class JmxTelemetryBuilder {
   }
 
   /**
-   * Adds built-in JMX rules from classpath resource.
-   *
-   * @param target name of target in /jmx/rules/{target}.yaml classpath resource
-   * @return builder instance
-   * @throws IllegalArgumentException when classpath resource does not exist or can't be parsed
-   */
-  // TODO: deprecate this method after 2.23.0 release in favor of addRules
-  @CanIgnoreReturnValue
-  public JmxTelemetryBuilder addClassPathRules(String target) {
-    String resourcePath = String.format("jmx/rules/%s.yaml", target);
-    ClassLoader classLoader = JmxTelemetryBuilder.class.getClassLoader();
-    logger.log(FINE, "Adding JMX config from classpath {0}", resourcePath);
-    try (InputStream inputStream = classLoader.getResourceAsStream(resourcePath)) {
-      return addRules(inputStream);
-    } catch (IOException e) {
-      throw new IllegalArgumentException(
-          "Unable to load JMX rules from resource " + resourcePath, e);
-    }
-  }
-
-  /**
-   * Adds JMX rules from input stream
+   * Adds JMX rules from input stream, all metrics are included unless filtered out by the {@link
+   * #setMetrics(IncludeExclude)} method.
    *
    * @param input input to read rules from
    * @throws IllegalArgumentException when input is {@literal null} or can't be parsed
@@ -81,12 +70,17 @@ public final class JmxTelemetryBuilder {
       throw new IllegalArgumentException("missing JMX rules");
     }
     RuleParser parserInstance = RuleParser.get();
-    parserInstance.addMetricDefsTo(metricConfiguration, input);
+    List<MetricDef> metricDefs = parserInstance.parseMetricDefs(input);
+
+    for (MetricDef metricDef : metricDefs) {
+      metricConfiguration.addMetricDef(metricDef);
+    }
     return this;
   }
 
   /**
-   * Adds JMX rules from file system path
+   * Adds JMX rules from file system path, all metrics are included unless filtered out by the
+   * {@link #setMetrics(IncludeExclude)} method.
    *
    * @param path path to yaml file
    * @return builder instance
@@ -106,19 +100,35 @@ public final class JmxTelemetryBuilder {
   }
 
   /**
-   * Adds custom JMX rules from file system path
+   * Configures which JMX metrics are collected.
    *
-   * @param path path to yaml file
+   * <p>Matching is case-sensitive. {@code ?} matches one character and {@code *} matches any number
+   * of characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns collects every metric that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector collects every metric.
+   *
+   * @param metrics metric names to include and exclude
    * @return builder instance
-   * @throws IllegalArgumentException when classpath resource does not exist or can't be parsed
    */
-  // TODO: deprecate this method after 2.23.0 release in favor of addRules
   @CanIgnoreReturnValue
-  public JmxTelemetryBuilder addCustomRules(Path path) {
-    return addRules(path);
+  public JmxTelemetryBuilder setMetrics(IncludeExclude metrics) {
+    this.metrics = metrics;
+    return this;
+  }
+
+  /** Sets the {@link ClassLoader} to be used to load SPI implementations. */
+  @CanIgnoreReturnValue
+  public JmxTelemetryBuilder setServiceClassLoader(ClassLoader serviceClassLoader) {
+    requireNonNull(serviceClassLoader, "serviceClassLoader");
+    this.componentLoader = ComponentLoader.forClassLoader(serviceClassLoader);
+    return this;
   }
 
   public JmxTelemetry build() {
-    return new JmxTelemetry(openTelemetry, discoveryDelayMs, metricConfiguration);
+    HandlerRegistry handlerRegistry = new HandlerRegistry();
+    handlerRegistry.load(componentLoader);
+
+    return new JmxTelemetry(
+        openTelemetry, discoveryDelayMs, metricConfiguration, handlerRegistry, metrics);
   }
 }

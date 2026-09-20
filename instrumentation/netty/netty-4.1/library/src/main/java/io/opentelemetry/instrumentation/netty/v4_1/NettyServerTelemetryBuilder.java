@@ -8,20 +8,24 @@ package io.opentelemetry.instrumentation.netty.v4_1;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.netty.handler.codec.http.HttpResponse;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.incubator.builder.internal.DefaultHttpServerInstrumenterBuilder;
+import io.opentelemetry.instrumentation.api.instrumenter.SpanNameExtractor;
+import io.opentelemetry.instrumentation.api.internal.InstrumenterUtil;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpServerAttributesExtractorBuilder;
-import io.opentelemetry.instrumentation.netty.common.v4_0.NettyRequest;
+import io.opentelemetry.instrumentation.netty.common.v4_0.internal.NettyCommonRequest;
 import io.opentelemetry.instrumentation.netty.common.v4_0.internal.server.HttpRequestHeadersGetter;
 import io.opentelemetry.instrumentation.netty.common.v4_0.internal.server.NettyHttpServerAttributesGetter;
 import io.opentelemetry.instrumentation.netty.v4_1.internal.Experimental;
 import io.opentelemetry.instrumentation.netty.v4_1.internal.ProtocolEventHandler;
 import io.opentelemetry.instrumentation.netty.v4_1.internal.server.NettyServerInstrumenterBuilderUtil;
 import java.util.Collection;
+import java.util.function.UnaryOperator;
 
-/** A builder of {@link NettyServerTelemetry}. */
+/** Builder for {@link NettyServerTelemetry}. */
 public final class NettyServerTelemetryBuilder {
 
-  private final DefaultHttpServerInstrumenterBuilder<NettyRequest, HttpResponse> builder;
+  private final DefaultHttpServerInstrumenterBuilder<NettyCommonRequest, HttpResponse> builder;
 
   private boolean emitExperimentalHttpServerEvents = false;
 
@@ -41,26 +45,38 @@ public final class NettyServerTelemetryBuilder {
             "io.opentelemetry.netty-4.1",
             openTelemetry,
             new NettyHttpServerAttributesGetter(),
-            HttpRequestHeadersGetter.INSTANCE);
+            new HttpRequestHeadersGetter());
   }
 
   /**
-   * Configures emission of experimental events.
+   * Configures which HTTP request headers are captured as span attributes.
    *
-   * @param emitExperimentalHttpServerEvents set to true to emit events
+   * <p>Header values are captured under the {@code http.request.header.<key>} attribute key. The
+   * {@code <key>} part in the attribute key is the lowercase header name.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
    */
   @CanIgnoreReturnValue
-  public NettyServerTelemetryBuilder setEmitExperimentalHttpServerEvents(
-      boolean emitExperimentalHttpServerEvents) {
-    this.emitExperimentalHttpServerEvents = emitExperimentalHttpServerEvents;
+  public NettyServerTelemetryBuilder setRequestHeaders(IncludeExclude requestHeaders) {
+    builder.setRequestHeaders(requestHeaders);
     return this;
   }
 
   /**
-   * Configures the HTTP request headers that will be captured as span attributes.
+   * Configures HTTP request headers to capture as span attributes.
    *
-   * @param capturedRequestHeaders A list of HTTP header names.
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
+   *
+   * @param capturedRequestHeaders HTTP header names to capture.
+   * @deprecated Use {@link #setRequestHeaders(IncludeExclude)} instead, which matches glob patterns
+   *     rather than literal header names. May be removed in the next minor release.
    */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public NettyServerTelemetryBuilder setCapturedRequestHeaders(
       Collection<String> capturedRequestHeaders) {
@@ -69,10 +85,34 @@ public final class NettyServerTelemetryBuilder {
   }
 
   /**
-   * Configures the HTTP response headers that will be captured as span attributes.
+   * Configures which HTTP response headers are captured as span attributes.
    *
-   * @param capturedResponseHeaders A list of HTTP header names.
+   * <p>Header values are captured under the {@code http.response.header.<key>} attribute key. The
+   * {@code <key>} part in the attribute key is the lowercase header name.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
    */
+  @CanIgnoreReturnValue
+  public NettyServerTelemetryBuilder setResponseHeaders(IncludeExclude responseHeaders) {
+    builder.setResponseHeaders(responseHeaders);
+    return this;
+  }
+
+  /**
+   * Configures HTTP response headers to capture as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
+   *
+   * @param capturedResponseHeaders HTTP header names to capture.
+   * @deprecated Use {@link #setResponseHeaders(IncludeExclude)} instead, which matches glob
+   *     patterns rather than literal header names. May be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public NettyServerTelemetryBuilder setCapturedResponseHeaders(
       Collection<String> capturedResponseHeaders) {
@@ -81,16 +121,15 @@ public final class NettyServerTelemetryBuilder {
   }
 
   /**
-   * Configures the instrumentation to recognize an alternative set of HTTP request methods.
+   * Configures recognized HTTP request methods.
    *
-   * <p>By default, this instrumentation defines "known" methods as the ones listed in <a
-   * href="https://www.rfc-editor.org/rfc/rfc9110.html#name-methods">RFC9110</a> and the PATCH
-   * method defined in <a href="https://www.rfc-editor.org/rfc/rfc5789.html">RFC5789</a>.
+   * <p>By default, recognizes methods from <a
+   * href="https://www.rfc-editor.org/rfc/rfc9110.html#name-methods">RFC9110</a> and PATCH from <a
+   * href="https://www.rfc-editor.org/rfc/rfc5789.html">RFC5789</a>.
    *
-   * <p>Note: calling this method <b>overrides</b> the default known method sets completely; it does
-   * not supplement it.
+   * <p><b>Note:</b> This <b>overrides</b> defaults completely; it does not supplement them.
    *
-   * @param knownMethods A set of recognized HTTP request methods.
+   * @param knownMethods HTTP request methods to recognize.
    * @see HttpServerAttributesExtractorBuilder#setKnownMethods(Collection)
    */
   @CanIgnoreReturnValue
@@ -99,7 +138,17 @@ public final class NettyServerTelemetryBuilder {
     return this;
   }
 
-  /** Returns a new {@link NettyServerTelemetry} with the given configuration. */
+  /** Customizes the {@link SpanNameExtractor} by transforming the default instance. */
+  @CanIgnoreReturnValue
+  public NettyServerTelemetryBuilder setSpanNameExtractorCustomizer(
+      UnaryOperator<SpanNameExtractor<NettyRequest>> spanNameExtractorCustomizer) {
+    builder.setSpanNameExtractorCustomizer(
+        InstrumenterUtil.convertSpanNameExtractor(
+            spanNameExtractorCustomizer, NettyRequest::delegate, NettyRequest::create));
+    return this;
+  }
+
+  /** Returns a new instance with the configured settings. */
   public NettyServerTelemetry build() {
     return new NettyServerTelemetry(
         builder.build(),

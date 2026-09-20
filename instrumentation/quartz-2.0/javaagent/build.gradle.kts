@@ -8,7 +8,6 @@ muzzle {
     module.set("quartz")
     versions.set("[2.0.0,)")
     assertInverse.set(true)
-    skip("1.7.0") // missing in maven central
   }
 }
 
@@ -20,7 +19,20 @@ dependencies {
   testImplementation(project(":instrumentation:quartz-2.0:testing"))
 }
 
-tasks.withType<Test>().configureEach {
-  // TODO run tests both with and without experimental span attributes
-  jvmArgs("-Dotel.instrumentation.quartz.experimental-span-attributes=true")
+tasks {
+  withType<Test>().configureEach {
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+  }
+
+  val testExperimental = register<Test>("testExperimental") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.instrumentation.quartz.experimental-span-attributes=true")
+    systemProperty("metadataConfig", "otel.instrumentation.quartz.experimental-span-attributes=true")
+  }
+
+  check {
+    dependsOn(testExperimental)
+  }
 }

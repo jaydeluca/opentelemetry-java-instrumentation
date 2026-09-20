@@ -13,8 +13,7 @@ import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 import software.amazon.awssdk.services.sqs.SqsClient;
 
-public abstract class Aws2SqsSuppressReceiveSpansTest
-    extends AbstractAws2SqsSuppressReceiveSpansTest {
+abstract class Aws2SqsSuppressReceiveSpansTest extends AbstractAws2SqsSuppressReceiveSpansTest {
   protected AwsSdkTelemetry telemetry;
 
   @RegisterExtension
@@ -38,7 +37,7 @@ public abstract class Aws2SqsSuppressReceiveSpansTest
   @Override
   protected ClientOverrideConfiguration.Builder createOverrideConfigurationBuilder() {
     return ClientOverrideConfiguration.builder()
-        .addExecutionInterceptor(telemetry.newExecutionInterceptor());
+        .addExecutionInterceptor(telemetry.createExecutionInterceptor());
   }
 
   protected abstract void configure(AwsSdkTelemetryBuilder telemetryBuilder);

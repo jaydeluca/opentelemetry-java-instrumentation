@@ -12,16 +12,14 @@ import static java.util.Collections.singletonList;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
 import net.bytebuddy.matcher.ElementMatcher;
 
 @AutoService(InstrumentationModule.class)
-public class CouchbaseInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class CouchbaseInstrumentationModule extends InstrumentationModule {
 
   public CouchbaseInstrumentationModule() {
-    super("couchbase", "couchbase-2.0");
+    super("couchbase", "couchbase-2.0", "couchbase-2.0-core");
   }
 
   @Override
@@ -31,12 +29,10 @@ public class CouchbaseInstrumentationModule extends InstrumentationModule
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return asList(new CouchbaseBucketInstrumentation(), new CouchbaseClusterInstrumentation());
-  }
-
-  @Override
-  public String getModuleGroup() {
-    return "couchbase";
+    return asList(
+        new CouchbaseBucketInstrumentation(),
+        new CouchbaseClusterInstrumentation(),
+        new CouchbaseClusterTargetInstrumentation());
   }
 
   @Override
@@ -45,13 +41,8 @@ public class CouchbaseInstrumentationModule extends InstrumentationModule
   }
 
   @Override
-  public boolean isIndyReady() {
-    return true;
-  }
-
-  @Override
   public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
-    // removed in 3.x
+    // added in 2.0.0, removed in 3.0.0
     return hasClassesNamed("com.couchbase.client.java.CouchbaseAsyncBucket");
   }
 }

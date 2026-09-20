@@ -20,18 +20,18 @@ public final class TraceProxyListener implements ProxyMethodExecutionListener {
   private static final String KEY_DB_EXECUTION = "dbExecution";
 
   private final Instrumenter<DbExecution, Void> instrumenter;
-  private final ConnectionFactoryOptions factoryOptions;
+  private final R2dbcConnectionInfo connectionInfo;
 
   public TraceProxyListener(
       Instrumenter<DbExecution, Void> instrumenter, ConnectionFactoryOptions factoryOptions) {
     this.instrumenter = instrumenter;
-    this.factoryOptions = factoryOptions;
+    this.connectionInfo = new R2dbcConnectionInfo(factoryOptions);
   }
 
   @Override
   public void beforeQuery(QueryExecutionInfo queryInfo) {
     Context parentContext = Context.current();
-    DbExecution dbExecution = new DbExecution(queryInfo, factoryOptions);
+    DbExecution dbExecution = new DbExecution(queryInfo, connectionInfo);
     if (!instrumenter.shouldStart(parentContext, dbExecution)) {
       return;
     }
@@ -42,8 +42,12 @@ public final class TraceProxyListener implements ProxyMethodExecutionListener {
   @Override
   public void afterQuery(QueryExecutionInfo queryInfo) {
     DbExecution dbExecution = (DbExecution) queryInfo.getValueStore().get(KEY_DB_EXECUTION);
-    if (dbExecution != null && dbExecution.getContext() != null) {
-      instrumenter.end(dbExecution.getContext(), dbExecution, null, queryInfo.getThrowable());
+    if (dbExecution == null) {
+      return;
+    }
+    Context context = dbExecution.getContext();
+    if (context != null) {
+      instrumenter.end(context, dbExecution, null, queryInfo.getThrowable());
     }
   }
 }

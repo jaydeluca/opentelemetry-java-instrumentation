@@ -12,6 +12,8 @@ muzzle {
 }
 
 dependencies {
+  bootstrap(project(":instrumentation:rabbitmq-2.7:bootstrap"))
+
   library("com.rabbitmq:amqp-client:2.7.0")
 
   compileOnly("com.google.auto.value:auto-value-annotations")
@@ -26,12 +28,40 @@ dependencies {
   testLibrary("io.projectreactor.rabbitmq:reactor-rabbitmq:1.0.0.RELEASE")
 }
 
-tasks.withType<Test>().configureEach {
-  // TODO run tests both with and without experimental span attributes
-  jvmArgs("-Dotel.instrumentation.rabbitmq.experimental-span-attributes=true")
-  jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+tasks {
+  withType<Test>().configureEach {
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
 
-  systemProperty("testLatestDeps", findProperty("testLatestDeps") ?: "false")
+    systemProperty("otel.instrumentation.messaging.experimental.receive-telemetry.enabled", "true")
 
-  usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
+    usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
+  }
+
+  val testExperimental = register<Test>("testExperimental") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.instrumentation.rabbitmq.experimental-span-attributes=true")
+    systemProperty("metadataConfig", "otel.instrumentation.rabbitmq.experimental-span-attributes=true")
+  }
+
+  val testMessagingPreview = register<Test>("testMessagingPreview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    systemProperty("otel.instrumentation.messaging.experimental.receive-telemetry.enabled", "false")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
+  }
+
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging/dup")
+  }
+
+  check {
+    dependsOn(testExperimental, testMessagingPreview, testBothSemconv)
+  }
 }

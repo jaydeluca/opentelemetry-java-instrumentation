@@ -5,8 +5,8 @@
 
 package io.opentelemetry.instrumentation.apachedbcp;
 
-import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.when;
@@ -15,9 +15,6 @@ import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.db.DbConnectionPoolMetricsAssertions;
 import java.sql.Connection;
 import java.sql.Driver;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,33 +25,45 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public abstract class AbstractApacheDbcpInstrumentationTest {
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.apache-dbcp-2.0";
 
-  @Mock Driver driverMock;
-  @Mock Connection connectionMock;
+  @Mock private Driver driverMock;
+  @Mock private Connection connectionMock;
 
   protected abstract InstrumentationExtension testing();
 
   protected abstract void configure(BasicDataSource dataSource, String dataSourceName)
       throws Exception;
 
-  protected abstract void shutdown(BasicDataSource dataSource) throws Exception;
+  protected void shutdown(BasicDataSource dataSource) throws Exception {}
 
   @Test
   void shouldReportMetrics() throws Exception {
-    // given
+    String dataSourceName = "dataSourceName";
+    BasicDataSource dataSource = createDataSource();
+    try {
+      configure(dataSource, dataSourceName);
+
+      dataSource.getConnection().close();
+
+      assertDataSourceMetrics(dataSourceName);
+    } finally {
+      dataSource.close();
+      shutdown(dataSource);
+    }
+
+    assertNoMetrics();
+  }
+
+  protected BasicDataSource createDataSource() throws Exception {
     when(driverMock.connect(any(), any())).thenReturn(connectionMock);
     when(connectionMock.isValid(anyInt())).thenReturn(true);
 
-    String dataSourceName = "dataSourceName";
     BasicDataSource dataSource = new BasicDataSource();
     dataSource.setDriver(driverMock);
     dataSource.setUrl("db:///url");
-    dataSource.postDeregister();
-    configure(dataSource, dataSourceName);
+    return dataSource;
+  }
 
-    // when
-    dataSource.getConnection().close();
-
-    // then
+  protected void assertDataSourceMetrics(String dataSourceName) {
     DbConnectionPoolMetricsAssertions.create(testing(), INSTRUMENTATION_NAME, dataSourceName)
         .disableConnectionTimeouts()
         .disableCreateTime()
@@ -62,31 +71,21 @@ public abstract class AbstractApacheDbcpInstrumentationTest {
         .disableUseTime()
         .disablePendingRequests()
         .assertConnectionPoolEmitsMetrics();
+  }
 
-    // when
-    dataSource.close();
-    shutdown(dataSource);
-
-    // sleep exporter interval
-    Thread.sleep(100);
+  protected void assertNoMetrics() {
     testing().clearData();
-    Thread.sleep(100);
 
-    // then
-    Set<String> metricNames =
-        new HashSet<>(
-            Arrays.asList(
-                emitStableDatabaseSemconv()
-                    ? "db.client.connection.count"
-                    : "db.client.connections.usage",
-                "db.client.connections.idle.min",
-                "db.client.connections.idle.max",
-                "db.client.connections.max"));
-    assertThat(testing().metrics())
-        .filteredOn(
-            metricData ->
-                metricData.getInstrumentationScopeInfo().getName().equals(INSTRUMENTATION_NAME)
-                    && metricNames.contains(metricData.getName()))
-        .isEmpty();
+    await()
+        .untilAsserted(
+            () ->
+                assertThat(testing().metrics())
+                    .filteredOn(
+                        metricData ->
+                            metricData
+                                .getInstrumentationScopeInfo()
+                                .getName()
+                                .equals(INSTRUMENTATION_NAME))
+                    .isEmpty());
   }
 }

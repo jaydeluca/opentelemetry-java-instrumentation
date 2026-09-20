@@ -2,11 +2,26 @@
 
 ## Settings
 
-| System property                                                            | Type    | Default | Description                                         |
-|----------------------------------------------------------------------------|---------|---------|-----------------------------------------------------|
-| `otel.instrumentation.servlet.experimental-span-attributes`                | Boolean | `false` | Enable the capture of experimental span attributes. |
-| `otel.instrumentation.servlet.experimental.capture-request-parameters`     | List    | Empty   | Request parameters to be captured (experimental).   |
-| `otel.instrumentation.servlet.experimental.add-trace-id-request-attribute` | Boolean | `true`  | Add `trace_id` and `span_id` as request attributes. |
+| System property                                                                | Type    | Default | Description                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------ | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `otel.instrumentation.servlet.experimental-span-attributes`                    | Boolean | `false` | Enable the capture of experimental span attributes.                                                                                                                                                                                                                                                                     |
+| `otel.instrumentation.servlet.experimental.request-parameters.included`        | List    | Empty   | Case-sensitive request parameter name patterns to capture. `?` matches one character and `*` matches zero or more characters.                                                                                                                                                                                           |
+| `otel.instrumentation.servlet.experimental.request-parameters.excluded`        | List    | Empty   | Case-sensitive request parameter name patterns to exclude. Excluded patterns take precedence over included patterns.                                                                                                                                                                                                    |
+| `otel.instrumentation.servlet.experimental.capture-request-parameters`         | List    | Empty   | Deprecated include-only alias for `otel.instrumentation.servlet.experimental.request-parameters.included`. It does not support glob patterns: an entry containing `*` or `?` is ignored with a warning, and every other entry is matched as a literal request parameter name. May be removed in the next minor release. |
+| `otel.instrumentation.servlet.experimental.trace-id-request-attribute.enabled` | Boolean | `true`  | Enable adding `trace_id` and `span_id` as request attributes.                                                                                                                                                                                                                                                           |
+
+An absent or empty request parameter selector captures nothing. An exclude-only selector captures every available request parameter except those matching an excluded pattern, which may expose sensitive information. To capture all parameters explicitly, configure `otel.instrumentation.servlet.experimental.request-parameters.included=*`.
+
+The equivalent declarative configuration is:
+
+```yaml
+instrumentation/development:
+  java:
+    servlet:
+      request_parameters/development:
+        included: ["user-*", "search-?"]
+        excluded: ["password", "*-token"]
+```
 
 ### A word about version
 
@@ -18,7 +33,7 @@ They are divided into the following sub-modules:
 - `servlet-common` contains shared code for both `javax.servlet` and `jakarta.servlet` packages.
 - Version-specific modules contain the version-specific instrumentations and request/response
   accessor.
-  - `servlet-javax-common` contains instrumentations common for Servlet API versions `[2.2, 5)`
+  - `servlet-common-javax` contains instrumentations common for Servlet API versions `[2.2, 5)`
   - `servlet-2.2` contains instrumentation for Servlet API versions `[2.2, 3)`
   - `servlet-3.0` contains instrumentation for Servlet API versions `[3.0, 5)`
   - `servlet-5.0` contains instrumentation for Servlet API versions `[5,)`

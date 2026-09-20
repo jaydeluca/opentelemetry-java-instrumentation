@@ -20,20 +20,23 @@ final class ConnectionPoolMetrics {
   // a weak map does not make sense here because each Meter holds a reference to the connection pool
   // none of the UniversalConnectionPool implementations contain equals()/hashCode(), so it's safe
   // to keep them in a plain ConcurrentHashMap
-  private static final Map<UniversalConnectionPool, BatchCallback> dataSourceMetrics =
+  private static final Map<UniversalConnectionPool, BatchCallback> connectionPoolMetrics =
       new ConcurrentHashMap<>();
 
-  public static void registerMetrics(
-      OpenTelemetry openTelemetry, UniversalConnectionPool connectionPool) {
-    dataSourceMetrics.computeIfAbsent(
-        connectionPool, (unused) -> createMeters(openTelemetry, connectionPool));
+  static void registerMetrics(OpenTelemetry openTelemetry, UniversalConnectionPool connectionPool) {
+    registerMetrics(openTelemetry, connectionPool, connectionPool.getName());
+  }
+
+  static void registerMetrics(
+      OpenTelemetry openTelemetry, UniversalConnectionPool connectionPool, String poolName) {
+    connectionPoolMetrics.computeIfAbsent(
+        connectionPool, unused -> createMeters(openTelemetry, connectionPool, poolName));
   }
 
   private static BatchCallback createMeters(
-      OpenTelemetry openTelemetry, UniversalConnectionPool connectionPool) {
+      OpenTelemetry openTelemetry, UniversalConnectionPool connectionPool, String poolName) {
     DbConnectionPoolMetrics metrics =
-        DbConnectionPoolMetrics.create(
-            openTelemetry, INSTRUMENTATION_NAME, connectionPool.getName());
+        DbConnectionPoolMetrics.create(openTelemetry, INSTRUMENTATION_NAME, poolName);
 
     ObservableLongMeasurement connections = metrics.connections();
     ObservableLongMeasurement maxConnections = metrics.maxConnections();
@@ -49,8 +52,7 @@ final class ConnectionPoolMetrics {
               connectionPool.getBorrowedConnectionsCount(), usedConnectionsAttributes);
           connections.record(
               connectionPool.getAvailableConnectionsCount(), idleConnectionsAttributes);
-          maxConnections.record(
-              connectionPool.getStatistics().getPeakConnectionsCount(), attributes);
+          maxConnections.record(connectionPool.getMaxPoolSize(), attributes);
           pendingRequestsForConnection.record(
               connectionPool.getStatistics().getPendingRequestsCount(), attributes);
         },
@@ -59,8 +61,8 @@ final class ConnectionPoolMetrics {
         pendingRequestsForConnection);
   }
 
-  public static void unregisterMetrics(UniversalConnectionPool connectionPool) {
-    BatchCallback callback = dataSourceMetrics.remove(connectionPool);
+  static void unregisterMetrics(UniversalConnectionPool connectionPool) {
+    BatchCallback callback = connectionPoolMetrics.remove(connectionPool);
     if (callback != null) {
       callback.close();
     }

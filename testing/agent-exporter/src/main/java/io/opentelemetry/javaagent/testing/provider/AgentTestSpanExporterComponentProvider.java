@@ -5,16 +5,18 @@
 
 package io.opentelemetry.javaagent.testing.provider;
 
+import static java.util.Objects.requireNonNull;
+
 import com.google.auto.service.AutoService;
 import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
 import io.opentelemetry.sdk.autoconfigure.spi.internal.ComponentProvider;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
-import java.util.Objects;
+import javax.annotation.Nullable;
 
 @AutoService(ComponentProvider.class)
 public class AgentTestSpanExporterComponentProvider implements ComponentProvider {
 
-  private static SpanExporter spanExporter;
+  @Nullable private static SpanExporter spanExporter;
 
   @Override
   public Class<SpanExporter> getType() {
@@ -28,7 +30,7 @@ public class AgentTestSpanExporterComponentProvider implements ComponentProvider
 
   @Override
   public SpanExporter create(DeclarativeConfigProperties config) {
-    return Objects.requireNonNull(spanExporter, "spanExporter must not be null");
+    return requireNonNull(spanExporter, "spanExporter must not be null");
   }
 
   public static void setSpanExporter(SpanExporter spanExporter) {

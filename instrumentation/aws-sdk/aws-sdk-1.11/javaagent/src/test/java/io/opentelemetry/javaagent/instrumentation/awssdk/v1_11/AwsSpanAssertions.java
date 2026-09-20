@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.sdk.testing.assertj.SpanDataAssert;
 
+@SuppressWarnings("deprecation") // using deprecated semconv
 class AwsSpanAssertions {
   private AwsSpanAssertions() {}
 
@@ -39,14 +40,14 @@ class AwsSpanAssertions {
             equalTo(stringKey("aws.agent"), "java-aws-sdk"),
             equalTo(stringKey("aws.queue.name"), queueName),
             equalTo(AWS_SQS_QUEUE_URL, queueUrl),
-            satisfies(AWS_REQUEST_ID, v -> v.isInstanceOf(String.class)),
+            satisfies(AWS_REQUEST_ID, val -> val.isInstanceOf(String.class)),
             equalTo(RPC_METHOD, rpcMethod),
             equalTo(RPC_SYSTEM, "aws-api"),
             equalTo(RPC_SERVICE, "AmazonSQS"),
             equalTo(HTTP_REQUEST_METHOD, "POST"),
             equalTo(HTTP_RESPONSE_STATUS_CODE, 200),
             satisfies(URL_FULL, val -> val.startsWith("http://")),
-            satisfies(SERVER_ADDRESS, v -> v.isInstanceOf(String.class)),
+            satisfies(SERVER_ADDRESS, val -> val.isInstanceOf(String.class)),
             equalTo(NETWORK_PROTOCOL_VERSION, "1.1"),
             satisfies(
                 SERVER_PORT,
@@ -75,7 +76,7 @@ class AwsSpanAssertions {
             equalTo(HTTP_REQUEST_METHOD, requestMethod),
             equalTo(HTTP_RESPONSE_STATUS_CODE, responseStatusCode),
             satisfies(URL_FULL, val -> val.startsWith("http://")),
-            satisfies(SERVER_ADDRESS, v -> v.isInstanceOf(String.class)),
+            satisfies(SERVER_ADDRESS, val -> val.isInstanceOf(String.class)),
             equalTo(NETWORK_PROTOCOL_VERSION, "1.1"),
             satisfies(
                 SERVER_PORT,
@@ -93,15 +94,15 @@ class AwsSpanAssertions {
         .hasAttributesSatisfyingExactly(
             equalTo(stringKey("aws.agent"), "java-aws-sdk"),
             equalTo(MESSAGING_DESTINATION_NAME, topicArn),
-            satisfies(AWS_SNS_TOPIC_ARN, v -> v.isInstanceOf(String.class)),
-            satisfies(AWS_REQUEST_ID, v -> v.isInstanceOf(String.class)),
+            satisfies(AWS_SNS_TOPIC_ARN, val -> val.isInstanceOf(String.class)),
+            satisfies(AWS_REQUEST_ID, val -> val.isInstanceOf(String.class)),
             equalTo(RPC_METHOD, rpcMethod),
             equalTo(RPC_SYSTEM, "aws-api"),
             equalTo(RPC_SERVICE, "AmazonSNS"),
             equalTo(HTTP_REQUEST_METHOD, "POST"),
             equalTo(HTTP_RESPONSE_STATUS_CODE, 200),
             satisfies(URL_FULL, val -> val.startsWith("http://")),
-            satisfies(SERVER_ADDRESS, v -> v.isInstanceOf(String.class)),
+            satisfies(SERVER_ADDRESS, val -> val.isInstanceOf(String.class)),
             equalTo(NETWORK_PROTOCOL_VERSION, "1.1"),
             satisfies(
                 SERVER_PORT,

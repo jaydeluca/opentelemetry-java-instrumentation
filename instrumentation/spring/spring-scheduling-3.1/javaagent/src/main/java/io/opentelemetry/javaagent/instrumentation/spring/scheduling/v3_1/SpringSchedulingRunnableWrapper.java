@@ -5,11 +5,11 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.scheduling.v3_1;
 
-import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
 import static io.opentelemetry.javaagent.instrumentation.spring.scheduling.v3_1.SpringSchedulingSingletons.instrumenter;
 
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import javax.annotation.Nullable;
 
 public class SpringSchedulingRunnableWrapper implements Runnable {
   private final Runnable runnable;
@@ -20,11 +20,7 @@ public class SpringSchedulingRunnableWrapper implements Runnable {
 
   @Override
   public void run() {
-    if (runnable == null) {
-      return;
-    }
-
-    Context parentContext = currentContext();
+    Context parentContext = Context.current();
     if (!instrumenter().shouldStart(parentContext, runnable)) {
       runnable.run();
       return;
@@ -42,10 +38,9 @@ public class SpringSchedulingRunnableWrapper implements Runnable {
     instrumenter().end(context, runnable, null, null);
   }
 
-  public static Runnable wrapIfNeeded(Runnable task) {
-    // We wrap only lambdas' anonymous classes and if given object has not already been wrapped.
-    // Anonymous classes have '/' in class name which is not allowed in 'normal' classes.
-    if (task instanceof SpringSchedulingRunnableWrapper) {
+  @Nullable
+  public static Runnable wrapIfNeeded(@Nullable Runnable task) {
+    if (task == null || task instanceof SpringSchedulingRunnableWrapper) {
       return task;
     }
     return new SpringSchedulingRunnableWrapper(task);

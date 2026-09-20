@@ -6,7 +6,8 @@
 package io.opentelemetry.instrumentation.openai.v1_1;
 
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
-import static io.opentelemetry.instrumentation.openai.v1_1.GenAiAttributes.GEN_AI_PROVIDER_NAME;
+import static java.util.stream.Collectors.joining;
+import static java.util.stream.Collectors.toList;
 
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
@@ -32,14 +33,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 final class ChatCompletionEventsHelper {
 
+  // copied from EventIncubatingAttributes
   private static final AttributeKey<String> EVENT_NAME = stringKey("event.name");
 
-  public static void emitPromptLogEvents(
+  // copied from GenAiIncubatingAttributes
+  private static final AttributeKey<String> GEN_AI_PROVIDER_NAME =
+      stringKey("gen_ai.provider.name");
+
+  static void emitPromptLogEvents(
       Context context,
       Logger eventLogger,
       ChatCompletionCreateParams request,
@@ -78,7 +83,7 @@ final class ChatCompletionEventsHelper {
                   List<Value<?>> toolCallsJson =
                       toolCalls.stream()
                           .map(call -> buildToolCallEventObject(call, captureMessageContent))
-                          .collect(Collectors.toList());
+                          .collect(toList());
                   body.put("tool_calls", Value.of(toolCallsJson));
                 });
       } else if (msg.isTool()) {
@@ -121,7 +126,7 @@ final class ChatCompletionEventsHelper {
                 return null;
               })
           .filter(Objects::nonNull)
-          .collect(Collectors.joining());
+          .collect(joining());
     } else {
       return "";
     }
@@ -154,19 +159,17 @@ final class ChatCompletionEventsHelper {
       return content.asArrayOfContentParts().stream()
           .map(part -> part.isText() ? part.asText().text() : null)
           .filter(Objects::nonNull)
-          .collect(Collectors.joining());
+          .collect(joining());
     } else {
       return "";
     }
   }
 
   private static String joinContentParts(List<ChatCompletionContentPartText> contentParts) {
-    return contentParts.stream()
-        .map(ChatCompletionContentPartText::text)
-        .collect(Collectors.joining());
+    return contentParts.stream().map(ChatCompletionContentPartText::text).collect(joining());
   }
 
-  public static void emitCompletionLogEvents(
+  static void emitCompletionLogEvents(
       Context context,
       Logger eventLogger,
       ChatCompletion completion,
@@ -186,7 +189,7 @@ final class ChatCompletionEventsHelper {
                     Value.of(
                         toolCalls.stream()
                             .map(call -> buildToolCallEventObject(call, captureMessageContent))
-                            .collect(Collectors.toList())));
+                            .collect(toList())));
               });
       emitCompletionLogEvent(
           context,
@@ -197,7 +200,7 @@ final class ChatCompletionEventsHelper {
     }
   }
 
-  public static void emitCompletionLogEvent(
+  static void emitCompletionLogEvent(
       Context context,
       Logger eventLogger,
       long index,
@@ -266,16 +269,16 @@ final class ChatCompletionEventsHelper {
 
     try {
       return (String) methodHandle.invoke(object);
-    } catch (Throwable ignore) {
+    } catch (Throwable ignored) {
       return "";
     }
   }
 
   private static class V1FunctionAccess implements FunctionAccess {
-    @Nullable private static final MethodHandle idHandle;
-    @Nullable private static final MethodHandle functionHandle;
-    @Nullable private static final MethodHandle nameHandle;
-    @Nullable private static final MethodHandle argumentsHandle;
+    @Nullable private static final MethodHandle ID_HANDLE;
+    @Nullable private static final MethodHandle FUNCTION_HANDLE;
+    @Nullable private static final MethodHandle NAME_HANDLE;
+    @Nullable private static final MethodHandle ARGUMENTS_HANDLE;
 
     static {
       MethodHandle id;
@@ -299,16 +302,16 @@ final class ChatCompletionEventsHelper {
         name = lookup.findVirtual(functionClass, "name", MethodType.methodType(String.class));
         arguments =
             lookup.findVirtual(functionClass, "arguments", MethodType.methodType(String.class));
-      } catch (Exception exception) {
+      } catch (Exception ignored) {
         id = null;
         function = null;
         name = null;
         arguments = null;
       }
-      idHandle = id;
-      functionHandle = function;
-      nameHandle = name;
-      argumentsHandle = arguments;
+      ID_HANDLE = id;
+      FUNCTION_HANDLE = function;
+      NAME_HANDLE = name;
+      ARGUMENTS_HANDLE = arguments;
     }
 
     private final ChatCompletionMessageToolCall toolCall;
@@ -321,43 +324,43 @@ final class ChatCompletionEventsHelper {
 
     @Nullable
     static FunctionAccess create(ChatCompletionMessageToolCall toolCall) {
-      if (functionHandle == null) {
+      if (FUNCTION_HANDLE == null) {
         return null;
       }
 
       try {
-        return new V1FunctionAccess(toolCall, functionHandle.invoke(toolCall));
-      } catch (Throwable ignore) {
+        return new V1FunctionAccess(toolCall, FUNCTION_HANDLE.invoke(toolCall));
+      } catch (Throwable ignored) {
         return null;
       }
     }
 
     static boolean isAvailable() {
-      return idHandle != null;
+      return ID_HANDLE != null;
     }
 
     @Override
     public String id() {
-      return invokeStringHandle(idHandle, toolCall);
+      return invokeStringHandle(ID_HANDLE, toolCall);
     }
 
     @Override
     public String name() {
-      return invokeStringHandle(nameHandle, function);
+      return invokeStringHandle(NAME_HANDLE, function);
     }
 
     @Override
     public String arguments() {
-      return invokeStringHandle(argumentsHandle, function);
+      return invokeStringHandle(ARGUMENTS_HANDLE, function);
     }
   }
 
-  static class V3FunctionAccess implements FunctionAccess {
-    @Nullable private static final MethodHandle functionToolCallHandle;
-    @Nullable private static final MethodHandle idHandle;
-    @Nullable private static final MethodHandle functionHandle;
-    @Nullable private static final MethodHandle nameHandle;
-    @Nullable private static final MethodHandle argumentsHandle;
+  private static class V3FunctionAccess implements FunctionAccess {
+    @Nullable private static final MethodHandle FUNCTION_TOOL_CALL_HANDLE;
+    @Nullable private static final MethodHandle ID_HANDLE;
+    @Nullable private static final MethodHandle FUNCTION_HANDLE;
+    @Nullable private static final MethodHandle NAME_HANDLE;
+    @Nullable private static final MethodHandle ARGUMENTS_HANDLE;
 
     static {
       MethodHandle functionToolCall;
@@ -386,18 +389,18 @@ final class ChatCompletionEventsHelper {
         name = lookup.findVirtual(functionClass, "name", MethodType.methodType(String.class));
         arguments =
             lookup.findVirtual(functionClass, "arguments", MethodType.methodType(String.class));
-      } catch (Exception exception) {
+      } catch (Exception ignored) {
         functionToolCall = null;
         id = null;
         function = null;
         name = null;
         arguments = null;
       }
-      functionToolCallHandle = functionToolCall;
-      idHandle = id;
-      functionHandle = function;
-      nameHandle = name;
-      argumentsHandle = arguments;
+      FUNCTION_TOOL_CALL_HANDLE = functionToolCall;
+      ID_HANDLE = id;
+      FUNCTION_HANDLE = function;
+      NAME_HANDLE = name;
+      ARGUMENTS_HANDLE = arguments;
     }
 
     private final Object functionToolCall;
@@ -410,40 +413,40 @@ final class ChatCompletionEventsHelper {
 
     @Nullable
     static FunctionAccess create(ChatCompletionMessageToolCall toolCall) {
-      if (functionToolCallHandle == null || functionHandle == null) {
+      if (FUNCTION_TOOL_CALL_HANDLE == null || FUNCTION_HANDLE == null) {
         return null;
       }
 
       try {
         @SuppressWarnings("unchecked") // casting MethodHandle.invoke result
-        Optional<Object> optional = (Optional<Object>) functionToolCallHandle.invoke(toolCall);
+        Optional<Object> optional = (Optional<Object>) FUNCTION_TOOL_CALL_HANDLE.invoke(toolCall);
         if (!optional.isPresent()) {
           return null;
         }
         Object functionToolCall = optional.get();
-        return new V3FunctionAccess(functionToolCall, functionHandle.invoke(functionToolCall));
-      } catch (Throwable ignore) {
+        return new V3FunctionAccess(functionToolCall, FUNCTION_HANDLE.invoke(functionToolCall));
+      } catch (Throwable ignored) {
         return null;
       }
     }
 
     static boolean isAvailable() {
-      return idHandle != null;
+      return ID_HANDLE != null;
     }
 
     @Override
     public String id() {
-      return invokeStringHandle(idHandle, functionToolCall);
+      return invokeStringHandle(ID_HANDLE, functionToolCall);
     }
 
     @Override
     public String name() {
-      return invokeStringHandle(nameHandle, function);
+      return invokeStringHandle(NAME_HANDLE, function);
     }
 
     @Override
     public String arguments() {
-      return invokeStringHandle(argumentsHandle, function);
+      return invokeStringHandle(ARGUMENTS_HANDLE, function);
     }
   }
 

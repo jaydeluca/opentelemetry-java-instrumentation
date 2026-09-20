@@ -9,18 +9,20 @@ import io.ktor.features.*
 import io.ktor.request.*
 import io.ktor.response.*
 import io.opentelemetry.instrumentation.api.semconv.http.HttpServerAttributesGetter
-import io.opentelemetry.instrumentation.ktor.isIpAddress
 
-internal enum class KtorHttpServerAttributesGetter : HttpServerAttributesGetter<ApplicationRequest, ApplicationResponse> {
-  INSTANCE, ;
+internal object KtorHttpServerAttributesGetter : HttpServerAttributesGetter<ApplicationRequest, ApplicationResponse> {
 
   override fun getHttpRequestMethod(request: ApplicationRequest): String = request.httpMethod.value
 
   override fun getHttpRequestHeader(request: ApplicationRequest, name: String): List<String> = request.headers.getAll(name) ?: emptyList()
 
+  override fun getHttpRequestHeaderNames(request: ApplicationRequest): Collection<String> = request.headers.names()
+
   override fun getHttpResponseStatusCode(request: ApplicationRequest, response: ApplicationResponse, error: Throwable?): Int? = response.status()?.value
 
   override fun getHttpResponseHeader(request: ApplicationRequest, response: ApplicationResponse, name: String): List<String> = response.headers.allValues().getAll(name) ?: emptyList()
+
+  override fun getHttpResponseHeaderNames(request: ApplicationRequest, response: ApplicationResponse): Collection<String> = response.headers.allValues().names()
 
   override fun getUrlScheme(request: ApplicationRequest): String = request.origin.scheme
 
@@ -31,12 +33,4 @@ internal enum class KtorHttpServerAttributesGetter : HttpServerAttributesGetter<
   override fun getNetworkProtocolName(request: ApplicationRequest, response: ApplicationResponse?): String? = if (request.httpVersion.startsWith("HTTP/")) "http" else null
 
   override fun getNetworkProtocolVersion(request: ApplicationRequest, response: ApplicationResponse?): String? = if (request.httpVersion.startsWith("HTTP/")) request.httpVersion.substring("HTTP/".length) else null
-
-  override fun getNetworkPeerAddress(request: ApplicationRequest, response: ApplicationResponse?): String? {
-    val remote = request.local.remoteHost
-    if ("unknown" != remote && isIpAddress(remote)) {
-      return remote
-    }
-    return null
-  }
 }

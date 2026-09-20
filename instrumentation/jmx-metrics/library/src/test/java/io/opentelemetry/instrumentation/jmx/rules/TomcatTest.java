@@ -8,11 +8,13 @@ package io.opentelemetry.instrumentation.jmx.rules;
 import static io.opentelemetry.instrumentation.jmx.rules.assertions.DataPointAttributes.attribute;
 import static io.opentelemetry.instrumentation.jmx.rules.assertions.DataPointAttributes.attributeGroup;
 import static io.opentelemetry.instrumentation.jmx.rules.assertions.DataPointAttributes.attributeWithAnyValue;
+import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
 
 import io.opentelemetry.instrumentation.jmx.rules.assertions.AttributeMatcher;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -24,7 +26,7 @@ class TomcatTest extends TargetSystemTest {
   @ParameterizedTest
   @ValueSource(strings = {"tomcat:10.0", "tomcat:9.0"})
   void testCollectedMetrics(String dockerImageName) {
-    List<String> yamlFiles = Collections.singletonList("tomcat.yaml");
+    List<String> yamlFiles = singletonList("tomcat.yaml");
 
     yamlFiles.forEach(this::validateYamlSyntax);
 
@@ -45,6 +47,33 @@ class TomcatTest extends TargetSystemTest {
     // Deploy example web application to the tomcat to enable reporting tomcat.session.active.count
     // metric
     copyTestWebAppToTarget(target, "/usr/local/tomcat/webapps/ROOT.war");
+
+    startWeaverValidation(
+        "tomcat.yaml",
+        result ->
+            result
+                .checkNothingUnregisteredWithPrefix("tomcat.")
+                .checkRegisteredMetrics(
+                    "tomcat.",
+                    asList(
+                        "tomcat.network.io",
+                        "tomcat.thread.busy.count",
+                        "tomcat.request.duration.sum",
+                        "tomcat.request.count",
+                        "tomcat.thread.count",
+                        "tomcat.session.active.count",
+                        "tomcat.session.active.limit",
+                        "tomcat.error.count",
+                        "tomcat.request.duration.max",
+                        "tomcat.thread.limit"),
+                    emptyList())
+                .checkRegisteredAttributes(
+                    "tomcat.",
+                    asList(
+                        "tomcat.request.processor.name",
+                        "tomcat.context",
+                        "tomcat.thread.pool.name"),
+                    emptyList()));
 
     startTarget(target);
 
@@ -119,6 +148,7 @@ class TomcatTest extends TargetSystemTest {
                     .hasDescription("Maximum possible number of active sessions.")
                     .hasUnit("{session}")
                     .isUpDownCounter()
+                    .hasDataPointsWithIntValues(value -> value.isGreaterThanOrEqualTo(0))
                     .hasDataPointsWithOneAttribute(attributeWithAnyValue("tomcat.context")))
         .add(
             "tomcat.thread.count",
@@ -135,6 +165,7 @@ class TomcatTest extends TargetSystemTest {
                     .hasDescription("Maximum possible number of threads in the thread pool.")
                     .hasUnit("{thread}")
                     .isUpDownCounter()
+                    .hasDataPointsWithIntValues(value -> value.isGreaterThanOrEqualTo(0))
                     .hasDataPointsWithOneAttribute(threadPoolNameAttribute))
         .add(
             "tomcat.thread.busy.count",

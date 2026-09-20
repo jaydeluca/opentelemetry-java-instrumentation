@@ -27,7 +27,7 @@ import net.bytebuddy.asm.Advice.AssignReturned.ToArguments.ToArgument;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
-public class StatementInstrumentation implements TypeInstrumentation {
+class StatementInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<ClassLoader> classLoaderOptimization() {
@@ -36,35 +36,40 @@ public class StatementInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
-    return implementsInterface(named("java.sql.Statement"));
+    // SQLite declares many Statement methods on JDBC3Statement, but only its JDBC4Statement
+    // subclass implements java.sql.Statement.
+    return implementsInterface(named("java.sql.Statement"))
+        .or(named("org.sqlite.jdbc3.JDBC3Statement"));
   }
 
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
         nameStartsWith("execute").and(takesArgument(0, String.class)).and(isPublic()),
-        StatementInstrumentation.class.getName() + "$StatementAdvice");
+        getClass().getName() + "$StatementAdvice");
     transformer.applyAdviceToMethod(
         named("addBatch").and(takesArgument(0, String.class)).and(isPublic()),
-        StatementInstrumentation.class.getName() + "$AddBatchAdvice");
+        getClass().getName() + "$AddBatchAdvice");
     transformer.applyAdviceToMethod(
-        named("clearBatch").and(isPublic()),
-        StatementInstrumentation.class.getName() + "$ClearBatchAdvice");
+        named("clearBatch").and(isPublic()), getClass().getName() + "$ClearBatchAdvice");
     transformer.applyAdviceToMethod(
         namedOneOf("executeBatch", "executeLargeBatch").and(takesNoArguments()).and(isPublic()),
-        StatementInstrumentation.class.getName() + "$ExecuteBatchAdvice");
+        getClass().getName() + "$ExecuteBatchAdvice");
     transformer.applyAdviceToMethod(
         named("close").and(isPublic()).and(takesNoArguments()),
-        StatementInstrumentation.class.getName() + "$CloseAdvice");
+        getClass().getName() + "$CloseAdvice");
   }
 
   @SuppressWarnings("unused")
   public static class StatementAdvice {
 
     @AssignReturned.ToArguments(@ToArgument(value = 0, index = 1))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static Object[] onEnter(
-        @Advice.Argument(0) String sql, @Advice.This Statement statement) {
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    public static Object[] onEnter(@Advice.Argument(0) String sql, @Advice.This Object object) {
+      if (!(object instanceof Statement)) {
+        return new Object[] {null, sql};
+      }
+      Statement statement = (Statement) object;
       if (JdbcSingletons.isWrapper(statement, Statement.class)) {
         return new Object[] {null, sql};
       }
@@ -76,7 +81,7 @@ public class StatementInstrumentation implements TypeInstrumentation {
       };
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable, @Advice.Enter Object[] enterResult) {
       JdbcAdviceScope adviceScope = (JdbcAdviceScope) enterResult[0];
@@ -90,12 +95,16 @@ public class StatementInstrumentation implements TypeInstrumentation {
   public static class AddBatchAdvice {
 
     @AssignReturned.ToArguments(@ToArgument(0))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static String addBatch(
-        @Advice.This Statement statement, @Advice.Argument(0) String sql) {
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    public static String addBatch(@Advice.This Object object, @Advice.Argument(0) String sql) {
+      if (!(object instanceof Statement)) {
+        return sql;
+      }
+      Statement statement = (Statement) object;
       if (statement instanceof PreparedStatement) {
         return sql;
       }
+
       if (JdbcSingletons.isWrapper(statement, Statement.class)) {
         return sql;
       }
@@ -108,9 +117,12 @@ public class StatementInstrumentation implements TypeInstrumentation {
   @SuppressWarnings("unused")
   public static class ClearBatchAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void clearBatch(@Advice.This Statement statement) {
-      JdbcData.clearBatch(statement);
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    public static void clearBatch(@Advice.This Object object) {
+      if (object instanceof Statement) {
+        Statement statement = (Statement) object;
+        JdbcData.clearBatch(statement);
+      }
     }
   }
 
@@ -118,8 +130,12 @@ public class StatementInstrumentation implements TypeInstrumentation {
   public static class ExecuteBatchAdvice {
 
     @Nullable
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static JdbcAdviceScope onEnter(@Advice.This Statement statement) {
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    public static JdbcAdviceScope onEnter(@Advice.This Object object) {
+      if (!(object instanceof Statement)) {
+        return null;
+      }
+      Statement statement = (Statement) object;
       if (JdbcSingletons.isWrapper(statement, Statement.class)) {
         return null;
       }
@@ -127,12 +143,20 @@ public class StatementInstrumentation implements TypeInstrumentation {
       return JdbcAdviceScope.startBatch(CallDepth.forClass(Statement.class), statement);
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
+        @Advice.This Object object,
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable JdbcAdviceScope adviceScope) {
-      if (adviceScope != null) {
-        adviceScope.end(throwable);
+      try {
+        if (adviceScope != null) {
+          adviceScope.end(throwable);
+        }
+      } finally {
+        // Batch execution empties the statement's batch even when it fails.
+        if (object instanceof Statement) {
+          JdbcData.clearBatch((Statement) object);
+        }
       }
     }
   }
@@ -140,9 +164,12 @@ public class StatementInstrumentation implements TypeInstrumentation {
   @SuppressWarnings("unused")
   public static class CloseAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void closeStatement(@Advice.This Statement statement) {
-      JdbcData.close(statement);
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    public static void closeStatement(@Advice.This Object object) {
+      if (object instanceof Statement) {
+        Statement statement = (Statement) object;
+        JdbcData.close(statement);
+      }
     }
   }
 }

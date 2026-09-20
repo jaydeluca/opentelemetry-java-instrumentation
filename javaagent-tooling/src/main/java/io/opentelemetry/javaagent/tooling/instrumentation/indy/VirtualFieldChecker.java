@@ -5,16 +5,15 @@
 
 package io.opentelemetry.javaagent.tooling.instrumentation.indy;
 
-import static io.opentelemetry.javaagent.tooling.instrumentation.indy.AdviceTransformer.ADVICE_ON_METHOD_ENTER;
-import static io.opentelemetry.javaagent.tooling.instrumentation.indy.AdviceTransformer.ADVICE_ON_METHOD_EXIT;
-import static io.opentelemetry.javaagent.tooling.instrumentation.indy.AdviceTransformer.hasAnnotation;
-
 import io.opentelemetry.instrumentation.api.util.VirtualField;
 import io.opentelemetry.javaagent.extension.instrumentation.internal.AsmApi;
+import javax.annotation.Nullable;
+import net.bytebuddy.asm.Advice;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodNode;
 
@@ -25,10 +24,18 @@ import org.objectweb.asm.tree.MethodNode;
  * VirtualField#find(Class, Class)} in a static field.
  */
 class VirtualFieldChecker {
+  private static final boolean ENABLE_VIRTUAL_FIELD_USAGE_CHECKER =
+      Boolean.getBoolean("otel.javaagent.testing.check-virtual-field-usage.enabled");
 
   private static final Type VIRTUAL_FIELD_TYPE = Type.getType(VirtualField.class);
+  private static final Type ADVICE_ON_METHOD_ENTER = Type.getType(Advice.OnMethodEnter.class);
+  private static final Type ADVICE_ON_METHOD_EXIT = Type.getType(Advice.OnMethodExit.class);
 
   static void check(byte[] bytes) {
+    if (!ENABLE_VIRTUAL_FIELD_USAGE_CHECKER) {
+      return;
+    }
+
     ClassReader cr = new ClassReader(bytes);
     ClassNode classNode = new ClassNode();
     cr.accept(classNode, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
@@ -59,6 +66,24 @@ class VirtualFieldChecker {
             }
           }
         });
+  }
+
+  @Nullable
+  private static AnnotationNode getAnnotationNode(MethodNode source, Type type) {
+    if (source.visibleAnnotations != null) {
+      for (AnnotationNode annotationNode : source.visibleAnnotations) {
+        Type annotationType = Type.getType(annotationNode.desc);
+        if (type.equals(annotationType)) {
+          return annotationNode;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private static boolean hasAnnotation(MethodNode source, Type type) {
+    return getAnnotationNode(source, type) != null;
   }
 
   private VirtualFieldChecker() {}

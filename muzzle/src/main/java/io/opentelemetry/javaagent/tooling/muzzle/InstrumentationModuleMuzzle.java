@@ -5,12 +5,15 @@
 
 package io.opentelemetry.javaagent.tooling.muzzle;
 
+import static java.util.Collections.emptyList;
+import static java.util.Collections.emptyMap;
+
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.tooling.muzzle.references.ClassRef;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * This interface contains methods that muzzle automatically adds to the {@link
@@ -30,7 +33,7 @@ public interface InstrumentationModuleMuzzle {
     if (module instanceof InstrumentationModuleMuzzle) {
       return ((InstrumentationModuleMuzzle) module).getMuzzleReferences();
     } else {
-      return Collections.emptyMap();
+      return emptyMap();
     }
   }
 
@@ -55,7 +58,7 @@ public interface InstrumentationModuleMuzzle {
     List<String> muzzleHelperClassNames =
         module instanceof InstrumentationModuleMuzzle
             ? ((InstrumentationModuleMuzzle) module).getMuzzleHelperClassNames()
-            : Collections.emptyList();
+            : emptyList();
 
     List<String> additionalHelperClassNames = module.getAdditionalHelperClassNames();
 
@@ -69,5 +72,15 @@ public interface InstrumentationModuleMuzzle {
     List<String> result = new ArrayList<>(muzzleHelperClassNames);
     result.addAll(additionalHelperClassNames);
     return result;
+  }
+
+  /**
+   * Returns {@code true} when helper classes should be loaded into an isolated class loader, {@code
+   * false} when they should be injected to the same class loader as the instrumented library, and
+   * {@code null} when other means should be used to decide which strategy to use.
+   */
+  @Nullable
+  default Boolean getMuzzleUseIsolatedHelperClasses() {
+    return null;
   }
 }

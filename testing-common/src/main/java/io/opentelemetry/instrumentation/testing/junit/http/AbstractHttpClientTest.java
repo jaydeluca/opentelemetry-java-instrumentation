@@ -5,39 +5,61 @@
 
 package io.opentelemetry.instrumentation.testing.junit.http;
 
+import static io.opentelemetry.api.common.AttributeKey.longKey;
+import static io.opentelemetry.api.common.AttributeKey.stringArrayKey;
+import static io.opentelemetry.instrumentation.api.internal.SemconvExceptionSignal.emitExceptionAsLogs;
+import static io.opentelemetry.instrumentation.api.internal.SemconvExceptionSignal.emitExceptionAsSpanEvents;
+import static io.opentelemetry.instrumentation.testing.junit.service.SemconvServiceStabilityUtil.maybeStablePeerService;
 import static io.opentelemetry.instrumentation.testing.util.TelemetryDataUtil.comparingRootSpanAttribute;
 import static io.opentelemetry.instrumentation.testing.util.TelemetryDataUtil.orderByRootSpanName;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
+import static io.opentelemetry.semconv.ErrorAttributes.ERROR_TYPE;
+import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_MESSAGE;
+import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_STACKTRACE;
+import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_TYPE;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_REQUEST_METHOD;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_REQUEST_METHOD_ORIGINAL;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_REQUEST_RESEND_COUNT;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_RESPONSE_STATUS_CODE;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_ADDRESS;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_PORT;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PROTOCOL_NAME;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PROTOCOL_VERSION;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_TRANSPORT;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_TYPE;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
+import static io.opentelemetry.semconv.UrlAttributes.URL_FULL;
+import static io.opentelemetry.semconv.UserAgentAttributes.USER_AGENT_ORIGINAL;
+import static io.opentelemetry.semconv.incubating.UrlIncubatingAttributes.URL_TEMPLATE;
 import static java.util.Arrays.asList;
+import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
+import static java.util.Collections.singletonMap;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.internal.HttpConstants;
 import io.opentelemetry.instrumentation.test.utils.PortUtils;
 import io.opentelemetry.instrumentation.testing.InstrumentationTestRunner;
+import io.opentelemetry.sdk.logs.data.LogRecordData;
 import io.opentelemetry.sdk.testing.assertj.SpanDataAssert;
 import io.opentelemetry.sdk.testing.assertj.TraceAssert;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.data.StatusData;
-import io.opentelemetry.semconv.ErrorAttributes;
-import io.opentelemetry.semconv.HttpAttributes;
-import io.opentelemetry.semconv.NetworkAttributes;
 import io.opentelemetry.semconv.SchemaUrls;
-import io.opentelemetry.semconv.ServerAttributes;
-import io.opentelemetry.semconv.UrlAttributes;
-import io.opentelemetry.semconv.UserAgentAttributes;
-import io.opentelemetry.semconv.incubating.PeerIncubatingAttributes;
-import io.opentelemetry.semconv.incubating.TelemetryIncubatingAttributes;
-import io.opentelemetry.semconv.incubating.UrlIncubatingAttributes;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,17 +69,15 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nullable;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -69,15 +89,22 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
   public static final String TEST_REQUEST_HEADER = "X-Test-Request";
   public static final String TEST_RESPONSE_HEADER = "X-Test-Response";
 
+  /**
+   * Header selector that the shared client tests configure. The wildcard pattern makes the tests
+   * exercise capturing headers by name enumeration.
+   */
+  public static final IncludeExclude TEST_HEADERS =
+      IncludeExclude.builder().setIncluded("X-Test-*").build();
+
   static final String BASIC_AUTH_KEY = "custom-authorization-header";
   static final String BASIC_AUTH_VAL = "plain text auth token";
 
   /** Returns the connection timeout that should be used when setting up tested clients. */
-  protected final Duration connectTimeout() {
+  protected Duration connectTimeout() {
     return CONNECTION_TIMEOUT;
   }
 
-  protected final Duration readTimeout() {
+  protected Duration readTimeout() {
     return READ_TIMEOUT;
   }
 
@@ -99,7 +126,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
   protected void configure(HttpClientTestOptions.Builder optionsBuilder) {}
 
   // called by the HttpClientInstrumentationExtension
-  final void setTesting(InstrumentationTestRunner testing, HttpClientTestServer server) {
+  void setTesting(InstrumentationTestRunner testing, HttpClientTestServer server) {
     this.testing = testing;
     this.server = server;
   }
@@ -151,7 +178,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                 span ->
                     assertClientSpan(span, uri, HttpConstants._OTHER, responseCode, null)
                         .hasNoParent()
-                        .hasAttribute(HttpAttributes.HTTP_REQUEST_METHOD_ORIGINAL, method)));
+                        .hasAttribute(HTTP_REQUEST_METHOD_ORIGINAL, method)));
   }
 
   @ParameterizedTest
@@ -275,7 +302,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
 
     if (options.isLowLevelInstrumentation()) {
       testing.waitAndAssertSortedTraces(
-          comparingRootSpanAttribute(HttpAttributes.HTTP_REQUEST_RESEND_COUNT),
+          comparingRootSpanAttribute(HTTP_REQUEST_RESEND_COUNT),
           trace -> {
             trace.hasSpansSatisfyingExactly(
                 span ->
@@ -315,7 +342,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
 
     if (options.isLowLevelInstrumentation()) {
       testing.waitAndAssertSortedTraces(
-          comparingRootSpanAttribute(HttpAttributes.HTTP_REQUEST_RESEND_COUNT),
+          comparingRootSpanAttribute(HTTP_REQUEST_RESEND_COUNT),
           trace -> {
             trace.hasSpansSatisfyingExactly(
                 span ->
@@ -374,10 +401,10 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
 
     if (options.isLowLevelInstrumentation()) {
       testing.waitAndAssertSortedTraces(
-          comparingRootSpanAttribute(HttpAttributes.HTTP_REQUEST_RESEND_COUNT),
+          comparingRootSpanAttribute(HTTP_REQUEST_RESEND_COUNT),
           IntStream.range(0, options.getMaxRedirects())
               .mapToObj(i -> makeCircularRedirectAssertForLolLevelTrace(uri, method, i))
-              .collect(Collectors.toList()));
+              .collect(toList()));
     } else {
       testing.waitAndAssertTraces(
           trace -> {
@@ -387,12 +414,19 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                     assertClientSpan(
                             span, uri, method, options.getResponseCodeOnRedirectError(), null)
                         .hasNoParent()
-                        .hasException(clientError));
+                        .hasException(emitExceptionAsSpanEvents() ? clientError : null));
             for (int i = 0; i < options.getMaxRedirects(); i++) {
               assertions.add(span -> assertServerSpan(span).hasParent(trace.getSpan(0)));
             }
             trace.hasSpansSatisfyingExactly(assertions);
           });
+    }
+
+    // For low-level instrumentation, individual redirect requests succeed (302) and the overall
+    // redirect-loop exception is thrown above the instrumentation layer, so no exception log is
+    // emitted by the instrumenter.
+    if (emitExceptionAsLogs() && !options.isLowLevelInstrumentation()) {
+      assertClientExceptionLog(clientError, "http.client.request.exception");
     }
   }
 
@@ -414,14 +448,13 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
     String method = "GET";
     URI uri = resolveAddress("/to-secured");
 
-    int responseCode =
-        doRequest(method, uri, Collections.singletonMap(BASIC_AUTH_KEY, BASIC_AUTH_VAL));
+    int responseCode = doRequest(method, uri, singletonMap(BASIC_AUTH_KEY, BASIC_AUTH_VAL));
 
     assertThat(responseCode).isEqualTo(200);
 
     if (options.isLowLevelInstrumentation()) {
       testing.waitAndAssertSortedTraces(
-          comparingRootSpanAttribute(HttpAttributes.HTTP_REQUEST_RESEND_COUNT),
+          comparingRootSpanAttribute(HTTP_REQUEST_RESEND_COUNT),
           trace -> {
             trace.hasSpansSatisfyingExactly(
                 span ->
@@ -536,8 +569,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
 
     URI uri = resolveAddress("/success");
     String method = "GET";
-    int responseCode =
-        doRequest(method, uri, Collections.singletonMap(TEST_REQUEST_HEADER, "test"));
+    int responseCode = doRequest(method, uri, singletonMap(TEST_REQUEST_HEADER, "test"));
 
     assertThat(responseCode).isEqualTo(200);
 
@@ -550,11 +582,10 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                       .hasAttributesSatisfying(
                           asList(
                               equalTo(
-                                  AttributeKey.stringArrayKey("http.request.header.x-test-request"),
+                                  stringArrayKey("http.request.header.x-test-request"),
                                   singletonList("test")),
                               equalTo(
-                                  AttributeKey.stringArrayKey(
-                                      "http.response.header.x-test-response"),
+                                  stringArrayKey("http.response.header.x-test-response"),
                                   singletonList("test")))),
               span -> assertServerSpan(span).hasParent(trace.getSpan(0)));
         });
@@ -586,12 +617,17 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                       .hasKind(SpanKind.INTERNAL)
                       .hasNoParent()
                       .hasStatus(StatusData.error())
-                      .hasException(ex),
+                      .hasException(emitExceptionAsSpanEvents() ? ex : null),
               span ->
-                  assertClientSpan(span, uri, method, null, null)
+                  assertClientSpanWithoutResponse(span, uri, method)
                       .hasParent(trace.getSpan(0))
-                      .hasException(clientError));
+                      .hasException(emitExceptionAsSpanEvents() ? clientError : null));
         });
+
+    if (emitExceptionAsLogs()) {
+      assertParentExceptionLog(ex);
+      assertClientExceptionLog(clientError, "http.client.request.exception");
+    }
   }
 
   @Test
@@ -624,12 +660,16 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
           trace.hasSpansSatisfyingExactlyInAnyOrder(
               span -> span.hasName("parent").hasKind(SpanKind.INTERNAL).hasNoParent(),
               span ->
-                  assertClientSpan(span, uri, method, null, null)
+                  assertClientSpanWithoutResponse(span, uri, method)
                       .hasParent(trace.getSpan(0))
-                      .hasException(clientError),
+                      .hasException(emitExceptionAsSpanEvents() ? clientError : null),
               span ->
                   span.hasName("callback").hasKind(SpanKind.INTERNAL).hasParent(trace.getSpan(0)));
         });
+
+    if (emitExceptionAsLogs()) {
+      assertClientExceptionLog(clientError, "http.client.request.exception");
+    }
   }
 
   @Test
@@ -658,12 +698,17 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                       .hasKind(SpanKind.INTERNAL)
                       .hasNoParent()
                       .hasStatus(StatusData.error())
-                      .hasException(ex),
+                      .hasException(emitExceptionAsSpanEvents() ? ex : null),
               span ->
-                  assertClientSpan(span, uri, method, null, null)
+                  assertClientSpanWithoutResponse(span, uri, method)
                       .hasParent(trace.getSpan(0))
-                      .hasException(clientError));
+                      .hasException(emitExceptionAsSpanEvents() ? clientError : null));
         });
+
+    if (emitExceptionAsLogs()) {
+      assertParentExceptionLog(ex);
+      assertClientExceptionLog(clientError, "http.client.request.exception");
+    }
   }
 
   @Test
@@ -692,19 +737,20 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                       .hasKind(SpanKind.INTERNAL)
                       .hasNoParent()
                       .hasStatus(StatusData.error())
-                      .hasException(ex),
+                      .hasException(emitExceptionAsSpanEvents() ? ex : null),
               span ->
-                  assertClientSpan(span, uri, method, null, null)
+                  assertClientSpanWithoutResponse(span, uri, method)
                       .hasParent(trace.getSpan(0))
-                      .hasException(clientError),
+                      .hasException(emitExceptionAsSpanEvents() ? clientError : null),
               span -> assertServerSpan(span).hasParent(trace.getSpan(1)));
         });
+
+    if (emitExceptionAsLogs()) {
+      assertParentExceptionLog(ex);
+      assertClientExceptionLog(clientError, "http.client.request.exception");
+    }
   }
 
-  @DisabledIfSystemProperty(
-      named = "java.vm.name",
-      matches = ".*IBM J9 VM.*",
-      disabledReason = "IBM JVM has different protocol support for TLS")
   @Test
   void httpsRequest() throws Exception {
     assumeTrue(options.getTestRemoteConnection());
@@ -747,17 +793,14 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
 
     testing.waitAndAssertMetrics(
         instrumentationName.get(),
-        "http.client.request.duration",
-        metrics ->
-            metrics.anySatisfy(
-                metric ->
-                    assertThat(metric)
-                        .hasDescription("Duration of HTTP client requests.")
-                        .hasUnit("s")
-                        .hasHistogramSatisfying(
-                            histogram ->
-                                histogram.hasPointsSatisfying(
-                                    point -> point.hasSumGreaterThan(0.0)))));
+        metric ->
+            metric
+                .hasName("http.client.request.duration")
+                .hasDescription("Duration of HTTP client requests.")
+                .hasUnit("s")
+                .hasHistogramSatisfying(
+                    histogram ->
+                        histogram.hasPointsSatisfying(point -> point.hasSumGreaterThan(0.0))));
   }
 
   /**
@@ -793,16 +836,14 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                       () -> {
                         Span.current().setAttribute("test.request.id", index);
                         return doRequest(
-                            method,
-                            uri,
-                            Collections.singletonMap("test-request-id", String.valueOf(index)));
+                            method, uri, singletonMap("test-request-id", String.valueOf(index)));
                       });
               assertThat(result).isEqualTo(200);
-            } catch (Throwable throwable) {
-              if (throwable instanceof AssertionError) {
-                throw (AssertionError) throwable;
+            } catch (Throwable t) {
+              if (t instanceof AssertionError) {
+                throw (AssertionError) t;
               }
-              throw new AssertionError(throwable);
+              throw new AssertionError(t);
             }
           };
       pool.submit(job);
@@ -823,13 +864,13 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(AttributeKey.longKey("test.request.id"), requestId)),
+                            equalTo(longKey("test.request.id"), requestId)),
                 span -> assertClientSpan(span, uri, method, 200, null).hasParent(rootSpan),
                 span ->
                     assertServerSpan(span)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(AttributeKey.longKey("test.request.id"), requestId)));
+                            equalTo(longKey("test.request.id"), requestId)));
           });
     }
 
@@ -869,16 +910,15 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                                 return doRequestWithCallback(
                                     method,
                                     uri,
-                                    Collections.singletonMap(
-                                        "test-request-id", String.valueOf(index)),
+                                    singletonMap("test-request-id", String.valueOf(index)),
                                     () -> testing.runWithSpan("child", () -> {}));
                               });
                       assertThat(result.get()).isEqualTo(200);
-                    } catch (Throwable throwable) {
-                      if (throwable instanceof AssertionError) {
-                        throw (AssertionError) throwable;
+                    } catch (Throwable t) {
+                      if (t instanceof AssertionError) {
+                        throw (AssertionError) t;
                       }
-                      throw new AssertionError(throwable);
+                      throw new AssertionError(t);
                     }
                   };
               pool.submit(job);
@@ -899,13 +939,13 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(AttributeKey.longKey("test.request.id"), requestId)),
+                            equalTo(longKey("test.request.id"), requestId)),
                 span -> assertClientSpan(span, uri, method, 200, null).hasParent(rootSpan),
                 span ->
                     assertServerSpan(span)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(AttributeKey.longKey("test.request.id"), requestId)),
+                            equalTo(longKey("test.request.id"), requestId)),
                 span -> span.hasName("child").hasKind(SpanKind.INTERNAL).hasParent(rootSpan));
           });
     }
@@ -948,15 +988,14 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                       () -> {
                         Span.current().setAttribute("test.request.id", index);
                         return singleConnection.doRequest(
-                            path,
-                            Collections.singletonMap("test-request-id", String.valueOf(index)));
+                            path, singletonMap("test-request-id", String.valueOf(index)));
                       });
               assertThat(result).isEqualTo(200);
-            } catch (Throwable throwable) {
-              if (throwable instanceof AssertionError) {
-                throw (AssertionError) throwable;
+            } catch (Throwable t) {
+              if (t instanceof AssertionError) {
+                throw (AssertionError) t;
               }
-              throw new AssertionError(throwable);
+              throw new AssertionError(t);
             }
           };
       pool.submit(job);
@@ -977,13 +1016,13 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(AttributeKey.longKey("test.request.id"), requestId)),
+                            equalTo(longKey("test.request.id"), requestId)),
                 span -> assertClientSpan(span, uri, method, 200, null).hasParent(rootSpan),
                 span ->
                     assertServerSpan(span)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(AttributeKey.longKey("test.request.id"), requestId)));
+                            equalTo(longKey("test.request.id"), requestId)));
           });
     }
 
@@ -1005,7 +1044,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
             method,
             uri,
             // the time that server waits before completing the response
-            Collections.singletonMap("delay", String.valueOf(TimeUnit.SECONDS.toMillis(1))));
+            singletonMap("delay", String.valueOf(SECONDS.toMillis(1))));
 
     assertThat(responseCode).isEqualTo(200);
 
@@ -1019,9 +1058,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
               span -> assertServerSpan(span).hasParent(trace.getSpan(0)));
           SpanData span = trace.getSpan(0);
           // make sure the span is at least as long as the delay we set when sending the request
-          assertThat(
-                  span.getEndEpochNanos() - span.getStartEpochNanos()
-                      >= TimeUnit.SECONDS.toNanos(1))
+          assertThat(span.getEndEpochNanos() - span.getStartEpochNanos() >= SECONDS.toNanos(1))
               .describedAs("Span duration should be at least 1s")
               .isTrue();
         });
@@ -1040,7 +1077,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
             uri,
             // the time that server waits before completing the response, we expect the response
             // headers to arrive much sooner
-            Collections.singletonMap("delay", String.valueOf(TimeUnit.SECONDS.toMillis(2))));
+            singletonMap("delay", String.valueOf(SECONDS.toMillis(2))));
 
     assertThat(responseCode).isEqualTo(200);
 
@@ -1054,12 +1091,15 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
               span -> assertServerSpan(span).hasParent(trace.getSpan(0)));
           SpanData span = trace.getSpan(0);
           // verify that the span length is less than the delay used to complete the response body
-          assertThat(
-                  span.getEndEpochNanos() - span.getStartEpochNanos()
-                      <= TimeUnit.SECONDS.toNanos(2))
+          assertThat(span.getEndEpochNanos() - span.getStartEpochNanos() <= SECONDS.toNanos(2))
               .describedAs("Span duration should be less than 2s")
               .isTrue();
         });
+  }
+
+  private SpanDataAssert assertClientSpanWithoutResponse(
+      SpanDataAssert span, URI uri, String method) {
+    return assertClientSpan(span, uri, method, null, null, false);
   }
 
   protected SpanDataAssert assertClientSpan(
@@ -1068,109 +1108,108 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
       String method,
       @Nullable Integer responseCode,
       @Nullable Integer resendCount) {
+    return assertClientSpan(span, uri, method, responseCode, resendCount, true);
+  }
+
+  @SuppressWarnings("deprecation") // using deprecated semconv
+  private SpanDataAssert assertClientSpan(
+      SpanDataAssert span,
+      URI uri,
+      String method,
+      Integer responseCode,
+      Integer resendCount,
+      boolean responseReceived) {
     Set<AttributeKey<?>> httpClientAttributes = options.getHttpAttributes().apply(uri);
     return span.hasName(options.getExpectedClientSpanNameMapper().apply(uri, method))
         .hasKind(SpanKind.CLIENT)
         .hasAttributesSatisfying(
             attrs -> {
-              // Check for peer.service when running with javaagent instrumentation
-              String distroName =
-                  span.actual()
-                      .getResource()
-                      .getAttribute(TelemetryIncubatingAttributes.TELEMETRY_DISTRO_NAME);
-              if ("opentelemetry-java-instrumentation".equals(distroName)) {
-                String expectedPeerService = options.getExpectedPeerServiceName().apply(uri);
-                if (expectedPeerService != null) {
-                  assertThat(attrs)
-                      .containsEntry(PeerIncubatingAttributes.PEER_SERVICE, expectedPeerService);
-                }
+              String expectedPeerService = testing.expectedPeerService();
+              if (expectedPeerService != null) {
+                assertThat(attrs).containsEntry(maybeStablePeerService(), expectedPeerService);
+              } else {
+                assertThat(attrs).doesNotContainKey(maybeStablePeerService());
               }
 
               // we're opting out of these attributes in the new semconv
               assertThat(attrs)
-                  .doesNotContainKey(NetworkAttributes.NETWORK_TRANSPORT)
-                  .doesNotContainKey(NetworkAttributes.NETWORK_TYPE)
-                  .doesNotContainKey(NetworkAttributes.NETWORK_PROTOCOL_NAME);
-              if (httpClientAttributes.contains(NetworkAttributes.NETWORK_PROTOCOL_VERSION)) {
+                  .doesNotContainKey(NETWORK_TRANSPORT)
+                  .doesNotContainKey(NETWORK_TYPE)
+                  .doesNotContainKey(NETWORK_PROTOCOL_NAME);
+              if (responseReceived
+                  ? httpClientAttributes.contains(NETWORK_PROTOCOL_VERSION)
+                  : attrs.get(NETWORK_PROTOCOL_VERSION) != null) {
                 assertThat(attrs)
                     .containsEntry(
-                        NetworkAttributes.NETWORK_PROTOCOL_VERSION,
-                        options.getHttpProtocolVersion().apply(uri));
+                        NETWORK_PROTOCOL_VERSION, options.getHttpProtocolVersion().apply(uri));
               }
 
-              if (httpClientAttributes.contains(ServerAttributes.SERVER_ADDRESS)) {
-                assertThat(attrs).containsEntry(ServerAttributes.SERVER_ADDRESS, uri.getHost());
+              if (httpClientAttributes.contains(SERVER_ADDRESS)) {
+                assertThat(attrs).containsEntry(SERVER_ADDRESS, uri.getHost());
               }
-              if (httpClientAttributes.contains(ServerAttributes.SERVER_PORT)) {
+              if (httpClientAttributes.contains(SERVER_PORT)) {
                 int uriPort = uri.getPort();
                 if (uriPort <= 0) {
-                  if (attrs.get(ServerAttributes.SERVER_PORT) != null) {
-                    int effectivePort = "https".equals(uri.getScheme()) ? 443 : 80;
-                    assertThat(attrs).containsEntry(ServerAttributes.SERVER_PORT, effectivePort);
-                  }
-                  // alternatively, peer port is not emitted -- and that's fine too
+                  int effectivePort = defaultPortForScheme(uri.getScheme());
+                  assertThat(attrs).containsEntry(SERVER_PORT, effectivePort);
                 } else {
-                  assertThat(attrs).containsEntry(ServerAttributes.SERVER_PORT, uriPort);
+                  assertThat(attrs).containsEntry(SERVER_PORT, uriPort);
                 }
               }
 
               if (uri.getPort() != PortUtils.UNUSABLE_PORT && !uri.getHost().equals("192.0.2.1")) {
                 // TODO: Move to test knob rather than always treating as optional
-                if (attrs.get(NetworkAttributes.NETWORK_PEER_ADDRESS) != null) {
+                if (attrs.get(NETWORK_PEER_ADDRESS) != null) {
                   assertThat(attrs)
                       .hasEntrySatisfying(
-                          NetworkAttributes.NETWORK_PEER_ADDRESS,
+                          NETWORK_PEER_ADDRESS,
                           addr -> assertThat(addr).isIn("127.0.0.1", "0:0:0:0:0:0:0:1"));
                 }
-                if (attrs.get(NetworkAttributes.NETWORK_PEER_PORT) != null) {
+                if (attrs.get(NETWORK_PEER_PORT) != null) {
                   assertThat(attrs)
                       .containsEntry(
-                          NetworkAttributes.NETWORK_PEER_PORT,
+                          NETWORK_PEER_PORT,
                           Objects.equals(uri.getScheme(), "https")
                               ? server.httpsPort()
                               : server.httpPort());
                 }
               }
 
-              if (httpClientAttributes.contains(UrlAttributes.URL_FULL)) {
-                assertThat(attrs).containsEntry(UrlAttributes.URL_FULL, uri.toString());
+              if (httpClientAttributes.contains(URL_FULL)) {
+                assertThat(attrs).containsEntry(URL_FULL, uri.toString());
               }
               String expectedUrlTemplate = options.getExpectedUrlTemplateMapper().apply(uri);
               if (expectedUrlTemplate != null) {
-                assertThat(attrs)
-                    .containsEntry(UrlIncubatingAttributes.URL_TEMPLATE, expectedUrlTemplate);
+                assertThat(attrs).containsEntry(URL_TEMPLATE, expectedUrlTemplate);
               }
-              if (httpClientAttributes.contains(HttpAttributes.HTTP_REQUEST_METHOD)) {
-                assertThat(attrs).containsEntry(HttpAttributes.HTTP_REQUEST_METHOD, method);
+              if (httpClientAttributes.contains(HTTP_REQUEST_METHOD)) {
+                assertThat(attrs).containsEntry(HTTP_REQUEST_METHOD, method);
               }
 
               // opt-in, not collected by default
-              assertThat(attrs).doesNotContainKey(UserAgentAttributes.USER_AGENT_ORIGINAL);
+              assertThat(attrs).doesNotContainKey(USER_AGENT_ORIGINAL);
 
               if (responseCode != null) {
-                assertThat(attrs)
-                    .containsEntry(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, (long) responseCode);
+                assertThat(attrs).containsEntry(HTTP_RESPONSE_STATUS_CODE, (long) responseCode);
                 if (responseCode >= 400) {
-                  assertThat(attrs)
-                      .containsEntry(ErrorAttributes.ERROR_TYPE, String.valueOf(responseCode));
+                  assertThat(attrs).containsEntry(ERROR_TYPE, String.valueOf(responseCode));
                 }
               } else {
-                assertThat(attrs).doesNotContainKey(HttpAttributes.HTTP_RESPONSE_STATUS_CODE);
+                assertThat(attrs).doesNotContainKey(HTTP_RESPONSE_STATUS_CODE);
                 // TODO: add more detailed assertions, per url
-                assertThat(attrs).containsKey(ErrorAttributes.ERROR_TYPE);
+                assertThat(attrs).containsKey(ERROR_TYPE);
               }
 
               if (resendCount != null) {
-                assertThat(attrs)
-                    .containsEntry(HttpAttributes.HTTP_REQUEST_RESEND_COUNT, (long) resendCount);
+                assertThat(attrs).containsEntry(HTTP_REQUEST_RESEND_COUNT, (long) resendCount);
               } else {
-                assertThat(attrs).doesNotContainKey(HttpAttributes.HTTP_REQUEST_RESEND_COUNT);
+                assertThat(attrs).doesNotContainKey(HTTP_REQUEST_RESEND_COUNT);
               }
             })
         .satisfies(
             spanData ->
                 assertThat(spanData.getInstrumentationScopeInfo().getSchemaUrl())
-                    .isEqualTo(SchemaUrls.V1_37_0));
+                    .isEqualTo(SchemaUrls.V1_41_0));
   }
 
   protected static SpanDataAssert assertServerSpan(SpanDataAssert span) {
@@ -1178,7 +1217,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
   }
 
   private int doRequest(String method, URI uri) throws Exception {
-    return doRequest(method, uri, Collections.emptyMap());
+    return doRequest(method, uri, emptyMap());
   }
 
   private int doRequest(String method, URI uri, Map<String, String> headers) throws Exception {
@@ -1187,9 +1226,9 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
   }
 
   private int doReusedRequest(String method, URI uri) throws Exception {
-    REQUEST request = buildRequest(method, uri, Collections.emptyMap());
-    sendRequest(request, method, uri, Collections.emptyMap());
-    return sendRequest(request, method, uri, Collections.emptyMap());
+    REQUEST request = buildRequest(method, uri, emptyMap());
+    sendRequest(request, method, uri, emptyMap());
+    return sendRequest(request, method, uri, emptyMap());
   }
 
   private int doRequestWithExistingTracingHeaders(String method, URI uri) throws Exception {
@@ -1204,7 +1243,7 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
 
   private HttpClientResult doRequestWithCallback(String method, URI uri, Runnable callback)
       throws Exception {
-    return doRequestWithCallback(method, uri, Collections.emptyMap(), callback);
+    return doRequestWithCallback(method, uri, emptyMap(), callback);
   }
 
   private HttpClientResult doRequestWithCallback(
@@ -1215,7 +1254,75 @@ public abstract class AbstractHttpClientTest<REQUEST> implements HttpClientTypeA
     return httpClientResult;
   }
 
-  protected final URI resolveAddress(String path) {
+  protected URI resolveAddress(String path) {
     return URI.create("http://localhost:" + server.httpPort() + path);
+  }
+
+  private static int defaultPortForScheme(String scheme) {
+    if ("https".equals(scheme)) {
+      return 443;
+    }
+    if ("http".equals(scheme)) {
+      return 80;
+    }
+    throw new IllegalArgumentException("Unexpected URI scheme: " + scheme);
+  }
+
+  private void assertParentExceptionLog(Throwable exception) {
+    String exceptionType = exceptionType(exception);
+    Awaitility.await()
+        .untilAsserted(
+            () -> {
+              List<LogRecordData> logs =
+                  testing.getExportedLogRecords().stream()
+                      .filter(log -> "exception".equals(log.getEventName()))
+                      .filter(log -> exceptionType.equals(log.getAttributes().get(EXCEPTION_TYPE)))
+                      .collect(toList());
+
+              assertThat(logs).hasSize(1);
+              assertThat(logs.get(0))
+                  .hasSeverity(Severity.WARN)
+                  .hasAttributesSatisfyingExactly(
+                      equalTo(EXCEPTION_TYPE, exceptionType),
+                      satisfies(
+                          EXCEPTION_MESSAGE,
+                          val -> {
+                            if (exception.getMessage() != null) {
+                              val.isEqualTo(exception.getMessage());
+                            }
+                          }),
+                      satisfies(EXCEPTION_STACKTRACE, val -> val.isNotNull()));
+            });
+  }
+
+  private void assertClientExceptionLog(Throwable exception, String eventName) {
+    String exceptionType = exceptionType(exception);
+    Awaitility.await()
+        .untilAsserted(
+            () -> {
+              List<LogRecordData> logs =
+                  testing.getExportedLogRecords().stream()
+                      .filter(log -> eventName.equals(log.getEventName()))
+                      .collect(toList());
+
+              assertThat(logs).hasSize(1);
+              assertThat(logs.get(0))
+                  .hasSeverity(Severity.WARN)
+                  .hasAttributesSatisfyingExactly(
+                      equalTo(EXCEPTION_TYPE, exceptionType),
+                      satisfies(
+                          EXCEPTION_MESSAGE,
+                          val -> {
+                            if (exception.getMessage() != null) {
+                              val.isEqualTo(exception.getMessage());
+                            }
+                          }),
+                      satisfies(EXCEPTION_STACKTRACE, val -> val.isNotNull()));
+            });
+  }
+
+  private static String exceptionType(Throwable exception) {
+    String canonicalName = exception.getClass().getCanonicalName();
+    return canonicalName != null ? canonicalName : exception.getClass().getName();
   }
 }

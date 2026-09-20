@@ -9,7 +9,7 @@ import static io.opentelemetry.javaagent.tooling.OpenTelemetryInstaller.installO
 import static io.opentelemetry.javaagent.tooling.SafeServiceLoader.load;
 import static io.opentelemetry.javaagent.tooling.SafeServiceLoader.loadOrdered;
 import static io.opentelemetry.javaagent.tooling.Utils.getResourceName;
-import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
 import static java.util.logging.Level.FINE;
 import static java.util.logging.Level.SEVERE;
 import static net.bytebuddy.matcher.ElementMatchers.any;
@@ -28,21 +28,21 @@ import io.opentelemetry.javaagent.bootstrap.LambdaTransformerHolder;
 import io.opentelemetry.javaagent.bootstrap.http.HttpServerResponseCustomizer;
 import io.opentelemetry.javaagent.bootstrap.http.HttpServerResponseCustomizerHolder;
 import io.opentelemetry.javaagent.bootstrap.http.HttpServerResponseMutator;
-import io.opentelemetry.javaagent.bootstrap.internal.AgentInstrumentationConfig;
 import io.opentelemetry.javaagent.bootstrap.internal.ConfiguredResourceAttributesHolder;
 import io.opentelemetry.javaagent.bootstrap.internal.sqlcommenter.SqlCommenterCustomizer;
 import io.opentelemetry.javaagent.bootstrap.internal.sqlcommenter.SqlCommenterCustomizerHolder;
 import io.opentelemetry.javaagent.extension.AgentListener;
 import io.opentelemetry.javaagent.extension.ignore.IgnoredTypesConfigurer;
+import io.opentelemetry.javaagent.extension.instrumentation.internal.AgentDistributionConfig;
 import io.opentelemetry.javaagent.extension.instrumentation.internal.EarlyInstrumentationModule;
 import io.opentelemetry.javaagent.tooling.asyncannotationsupport.WeakRefAsyncOperationEndStrategies;
 import io.opentelemetry.javaagent.tooling.bootstrap.BootstrapPackagesBuilderImpl;
 import io.opentelemetry.javaagent.tooling.bootstrap.BootstrapPackagesConfigurer;
-import io.opentelemetry.javaagent.tooling.config.ConfigPropertiesBridge;
 import io.opentelemetry.javaagent.tooling.config.EarlyInitAgentConfig;
 import io.opentelemetry.javaagent.tooling.field.FieldBackedImplementationConfiguration;
 import io.opentelemetry.javaagent.tooling.field.VirtualFieldImplementationInstaller;
 import io.opentelemetry.javaagent.tooling.field.VirtualFieldImplementationInstallerFactory;
+import io.opentelemetry.javaagent.tooling.ignore.IgnoreAllow;
 import io.opentelemetry.javaagent.tooling.ignore.IgnoredClassLoadersMatcher;
 import io.opentelemetry.javaagent.tooling.ignore.IgnoredTypesBuilderImpl;
 import io.opentelemetry.javaagent.tooling.ignore.IgnoredTypesMatcher;
@@ -55,7 +55,6 @@ import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,56 +80,41 @@ public class AgentInstaller {
 
   private static final Logger logger = Logger.getLogger(AgentInstaller.class.getName());
 
-  static final String JAVAAGENT_ENABLED_CONFIG = "otel.javaagent.enabled";
-
-  // This property may be set to force synchronous AgentListener#afterAgent() execution: the
-  // condition for delaying the AgentListener initialization is pretty broad and in case it covers
-  // too much javaagent users can file a bug, force sync execution by setting this property to true
-  // and continue using the javaagent
-  private static final String FORCE_SYNCHRONOUS_AGENT_LISTENERS_CONFIG =
-      "otel.javaagent.experimental.force-synchronous-agent-listeners";
-
   private static final String STRICT_CONTEXT_STRESSOR_MILLIS =
       "otel.javaagent.testing.strict-context-stressor-millis";
 
-  private static final Map<String, List<Runnable>> CLASS_LOAD_CALLBACKS = new HashMap<>();
+  private static final Map<String, List<Runnable>> classLoadCallbacks = new HashMap<>();
 
   private static volatile boolean instrumentationInstalled;
 
-  public static void installBytebuddyAgent(
-      Instrumentation inst, ClassLoader extensionClassLoader, EarlyInitAgentConfig earlyConfig) {
+  public static void installBytebuddyAgent(Instrumentation inst, ClassLoader extensionClassLoader) {
     addByteBuddyRawSetting();
 
     Integer strictContextStressorMillis = Integer.getInteger(STRICT_CONTEXT_STRESSOR_MILLIS);
     if (strictContextStressorMillis != null) {
-      io.opentelemetry.context.ContextStorage.addWrapper(
+      ContextStorage.addWrapper(
           storage -> new StrictContextStressor(storage, strictContextStressorMillis));
     }
 
     logVersionInfo();
-    if (earlyConfig.getBoolean(JAVAAGENT_ENABLED_CONFIG, true)) {
+    if (EarlyInitAgentConfig.get().isEnabled()) {
       List<AgentListener> agentListeners = loadOrdered(AgentListener.class, extensionClassLoader);
-      installBytebuddyAgent(inst, extensionClassLoader, agentListeners, earlyConfig);
+      installBytebuddyAgent(inst, extensionClassLoader, agentListeners);
     } else {
-      logger.fine("Tracing is disabled, not installing instrumentations.");
+      logger.fine("Agent is disabled, not installing instrumentations.");
     }
   }
 
   private static void installBytebuddyAgent(
       Instrumentation inst,
       ClassLoader extensionClassLoader,
-      Iterable<AgentListener> agentListeners,
-      EarlyInitAgentConfig earlyConfig) {
+      Iterable<AgentListener> agentListeners) {
 
     WeakRefAsyncOperationEndStrategies.initialize();
     EmbeddedInstrumentationProperties.setPropertiesLoader(extensionClassLoader);
     setDefineClassHandler();
-    FieldBackedImplementationConfiguration.configure(earlyConfig);
-    // preload ThreadLocalRandom to avoid occasional
-    // java.lang.ClassCircularityError: java/util/concurrent/ThreadLocalRandom
-    // see https://github.com/raphw/byte-buddy/issues/1666 and
-    // https://bugs.openjdk.org/browse/JDK-8164165
-    ThreadLocalRandom.current();
+    FieldBackedImplementationConfiguration.configure();
+    preloadClasses();
 
     AgentBuilder agentBuilder =
         newAgentBuilder(
@@ -164,13 +148,8 @@ public class AgentInstaller {
     installEarlyInstrumentation(agentBuilder, inst);
 
     AutoConfiguredOpenTelemetrySdk autoConfiguredSdk =
-        installOpenTelemetrySdk(extensionClassLoader, earlyConfig);
-
-    ConfigProperties sdkConfig = AutoConfigureUtil.getConfig(autoConfiguredSdk);
-    AgentInstrumentationConfig.internalInitializeConfig(
-        new ConfigPropertiesBridge(
-            sdkConfig, AutoConfigureUtil.getConfigProvider(autoConfiguredSdk)));
-    copyNecessaryConfigToSystemProperties(sdkConfig);
+        installOpenTelemetrySdk(extensionClassLoader);
+    ConfigProperties sdkConfig = getConfig(autoConfiguredSdk);
 
     setBootstrapPackages(sdkConfig, extensionClassLoader);
     ConfiguredResourceAttributesHolder.initialize(
@@ -208,6 +187,14 @@ public class AgentInstaller {
     }
     logger.log(FINE, "Installed {0} extension(s)", numberOfLoadedExtensions);
 
+    // eagerly initialize context storage before any instrumentation is active, so that its lazy
+    // initialization cannot happen while an instrumented method holds a class loader lock that
+    // the initializing thread needs, see
+    // https://github.com/open-telemetry/opentelemetry-java/issues/8434
+    // note that this also finalizes the storage - ContextStorage.addWrapper() calls made after
+    // this point are ignored
+    ContextStorage.get();
+
     agentBuilder = AgentBuilderUtil.optimize(agentBuilder);
     ClassFileTransformer transformer = agentBuilder.installOn(inst);
     LambdaTransformer lambdaTransformer;
@@ -225,7 +212,31 @@ public class AgentInstaller {
     addHttpServerResponseCustomizers(extensionClassLoader);
     addSqlCommenterCustomizers(extensionClassLoader);
 
-    runAfterAgentListeners(agentListeners, autoConfiguredSdk, sdkConfig);
+    runAfterAgentListeners(agentListeners, autoConfiguredSdk);
+  }
+
+  private static ConfigProperties getConfig(AutoConfiguredOpenTelemetrySdk autoConfiguredSdk) {
+    ConfigProperties config = AutoConfigureUtil.getConfig(autoConfiguredSdk);
+    return config == null ? EmptyConfigProperties.INSTANCE : config;
+  }
+
+  private static void preloadClasses() {
+    // preload ThreadLocalRandom to avoid occasional
+    // java.lang.ClassCircularityError: java/util/concurrent/ThreadLocalRandom
+    // see https://github.com/raphw/byte-buddy/issues/1666 and
+    // https://bugs.openjdk.org/browse/JDK-8164165
+    ThreadLocalRandom.current();
+
+    // preload the anonymous class used by MethodHandle.customize() to avoid
+    // java.lang.ClassCircularityError: java/lang/invoke/MethodHandle$1
+    // on jdk 17, which breaks all further invokedynamic call site linking in the jvm.
+    // MethodHandle.customize() only runs after a number of call sites have been linked, so linking
+    // a single call site here would not reliably trigger the load.
+    try {
+      Class.forName("java.lang.invoke.MethodHandle$1", false, null);
+    } catch (ClassNotFoundException ignored) {
+      // this class does not exist on all jdk versions
+    }
   }
 
   private static AgentBuilder newAgentBuilder(ByteBuddy byteBuddy) {
@@ -283,15 +294,6 @@ public class AgentInstaller {
     agentBuilder.installOn(instrumentation);
   }
 
-  private static void copyNecessaryConfigToSystemProperties(ConfigProperties config) {
-    for (String property : asList("otel.instrumentation.experimental.span-suppression-strategy")) {
-      String value = config.getString(property);
-      if (value != null) {
-        System.setProperty(property, value);
-      }
-    }
-  }
-
   private static void setBootstrapPackages(
       ConfigProperties config, ClassLoader extensionClassLoader) {
     BootstrapPackagesBuilderImpl builder = new BootstrapPackagesBuilderImpl();
@@ -316,14 +318,22 @@ public class AgentInstaller {
 
     Trie<Boolean> ignoredTasksTrie = builder.buildIgnoredTasksTrie();
     InstrumentedTaskClasses.setIgnoredTaskClassesPredicate(ignoredTasksTrie::contains);
+    Trie<IgnoreAllow> ignoredClassLoadersTrie = builder.buildIgnoredClassLoadersTrie();
+    DefineClassHandler.setIgnoredClassLoadersPredicate(
+        classLoader -> {
+          if (classLoader == null) {
+            return false;
+          }
+          IgnoreAllow ignored = ignoredClassLoadersTrie.getOrNull(classLoader.getClass().getName());
+          return ignored == IgnoreAllow.IGNORE;
+        });
 
     return agentBuilder
-        .ignore(any(), new IgnoredClassLoadersMatcher(builder.buildIgnoredClassLoadersTrie()))
+        .ignore(any(), new IgnoredClassLoadersMatcher(ignoredClassLoadersTrie))
         .or(new IgnoredTypesMatcher(builder.buildIgnoredTypesTrie()))
         .or(
-            (typeDescription, classLoader, module, classBeingRedefined, protectionDomain) -> {
-              return HelperInjector.isInjectedClass(classLoader, typeDescription.getName());
-            });
+            (typeDescription, classLoader, module, classBeingRedefined, protectionDomain) ->
+                HelperInjector.isInjectedClass(classLoader, typeDescription.getName()));
   }
 
   private static void addHttpServerResponseCustomizers(ClassLoader extensionClassLoader) {
@@ -337,7 +347,15 @@ public class AgentInstaller {
               Context serverContext, T response, HttpServerResponseMutator<T> responseMutator) {
 
             for (HttpServerResponseCustomizer modifier : customizers) {
-              modifier.customize(serverContext, response, responseMutator);
+              try {
+                modifier.customize(serverContext, response, responseMutator);
+              } catch (Throwable t) {
+                logger.log(
+                    FINE,
+                    "Failed to customize HTTP server response with "
+                        + modifier.getClass().getName(),
+                    t);
+              }
             }
           }
         });
@@ -356,9 +374,7 @@ public class AgentInstaller {
   }
 
   private static void runAfterAgentListeners(
-      Iterable<AgentListener> agentListeners,
-      AutoConfiguredOpenTelemetrySdk autoConfiguredSdk,
-      ConfigProperties sdkConfigProperties) {
+      Iterable<AgentListener> agentListeners, AutoConfiguredOpenTelemetrySdk autoConfiguredSdk) {
     // java.util.logging.LogManager maintains a final static LogManager, which is created during
     // class initialization. Some AgentListener implementations may use JRE bootstrap classes
     // which touch this class (e.g. JFR classes or some MBeans).
@@ -375,10 +391,10 @@ public class AgentInstaller {
     // Once we see the LogManager class loading, it's safe to run AgentListener#afterAgent() because
     // the application is already setting the global LogManager and AgentListener won't be able
     // to touch it due to class loader locking.
-    boolean shouldForceSynchronousAgentListenersCalls =
-        sdkConfigProperties.getBoolean(FORCE_SYNCHRONOUS_AGENT_LISTENERS_CONFIG, false);
     boolean javaBefore9 = isJavaBefore9();
-    if (!shouldForceSynchronousAgentListenersCalls && javaBefore9 && isAppUsingCustomLogManager()) {
+    if (!AgentDistributionConfig.get().isForceSynchronousAgentListeners()
+        && javaBefore9
+        && isAppUsingCustomLogManager()) {
       logger.fine("Custom JUL LogManager detected: delaying AgentListener#afterAgent() calls");
       registerClassLoadCallback(
           "java.util.logging.LogManager",
@@ -433,7 +449,7 @@ public class AgentInstaller {
             "Exception while retransforming " + batch.size() + " classes: " + batch,
             throwable);
       }
-      return Collections.emptyList();
+      return emptyList();
     }
 
     @Override
@@ -491,9 +507,9 @@ public class AgentInstaller {
    * @param callback runnable to invoke when class name matches
    */
   public static void registerClassLoadCallback(String className, Runnable callback) {
-    synchronized (CLASS_LOAD_CALLBACKS) {
+    synchronized (classLoadCallbacks) {
       List<Runnable> callbacks =
-          CLASS_LOAD_CALLBACKS.computeIfAbsent(className, k -> new ArrayList<>());
+          classLoadCallbacks.computeIfAbsent(className, k -> new ArrayList<>());
       callbacks.add(callback);
     }
   }
@@ -538,8 +554,8 @@ public class AgentInstaller {
     @Override
     public void onComplete(
         String typeName, ClassLoader classLoader, JavaModule javaModule, boolean b) {
-      synchronized (CLASS_LOAD_CALLBACKS) {
-        List<Runnable> callbacks = CLASS_LOAD_CALLBACKS.get(typeName);
+      synchronized (classLoadCallbacks) {
+        List<Runnable> callbacks = classLoadCallbacks.get(typeName);
         if (callbacks != null) {
           for (Runnable callback : callbacks) {
             callback.run();

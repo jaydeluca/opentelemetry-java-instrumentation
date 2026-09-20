@@ -5,28 +5,29 @@
 
 package io.opentelemetry.javaagent.instrumentation.opensearch.v3_0;
 
+import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
 import static java.util.Collections.singletonList;
 
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
+import net.bytebuddy.matcher.ElementMatcher;
 
 @AutoService(InstrumentationModule.class)
-public class OpenSearchInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class OpenSearchInstrumentationModule extends InstrumentationModule {
   public OpenSearchInstrumentationModule() {
     super("opensearch-java", "opensearch-java-3.0", "opensearch");
   }
 
   @Override
-  public List<TypeInstrumentation> typeInstrumentations() {
-    return singletonList(new OpenSearchTransportInstrumentation());
+  public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
+    // added in 3.0.0
+    return hasClassesNamed("org.opensearch.client.opensearch.nodes.OpenSearchNodesClientBase");
   }
 
   @Override
-  public boolean isIndyReady() {
-    return true;
+  public List<TypeInstrumentation> typeInstrumentations() {
+    return singletonList(new OpenSearchTransportInstrumentation());
   }
 }

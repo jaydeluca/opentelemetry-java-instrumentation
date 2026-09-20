@@ -1,5 +1,8 @@
 #!/bin/bash -e
 
+# this has mostly been replaced by .github/scripts/draft-release-notes/draft-release-notes.py
+# keeping this around as a backup since that script relies on Copilot CLI
+
 version=$("$(dirname "$0")/get-version.sh")
 
 if [[ $version =~ ([0-9]+)\.([0-9]+)\.0 ]]; then
@@ -27,9 +30,10 @@ echo "# Changelog"
 echo
 echo "## Unreleased"
 echo
-
-"$(dirname "$0")/extract-labeled-prs.sh" "$range"
-
+echo "### ⚠️ Breaking changes to non-stable APIs"
+echo
+echo "### 🚫 Deprecations"
+echo
 echo "### 🌟 New javaagent instrumentation"
 echo
 echo "### 🌟 New library instrumentation"
@@ -38,13 +42,10 @@ echo "### 📈 Enhancements"
 echo
 echo "### 🛠️ Bug fixes"
 echo
-echo "### 🧰 Tooling"
-echo
 
 git log --reverse \
         --perl-regexp \
         --author='^(?!renovate\[bot\] )' \
         --pretty=format:"- %s" \
         "$range" \
-  | sed -E 's, *\(#([0-9]+)\)$,\n  ([#\1](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/\1)),'
-echo
+  | sed -E 's,\(#([0-9]+)\)$,\n  ([#\1](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/\1)),'

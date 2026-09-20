@@ -5,12 +5,13 @@
 
 package io.opentelemetry.instrumentation.spring.webflux.client;
 
+import static java.util.Objects.requireNonNull;
+
 import io.opentelemetry.instrumentation.testing.junit.http.SingleConnection;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.function.UnaryOperator;
 import org.springframework.http.HttpMethod;
@@ -18,13 +19,13 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-final class SpringWebfluxSingleConnection implements SingleConnection {
+class SpringWebfluxSingleConnection implements SingleConnection {
 
   private final String host;
   private final int port;
   private final WebClient webClient;
 
-  public SpringWebfluxSingleConnection(
+  SpringWebfluxSingleConnection(
       String host, int port, UnaryOperator<WebClient.Builder> instrumentationFunction) {
     this.host = host;
     this.port = port;
@@ -38,7 +39,7 @@ final class SpringWebfluxSingleConnection implements SingleConnection {
 
   @Override
   public int doRequest(String path, Map<String, String> headers) throws Exception {
-    String requestId = Objects.requireNonNull(headers.get(REQUEST_ID_HEADER));
+    String requestId = requireNonNull(headers.get(REQUEST_ID_HEADER));
 
     URI uri;
     try {
@@ -50,7 +51,7 @@ final class SpringWebfluxSingleConnection implements SingleConnection {
     WebClient.RequestBodySpec request =
         webClient.method(HttpMethod.GET).uri(uri).headers(h -> headers.forEach(h::add));
 
-    if (Webflux7Util.isWebflux7) {
+    if (Webflux7Util.IS_WEBFLUX_7) {
       return Webflux7Util.doRequest(
           request,
           response -> {

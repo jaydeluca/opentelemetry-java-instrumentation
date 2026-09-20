@@ -5,28 +5,25 @@
 
 package io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.v5_0;
 
-import static java.util.Collections.singletonList;
+import static java.util.Arrays.asList;
 
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
+import io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.common.v5_0.FilterClientInstrumentation;
 import java.util.List;
 
 @AutoService(InstrumentationModule.class)
-public class Elasticsearch5TransportClientInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class Elasticsearch5TransportClientInstrumentationModule extends InstrumentationModule {
   public Elasticsearch5TransportClientInstrumentationModule() {
     super("elasticsearch-transport", "elasticsearch-transport-5.0", "elasticsearch");
   }
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return singletonList(new AbstractClientInstrumentation());
-  }
-
-  @Override
-  public boolean isIndyReady() {
-    return true;
+    return asList(
+        new AbstractClientInstrumentation(),
+        new FilterClientInstrumentation(),
+        new TransportClientInstrumentation());
   }
 }

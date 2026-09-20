@@ -17,16 +17,40 @@ dependencies {
 }
 
 tasks {
-  test {
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
-    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+  withType<Test>().configureEach {
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
     // latest dep test occasionally fails because network type is ipv6 instead of the expected ipv4
     // and peer address is 0:0:0:0:0:0:0:1 instead of 127.0.0.1
     jvmArgs("-Djava.net.preferIPv4Stack=true")
   }
+
+  val testStableSemconv = register<Test>("testStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.semconv-stability.opt-in=rpc")
+  }
+
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.semconv-stability.opt-in=rpc/dup")
+  }
+
+  val testExceptionSignalLogs = register<Test>("testExceptionSignalLogs") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.semconv.exception.signal.preview=logs")
+  }
+
+  check {
+    dependsOn(testStableSemconv, testBothSemconv, testExceptionSignalLogs)
+  }
 }
 
-if (!(findProperty("testLatestDeps") as Boolean)) {
+if (!otelProps.testLatestDeps) {
   configurations.testRuntimeClasspath {
     resolutionStrategy {
       eachDependency {

@@ -19,43 +19,42 @@ dependencies {
 tasks {
   withType<Test>().configureEach {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  test {
-    filter {
-      excludeTestsMatching("*Deprecated*")
-    }
-  }
-
-  val testDeprecated by registering(Test::class) {
+  val testExceptionSignalLogs = register<Test>("testExceptionSignalLogs") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
+
     filter {
-      includeTestsMatching("*DeprecatedInterceptorsTest")
+      includeTestsMatching("WrapperTest")
     }
-    systemProperty("otel.instrumentation.messaging.experimental.receive-telemetry.enabled", "true")
-    systemProperty("otel.instrumentation.messaging.experimental.capture-headers", "Test-Message-Header")
+    jvmArgs("-Dotel.semconv.exception.signal.preview=logs")
+    systemProperty("metadataConfig", "otel.semconv.exception.signal.preview=logs")
   }
 
-  val testDeprecatedSuppressReceiveSpans by registering(Test::class) {
+  val testMessagingPreview = register<Test>("testMessagingPreview") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
-    filter {
-      includeTestsMatching("*DeprecatedInterceptorsSuppressReceiveSpansTest")
-    }
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
+  }
+
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging/dup")
   }
 
   check {
-    dependsOn(testDeprecated, testDeprecatedSuppressReceiveSpans)
+    dependsOn(testExceptionSignalLogs, testMessagingPreview, testBothSemconv)
   }
 }
 
-val latestDepTest = findProperty("testLatestDeps") as Boolean
-
 // kafka 4.1 requires java 11
-if (latestDepTest) {
+if (otelProps.testLatestDeps) {
   otelJava {
     minJavaVersionSupported.set(JavaVersion.VERSION_11)
   }

@@ -8,8 +8,8 @@ package io.opentelemetry.instrumentation.jetty.httpclient.v12_0;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientInstrumentationExtension;
-import java.util.Collections;
 import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.client.transport.HttpClientTransportOverHTTP;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -21,19 +21,20 @@ class JettyHttpClient12LibraryTest extends AbstractJettyClient12Test {
   @Override
   protected HttpClient createStandardClient() {
     return JettyClientTelemetry.builder(testing.getOpenTelemetry())
-        .setCapturedRequestHeaders(
-            Collections.singletonList(AbstractHttpClientTest.TEST_REQUEST_HEADER))
-        .setCapturedResponseHeaders(
-            Collections.singletonList(AbstractHttpClientTest.TEST_RESPONSE_HEADER))
+        .setRequestHeaders(AbstractHttpClientTest.TEST_HEADERS)
+        .setResponseHeaders(AbstractHttpClientTest.TEST_HEADERS)
         .build()
-        .getHttpClient();
+        .createHttpClient();
   }
 
+  // exercises the createHttpClient(HttpClientTransport) entry point as well
   @Override
   protected HttpClient createHttpsClient(SslContextFactory.Client sslContextFactory) {
-    return JettyClientTelemetry.builder(testing.getOpenTelemetry())
-        .setSslContextFactory(sslContextFactory)
-        .build()
-        .getHttpClient();
+    HttpClient client =
+        JettyClientTelemetry.builder(testing.getOpenTelemetry())
+            .build()
+            .createHttpClient(new HttpClientTransportOverHTTP());
+    client.setSslContextFactory(sslContextFactory);
+    return client;
   }
 }

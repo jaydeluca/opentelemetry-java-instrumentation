@@ -5,12 +5,16 @@
 
 package io.opentelemetry.testing;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_KAFKA_MESSAGE_KEY;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_KAFKA_OFFSET;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.opentelemetry.api.common.AttributeKey;
-import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.trace.data.LinkData;
+import io.opentelemetry.sdk.trace.data.SpanData;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -20,10 +24,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -38,11 +41,10 @@ public abstract class AbstractSpringKafkaTest {
 
   private static final Logger logger = LoggerFactory.getLogger(AbstractSpringKafkaTest.class);
 
-  protected static final AttributeKey<String> MESSAGING_CLIENT_ID =
-      AttributeKey.stringKey("messaging.client_id");
-  static KafkaContainer kafka;
+  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
-  ConfigurableApplicationContext applicationContext;
+  protected static KafkaContainer kafka;
+
   protected KafkaTemplate<String, String> kafkaTemplate;
 
   @BeforeAll
@@ -52,12 +54,8 @@ public abstract class AbstractSpringKafkaTest {
             .withEnv("KAFKA_HEAP_OPTS", "-Xmx256m")
             .waitingFor(Wait.forLogMessage(".*started \\(kafka.server.Kafka.*Server\\).*", 1))
             .withStartupTimeout(Duration.ofMinutes(1));
+    cleanup.deferAfterAll(kafka::stop);
     kafka.start();
-  }
-
-  @AfterAll
-  static void tearDownKafka() {
-    kafka.stop();
   }
 
   protected abstract InstrumentationExtension testing();
@@ -80,18 +78,12 @@ public abstract class AbstractSpringKafkaTest {
     SpringApplication app = new SpringApplication(ConsumerConfig.class);
     app.addPrimarySources(additionalSpringConfigs());
     app.setDefaultProperties(props);
-    applicationContext = app.run();
+    ConfigurableApplicationContext applicationContext = app.run();
+    cleanup.deferCleanup(applicationContext);
     kafkaTemplate = applicationContext.getBean("kafkaTemplate", KafkaTemplate.class);
   }
 
-  @AfterEach
-  void tearDownApp() {
-    if (applicationContext != null) {
-      applicationContext.close();
-    }
-  }
-
-  static final MethodHandle send;
+  private static final MethodHandle send;
 
   static {
     MethodHandle sendMethod = null;
@@ -106,7 +98,7 @@ public abstract class AbstractSpringKafkaTest {
                   "send",
                   MethodType.methodType(
                       listenableFutureClass, String.class, Object.class, Object.class));
-    } catch (ClassNotFoundException | NoSuchMethodException e) {
+    } catch (ClassNotFoundException | NoSuchMethodException ignored) {
       // spring-kafka 3.0 changed the return type
       try {
         sendMethod =
@@ -116,8 +108,8 @@ public abstract class AbstractSpringKafkaTest {
                     "send",
                     MethodType.methodType(
                         CompletableFuture.class, String.class, Object.class, Object.class));
-      } catch (NoSuchMethodException | IllegalAccessException ex) {
-        failure = ex;
+      } catch (NoSuchMethodException | IllegalAccessException e) {
+        failure = e;
       }
     } catch (IllegalAccessException e) {
       failure = e;
@@ -131,8 +123,8 @@ public abstract class AbstractSpringKafkaTest {
   protected void send(String topic, String key, String data) {
     try {
       send.invoke(kafkaTemplate, topic, key, data);
-    } catch (Throwable e) {
-      throw new AssertionError(e);
+    } catch (Throwable t) {
+      throw new AssertionError(t);
     }
   }
 
@@ -143,7 +135,7 @@ public abstract class AbstractSpringKafkaTest {
     // a batch.
     int maxAttempts = 5;
     for (int i = 1; i <= maxAttempts; i++) {
-      BatchRecordListener.reset();
+      BatchRecordListener.reset(keyToData.size());
 
       testing()
           .runWithSpan(
@@ -157,7 +149,7 @@ public abstract class AbstractSpringKafkaTest {
               });
 
       BatchRecordListener.waitForMessages();
-      if (BatchRecordListener.getLastBatchSize() == 2) {
+      if (BatchRecordListener.getLastBatchSize() == keyToData.size()) {
         break;
       } else if (i < maxAttempts) {
         testing().waitForTraces(2);
@@ -166,24 +158,52 @@ public abstract class AbstractSpringKafkaTest {
         logger.info("Messages weren't received as batch, retrying");
       }
     }
+    assertThat(BatchRecordListener.getLastBatchSize()).isEqualTo(keyToData.size());
   }
 
-  protected static Consumer<List<? extends LinkData>> links(SpanContext... spanContexts) {
+  protected static Consumer<List<? extends LinkData>> links(SpanData... producerSpans) {
     return links -> {
-      assertThat(links).hasSize(spanContexts.length);
-      for (SpanContext spanContext : spanContexts) {
+      assertThat(links).hasSize(producerSpans.length);
+      for (SpanData producerSpan : producerSpans) {
         assertThat(links)
             .anySatisfy(
                 link -> {
                   assertThat(link.getSpanContext().getTraceId())
-                      .isEqualTo(spanContext.getTraceId());
-                  assertThat(link.getSpanContext().getSpanId()).isEqualTo(spanContext.getSpanId());
+                      .isEqualTo(producerSpan.getSpanContext().getTraceId());
+                  assertThat(link.getSpanContext().getSpanId())
+                      .isEqualTo(producerSpan.getSpanContext().getSpanId());
                   assertThat(link.getSpanContext().getTraceFlags())
-                      .isEqualTo(spanContext.getTraceFlags());
+                      .isEqualTo(producerSpan.getSpanContext().getTraceFlags());
                   assertThat(link.getSpanContext().getTraceState())
-                      .isEqualTo(spanContext.getTraceState());
+                      .isEqualTo(producerSpan.getSpanContext().getTraceState());
+                  if (emitStableMessagingSemconv()) {
+                    assertThat(link.getAttributes().asMap())
+                        .containsOnlyKeys(MESSAGING_KAFKA_MESSAGE_KEY, MESSAGING_KAFKA_OFFSET);
+                    assertThat(link.getAttributes().get(MESSAGING_KAFKA_MESSAGE_KEY))
+                        .isEqualTo(producerSpan.getAttributes().get(MESSAGING_KAFKA_MESSAGE_KEY));
+                    assertThat(link.getAttributes().get(MESSAGING_KAFKA_OFFSET))
+                        .isEqualTo(producerSpan.getAttributes().get(MESSAGING_KAFKA_OFFSET));
+                  } else {
+                    assertThat(link.getAttributes().asMap()).isEmpty();
+                  }
                 });
       }
     };
+  }
+
+  // the offset and the message key stay on the links even when the batch carries a single record,
+  // because they are only recommended on spans that describe a single message operation
+  protected static LinkData recordLink(SpanData producerSpan) {
+    if (!emitStableMessagingSemconv()) {
+      return LinkData.create(producerSpan.getSpanContext());
+    }
+    return LinkData.create(
+        producerSpan.getSpanContext(),
+        Attributes.builder()
+            .put(MESSAGING_KAFKA_OFFSET, producerSpan.getAttributes().get(MESSAGING_KAFKA_OFFSET))
+            .put(
+                MESSAGING_KAFKA_MESSAGE_KEY,
+                producerSpan.getAttributes().get(MESSAGING_KAFKA_MESSAGE_KEY))
+            .build());
   }
 }

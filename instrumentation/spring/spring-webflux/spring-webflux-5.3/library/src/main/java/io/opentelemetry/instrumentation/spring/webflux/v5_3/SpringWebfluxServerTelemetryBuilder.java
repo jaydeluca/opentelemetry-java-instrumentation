@@ -7,6 +7,7 @@ package io.opentelemetry.instrumentation.spring.webflux.v5_3;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.incubator.builder.internal.DefaultHttpServerInstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanNameExtractor;
@@ -17,7 +18,7 @@ import java.util.Collection;
 import java.util.function.UnaryOperator;
 import org.springframework.web.server.ServerWebExchange;
 
-/** A builder of {@link SpringWebfluxServerTelemetry}. */
+/** Builder for {@link SpringWebfluxServerTelemetry}. */
 public final class SpringWebfluxServerTelemetryBuilder {
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.spring-webflux-5.3";
 
@@ -35,12 +36,12 @@ public final class SpringWebfluxServerTelemetryBuilder {
             INSTRUMENTATION_NAME,
             openTelemetry,
             WebfluxServerHttpAttributesGetter.INSTANCE,
-            WebfluxTextMapGetter.INSTANCE);
+            new WebfluxTextMapGetter());
   }
 
   /**
-   * Adds an additional {@link AttributesExtractor} to invoke to set attributes to instrumented
-   * items.
+   * Adds an {@link AttributesExtractor} to extract attributes from requests and responses. Executed
+   * after all default extractors.
    */
   @CanIgnoreReturnValue
   public SpringWebfluxServerTelemetryBuilder addAttributesExtractor(
@@ -50,11 +51,34 @@ public final class SpringWebfluxServerTelemetryBuilder {
   }
 
   /**
-   * Configures the HTTP request headers that will be captured as span attributes from server
-   * instrumentation.
+   * Configures which HTTP request headers are captured as span attributes.
    *
-   * @param requestHeaders A list of HTTP header names.
+   * <p>Header values are captured under the {@code http.request.header.<key>} attribute key. The
+   * {@code <key>} part in the attribute key is the lowercase header name.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
    */
+  @CanIgnoreReturnValue
+  public SpringWebfluxServerTelemetryBuilder setRequestHeaders(IncludeExclude requestHeaders) {
+    builder.setRequestHeaders(requestHeaders);
+    return this;
+  }
+
+  /**
+   * Configures HTTP request headers to capture as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
+   *
+   * @param requestHeaders HTTP header names to capture.
+   * @deprecated Use {@link #setRequestHeaders(IncludeExclude)} instead, which matches glob patterns
+   *     rather than literal header names. May be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public SpringWebfluxServerTelemetryBuilder setCapturedRequestHeaders(
       Collection<String> requestHeaders) {
@@ -63,11 +87,34 @@ public final class SpringWebfluxServerTelemetryBuilder {
   }
 
   /**
-   * Configures the HTTP response headers that will be captured as span attributes from server
-   * instrumentation.
+   * Configures which HTTP response headers are captured as span attributes.
    *
-   * @param responseHeaders A list of HTTP header names.
+   * <p>Header values are captured under the {@code http.response.header.<key>} attribute key. The
+   * {@code <key>} part in the attribute key is the lowercase header name.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
    */
+  @CanIgnoreReturnValue
+  public SpringWebfluxServerTelemetryBuilder setResponseHeaders(IncludeExclude responseHeaders) {
+    builder.setResponseHeaders(responseHeaders);
+    return this;
+  }
+
+  /**
+   * Configures HTTP response headers to capture as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
+   *
+   * @param responseHeaders HTTP header names to capture.
+   * @deprecated Use {@link #setResponseHeaders(IncludeExclude)} instead, which matches glob
+   *     patterns rather than literal header names. May be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public SpringWebfluxServerTelemetryBuilder setCapturedResponseHeaders(
       Collection<String> responseHeaders) {
@@ -76,16 +123,15 @@ public final class SpringWebfluxServerTelemetryBuilder {
   }
 
   /**
-   * Configures the instrumentation to recognize an alternative set of HTTP request methods.
+   * Configures recognized HTTP request methods.
    *
-   * <p>By default, this instrumentation defines "known" methods as the ones listed in <a
-   * href="https://www.rfc-editor.org/rfc/rfc9110.html#name-methods">RFC9110</a> and the PATCH
-   * method defined in <a href="https://www.rfc-editor.org/rfc/rfc5789.html">RFC5789</a>.
+   * <p>By default, recognizes methods from <a
+   * href="https://www.rfc-editor.org/rfc/rfc9110.html#name-methods">RFC9110</a> and PATCH from <a
+   * href="https://www.rfc-editor.org/rfc/rfc5789.html">RFC5789</a>.
    *
-   * <p>Note: calling this method <b>overrides</b> the default known method sets completely; it does
-   * not supplement it.
+   * <p><b>Note:</b> This <b>overrides</b> defaults completely; it does not supplement them.
    *
-   * @param knownMethods A set of recognized HTTP request methods.
+   * @param knownMethods HTTP request methods to recognize.
    * @see HttpServerAttributesExtractorBuilder#setKnownMethods(Collection)
    */
   @CanIgnoreReturnValue
@@ -94,22 +140,7 @@ public final class SpringWebfluxServerTelemetryBuilder {
     return this;
   }
 
-  /**
-   * Sets custom server {@link SpanNameExtractor} via transform function.
-   *
-   * @deprecated Use {@link #setSpanNameExtractorCustomizer(UnaryOperator)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public SpringWebfluxServerTelemetryBuilder setSpanNameExtractor(
-      UnaryOperator<SpanNameExtractor<ServerWebExchange>> serverSpanNameExtractor) {
-    return setSpanNameExtractorCustomizer(serverSpanNameExtractor);
-  }
-
-  /**
-   * Sets a customizer that receives the default {@link SpanNameExtractor} and returns a customized
-   * one.
-   */
+  /** Customizes the {@link SpanNameExtractor} by transforming the default instance. */
   @CanIgnoreReturnValue
   public SpringWebfluxServerTelemetryBuilder setSpanNameExtractorCustomizer(
       UnaryOperator<SpanNameExtractor<ServerWebExchange>> spanNameExtractorCustomizer) {
@@ -117,10 +148,7 @@ public final class SpringWebfluxServerTelemetryBuilder {
     return this;
   }
 
-  /**
-   * Returns a new {@link SpringWebfluxServerTelemetry} with the settings of this {@link
-   * SpringWebfluxServerTelemetryBuilder}.
-   */
+  /** Returns a new instance with the configured settings. */
   public SpringWebfluxServerTelemetry build() {
     return new SpringWebfluxServerTelemetry(builder.build());
   }

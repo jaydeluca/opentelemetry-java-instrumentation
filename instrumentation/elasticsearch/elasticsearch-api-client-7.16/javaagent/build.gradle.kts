@@ -45,10 +45,9 @@ dependencies {
   latestDepTestLibrary("co.elastic.clients:elasticsearch-java:7.17.19") // native on-by-default instrumentation after this version
 }
 
-val latestDepTest = findProperty("testLatestDeps") as Boolean
 testing {
   suites {
-    val version8Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("version8Test") {
       dependencies {
         sources {
           java {
@@ -62,12 +61,8 @@ testing {
         implementation("com.fasterxml.jackson.core:jackson-databind:2.14.2")
         implementation("org.testcontainers:testcontainers-elasticsearch")
 
-        if (latestDepTest) {
-          // 8.10+ has native, on-by-default opentelemetry instrumentation
-          implementation("co.elastic.clients:elasticsearch-java:8.9.+")
-        } else {
-          implementation("co.elastic.clients:elasticsearch-java:8.0.0")
-        }
+        // 8.10+ has native, on-by-default opentelemetry instrumentation
+        implementation("co.elastic.clients:elasticsearch-java:${baseVersion("8.0.0").orLatest("8.9.+")}")
       }
     }
   }
@@ -75,21 +70,32 @@ testing {
 
 tasks {
   withType<Test>().configureEach {
-    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
 
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}StableSemconv") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        jvmArgs("-Dotel.semconv-stability.opt-in=database")
+        systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+      }
+    }
+
+  // exercises capturing the sanitized search query, which is on by default under v3-preview
+  val testV3Preview = register<Test>("testV3Preview") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
-    jvmArgs("-Dotel.semconv-stability.opt-in=database")
-    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+    jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+    systemProperty("metadataConfig", "otel.instrumentation.common.v3-preview=true")
   }
 
   check {
-    dependsOn(testing.suites, testStableSemconv)
+    dependsOn(testing.suites, stableSemconvSuites, testV3Preview)
   }
 }

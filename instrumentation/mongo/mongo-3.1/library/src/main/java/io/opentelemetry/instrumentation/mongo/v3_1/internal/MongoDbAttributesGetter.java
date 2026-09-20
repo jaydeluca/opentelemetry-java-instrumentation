@@ -5,6 +5,10 @@
 
 package io.opentelemetry.instrumentation.mongo.v3_1.internal;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
+import static io.opentelemetry.instrumentation.api.internal.StringUtils.truncate;
+import static java.util.Arrays.asList;
+
 import com.mongodb.MongoException;
 import com.mongodb.ServerAddress;
 import com.mongodb.connection.ConnectionDescription;
@@ -12,9 +16,12 @@ import com.mongodb.event.CommandStartedEvent;
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesGetter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.InetSocketAddress;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import javax.annotation.Nullable;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
@@ -26,11 +33,30 @@ import org.bson.json.JsonWriterSettings;
 
 class MongoDbAttributesGetter implements DbClientAttributesGetter<CommandStartedEvent, Void> {
 
-  // copied from DbIncubatingAttributes.DbSystemIncubatingValues
+  // copied from DbIncubatingAttributes.DbSystemNameIncubatingValues
   private static final String MONGODB = "mongodb";
 
-  @Nullable private static final Method IS_TRUNCATED_METHOD;
   private static final String HIDDEN_CHAR = "?";
+  private static final Set<String> COMMANDS_WITH_COLLECTION_NAME_AS_VALUE =
+      new HashSet<>(
+          asList(
+              "aggregate",
+              "count",
+              "distinct",
+              "mapReduce",
+              "geoSearch",
+              "delete",
+              "find",
+              "killCursors",
+              "findAndModify",
+              "insert",
+              "update",
+              "create",
+              "drop",
+              "createIndexes",
+              "listIndexes"));
+
+  @Nullable private static final Method IS_TRUNCATED_METHOD;
 
   static {
     IS_TRUNCATED_METHOD =
@@ -40,18 +66,27 @@ class MongoDbAttributesGetter implements DbClientAttributesGetter<CommandStarted
             .orElse(null);
   }
 
-  private final boolean statementSanitizationEnabled;
+  private final boolean querySanitizationEnabled;
   private final int maxNormalizedQueryLength;
+  @Nullable private final MongoConnectionPeerResolver connectionPeerResolver;
   @Nullable private final JsonWriterSettings jsonWriterSettings;
 
-  MongoDbAttributesGetter(boolean statementSanitizationEnabled, int maxNormalizedQueryLength) {
-    this.statementSanitizationEnabled = statementSanitizationEnabled;
+  MongoDbAttributesGetter(boolean querySanitizationEnabled, int maxNormalizedQueryLength) {
+    this(querySanitizationEnabled, maxNormalizedQueryLength, null);
+  }
+
+  MongoDbAttributesGetter(
+      boolean querySanitizationEnabled,
+      int maxNormalizedQueryLength,
+      @Nullable MongoConnectionPeerResolver connectionPeerResolver) {
+    this.querySanitizationEnabled = querySanitizationEnabled;
     this.maxNormalizedQueryLength = maxNormalizedQueryLength;
+    this.connectionPeerResolver = connectionPeerResolver;
     this.jsonWriterSettings = createJsonWriterSettings(maxNormalizedQueryLength);
   }
 
   @Override
-  public String getDbSystem(CommandStartedEvent event) {
+  public String getDbSystemName(CommandStartedEvent event) {
     return MONGODB;
   }
 
@@ -61,7 +96,26 @@ class MongoDbAttributesGetter implements DbClientAttributesGetter<CommandStarted
     return event.getDatabaseName();
   }
 
-  @Deprecated
+  @Override
+  @Nullable
+  public String getDbCollectionName(CommandStartedEvent event) {
+    if (event.getCommandName().equals("getMore")) {
+      BsonValue collectionValue = event.getCommand().get("collection");
+      if (collectionValue != null) {
+        if (collectionValue.isString()) {
+          return collectionValue.asString().getValue();
+        }
+      }
+    } else if (COMMANDS_WITH_COLLECTION_NAME_AS_VALUE.contains(event.getCommandName())) {
+      BsonValue commandValue = event.getCommand().get(event.getCommandName());
+      if (commandValue != null && commandValue.isString()) {
+        return commandValue.asString().getValue();
+      }
+    }
+    return null;
+  }
+
+  @Deprecated // to be removed in 3.0
   @Override
   @Nullable
   public String getConnectionString(CommandStartedEvent event) {
@@ -82,7 +136,7 @@ class MongoDbAttributesGetter implements DbClientAttributesGetter<CommandStarted
 
   @Override
   public String getDbQueryText(CommandStartedEvent event) {
-    return sanitizeStatement(event.getCommand());
+    return sanitizeQuery(event.getCommand());
   }
 
   @Override
@@ -93,14 +147,84 @@ class MongoDbAttributesGetter implements DbClientAttributesGetter<CommandStarted
 
   @Nullable
   @Override
-  public String getResponseStatus(@Nullable Void response, @Nullable Throwable error) {
+  public String getServerAddress(CommandStartedEvent event) {
+    if (emitStableDatabaseSemconv()) {
+      MongoServerTarget target = MongoClusterTargets.get(event);
+      return target == null ? null : target.getAddress();
+    }
+    ServerAddress serverAddress = selectedServerAddress(event);
+    return serverAddress == null ? null : serverAddress.getHost();
+  }
+
+  @Nullable
+  @Override
+  public Integer getServerPort(CommandStartedEvent event) {
+    if (emitStableDatabaseSemconv()) {
+      MongoServerTarget target = MongoClusterTargets.get(event);
+      return target == null ? null : target.getPort();
+    }
+    ServerAddress serverAddress = selectedServerAddress(event);
+    return serverAddress == null ? null : serverAddress.getPort();
+  }
+
+  @Nullable
+  @Override
+  public String getNetworkPeerAddress(CommandStartedEvent event, @Nullable Void response) {
+    MongoNetworkPeer peer = getNetworkPeer(event);
+    return peer == null ? null : peer.getAddress();
+  }
+
+  @Nullable
+  @Override
+  public Integer getNetworkPeerPort(CommandStartedEvent event, @Nullable Void response) {
+    MongoNetworkPeer peer = getNetworkPeer(event);
+    return peer == null ? null : peer.getPort();
+  }
+
+  @Nullable
+  private static ServerAddress selectedServerAddress(CommandStartedEvent event) {
+    ConnectionDescription connectionDescription = event.getConnectionDescription();
+    return connectionDescription == null ? null : connectionDescription.getServerAddress();
+  }
+
+  @Nullable
+  @Override
+  public InetSocketAddress getNetworkPeerInetSocketAddress(
+      CommandStartedEvent event, @Nullable Void unused) {
+    MongoNetworkPeer peer = getNetworkPeer(event);
+    return peer == null ? null : peer.getInetSocketAddress();
+  }
+
+  @Nullable
+  private MongoNetworkPeer getNetworkPeer(CommandStartedEvent event) {
+    if (!emitStableDatabaseSemconv()) {
+      return null;
+    }
+    ConnectionDescription connectionDescription = event.getConnectionDescription();
+    if (connectionDescription == null || connectionPeerResolver == null) {
+      return null;
+    }
+    return connectionPeerResolver.resolve(connectionDescription);
+  }
+
+  @Nullable
+  @Override
+  public String getErrorType(
+      CommandStartedEvent request, @Nullable Void response, @Nullable Throwable error) {
     if (error instanceof MongoException) {
-      return Integer.toString(((MongoException) error).getCode());
+      // MongoException.getCode() only returns a real server error code (a positive value) when the
+      // exception came from a server command error. For client-side exceptions the driver uses
+      // negative sentinels (e.g. -2, -3, -4), which are meaningless as an error.type. Returning
+      // null in that case lets the shared extractor fall back to the exception class name.
+      int code = ((MongoException) error).getCode();
+      if (code > 0) {
+        return Integer.toString(code);
+      }
     }
     return null;
   }
 
-  String sanitizeStatement(BsonDocument command) {
+  String sanitizeQuery(BsonDocument command) {
     StringBuilderWriter stringWriter = new StringBuilderWriter(128);
     // jsonWriterSettings is generally not null but could be due to security manager or unknown
     // API incompatibilities, which we can't detect by Muzzle because we use reflection.
@@ -109,19 +233,17 @@ class MongoDbAttributesGetter implements DbClientAttributesGetter<CommandStarted
             ? new JsonWriter(stringWriter, jsonWriterSettings)
             : new JsonWriter(stringWriter);
 
-    if (statementSanitizationEnabled) {
+    if (querySanitizationEnabled) {
       writeScrubbed(command, jsonWriter, /* isRoot= */ true);
     } else {
       new BsonDocumentCodec().encode(jsonWriter, command, EncoderContext.builder().build());
     }
 
-    // If using MongoDB driver >= 3.7, the substring invocation will be a no-op due to use of
+    // If using MongoDB driver >= 3.7, truncation will generally be a no-op due to use of
     // JsonWriterSettings.Builder.maxLength in the static initializer for JSON_WRITER_SETTINGS
-    StringBuilder buf = stringWriter.getBuilder();
-    if (buf.length() <= maxNormalizedQueryLength) {
-      return buf.toString();
-    }
-    return buf.substring(0, maxNormalizedQueryLength);
+    StringBuilder buffer = stringWriter.getBuilder();
+    truncate(buffer, maxNormalizedQueryLength);
+    return buffer.toString();
   }
 
   @Nullable
@@ -153,7 +275,12 @@ class MongoDbAttributesGetter implements DbClientAttributesGetter<CommandStarted
                 .filter(method -> method.getName().equals("maxLength"))
                 .findFirst();
         if (maxLengthMethod.isPresent()) {
-          maxLengthMethod.get().invoke(builder, maxNormalizedQueryLength);
+          // Keep one extra code unit so truncation can detect a surrogate pair across the boundary.
+          int writerMaxLength =
+              maxNormalizedQueryLength == Integer.MAX_VALUE
+                  ? maxNormalizedQueryLength
+                  : maxNormalizedQueryLength + 1;
+          maxLengthMethod.get().invoke(builder, writerMaxLength);
         }
         settings =
             (JsonWriterSettings)

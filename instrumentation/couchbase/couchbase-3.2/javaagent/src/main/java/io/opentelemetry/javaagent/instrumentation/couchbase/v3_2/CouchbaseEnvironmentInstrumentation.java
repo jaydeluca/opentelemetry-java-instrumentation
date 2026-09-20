@@ -12,12 +12,11 @@ import com.couchbase.client.core.env.CoreEnvironment;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
-import io.opentelemetry.javaagent.instrumentation.couchbase.v3_2.shaded.com.couchbase.client.tracing.opentelemetry.OpenTelemetryRequestTracer;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
-public class CouchbaseEnvironmentInstrumentation implements TypeInstrumentation {
+class CouchbaseEnvironmentInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -26,17 +25,30 @@ public class CouchbaseEnvironmentInstrumentation implements TypeInstrumentation 
 
   @Override
   public void transform(TypeTransformer transformer) {
-    transformer.applyAdviceToMethod(
-        isConstructor(),
-        CouchbaseEnvironmentInstrumentation.class.getName() + "$ConstructorAdvice");
+    transformer.applyAdviceToMethod(isConstructor(), getClass().getName() + "$ConstructorAdvice");
   }
 
   @SuppressWarnings("unused")
   public static class ConstructorAdvice {
 
-    @Advice.OnMethodExit(suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
     public static void onExit(@Advice.This CoreEnvironment.Builder<?> builder) {
-      builder.requestTracer(OpenTelemetryRequestTracer.wrap(GlobalOpenTelemetry.get()));
+      builder.requestTracer(
+          CouchbaseRequestTracer.create(
+              GlobalOpenTelemetry.get(), hasClientSpans(builder.getClass().getClassLoader())));
+    }
+
+    @SuppressWarnings("EffectivelyPrivate")
+    public static boolean hasClientSpans(ClassLoader classLoader) {
+      try {
+        Class.forName(
+            "com.couchbase.client.core.transaction.components.CoreTransactionRequest",
+            false,
+            classLoader);
+        return true;
+      } catch (ClassNotFoundException ignored) {
+        return false;
+      }
     }
   }
 }

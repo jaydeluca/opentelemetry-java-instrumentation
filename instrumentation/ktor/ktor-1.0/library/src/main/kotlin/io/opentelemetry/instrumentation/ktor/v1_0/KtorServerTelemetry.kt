@@ -14,16 +14,19 @@ import io.ktor.util.pipeline.*
 import io.opentelemetry.api.OpenTelemetry
 import io.opentelemetry.context.Context
 import io.opentelemetry.extension.kotlin.asContextElement
+import io.opentelemetry.instrumentation.api.config.IncludeExclude
 import io.opentelemetry.instrumentation.api.incubator.builder.internal.DefaultHttpServerInstrumenterBuilder
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter
 import io.opentelemetry.instrumentation.api.instrumenter.SpanKindExtractor
+import io.opentelemetry.instrumentation.api.instrumenter.SpanNameExtractor
 import io.opentelemetry.instrumentation.api.instrumenter.SpanStatusBuilder
 import io.opentelemetry.instrumentation.api.instrumenter.SpanStatusExtractor
 import io.opentelemetry.instrumentation.api.internal.InstrumenterUtil
 import io.opentelemetry.instrumentation.api.semconv.http.HttpServerRoute
 import io.opentelemetry.instrumentation.api.semconv.http.HttpServerRouteSource
 import kotlinx.coroutines.withContext
+import java.util.function.UnaryOperator
 
 class KtorServerTelemetry private constructor(
   private val instrumenter: Instrumenter<ApplicationRequest, ApplicationResponse>,
@@ -40,7 +43,7 @@ class KtorServerTelemetry private constructor(
         DefaultHttpServerInstrumenterBuilder.create(
           INSTRUMENTATION_NAME,
           openTelemetry,
-          KtorHttpServerAttributesGetter.INSTANCE
+          KtorHttpServerAttributesGetter
         )
     }
 
@@ -63,14 +66,70 @@ class KtorServerTelemetry private constructor(
       this.spanKindExtractor = extractor
     }
 
+    fun setSpanNameExtractorCustomizer(extractor: UnaryOperator<SpanNameExtractor<ApplicationRequest>>) {
+      builder.setSpanNameExtractorCustomizer(extractor)
+    }
+
     fun addAttributesExtractor(extractor: AttributesExtractor<ApplicationRequest, ApplicationResponse>) {
       builder.addAttributesExtractor(extractor)
     }
 
+    /**
+     * Configures which HTTP request headers are captured as span attributes.
+     *
+     * Header values are captured under the `http.request.header.<key>` attribute key. The `<key>`
+     * part in the attribute key is the lowercase header name.
+     *
+     * Selector patterns are matched case-insensitively, since HTTP header names are case-
+     * insensitive. `?` matches one character and `*` matches any number of characters, including
+     * none. Excluded patterns take precedence over included patterns. A selector with no included
+     * patterns captures every header that is not excluded, and an [empty][IncludeExclude.isEmpty]
+     * selector captures no headers.
+     */
+    fun setRequestHeaders(requestHeaders: IncludeExclude) {
+      builder.setRequestHeaders(requestHeaders)
+    }
+
+    /**
+     * Configures which HTTP request headers are captured as span attributes, by exact header name.
+     *
+     * The header names are matched literally, so `*` and `?` are not treated as glob patterns.
+     */
+    // may be removed in the next minor release
+    @Deprecated(
+      "Use setRequestHeaders(IncludeExclude) instead, which matches glob patterns rather than " +
+        "literal header names. May be removed in the next minor release."
+    )
     fun setCapturedRequestHeaders(requestHeaders: List<String>) {
       builder.setCapturedRequestHeaders(requestHeaders)
     }
 
+    /**
+     * Configures which HTTP response headers are captured as span attributes.
+     *
+     * Header values are captured under the `http.response.header.<key>` attribute key. The `<key>`
+     * part in the attribute key is the lowercase header name.
+     *
+     * Selector patterns are matched case-insensitively, since HTTP header names are case-
+     * insensitive. `?` matches one character and `*` matches any number of characters, including
+     * none. Excluded patterns take precedence over included patterns. A selector with no included
+     * patterns captures every header that is not excluded, and an [empty][IncludeExclude.isEmpty]
+     * selector captures no headers.
+     */
+    fun setResponseHeaders(responseHeaders: IncludeExclude) {
+      builder.setResponseHeaders(responseHeaders)
+    }
+
+    /**
+     * Configures which HTTP response headers are captured as span attributes, by exact header name.
+     *
+     * The header names are matched literally, so `*` and `?` are not treated as glob patterns.
+     */
+    // may be removed in the next minor release
+    @Deprecated(
+      "Use setResponseHeaders(IncludeExclude) instead, which matches glob patterns rather than " +
+        "literal header names. May be removed in the next minor release."
+    )
     fun setCapturedResponseHeaders(responseHeaders: List<String>) {
       builder.setCapturedResponseHeaders(responseHeaders)
     }
@@ -98,8 +157,8 @@ class KtorServerTelemetry private constructor(
   companion object Feature : ApplicationFeature<Application, Configuration, KtorServerTelemetry> {
     private const val INSTRUMENTATION_NAME = "io.opentelemetry.ktor-1.0"
 
-    private val contextKey = AttributeKey<Context>("OpenTelemetry")
-    private val errorKey = AttributeKey<Throwable>("OpenTelemetryException")
+    private val CONTEXT_KEY = AttributeKey<Context>("OpenTelemetry")
+    private val ERROR_KEY = AttributeKey<Throwable>("OpenTelemetryException")
 
     override val key: AttributeKey<KtorServerTelemetry> = AttributeKey("OpenTelemetry")
 
@@ -124,14 +183,14 @@ class KtorServerTelemetry private constructor(
         val context = feature.start(call)
 
         if (context != null) {
-          call.attributes.put(contextKey, context)
+          call.attributes.put(CONTEXT_KEY, context)
           withContext(context.asContextElement()) {
             try {
               proceed()
-            } catch (err: Throwable) {
+            } catch (t: Throwable) {
               // Stash error for reporting later since need ktor to finish setting up the response
-              call.attributes.put(errorKey, err)
-              throw err
+              call.attributes.put(ERROR_KEY, t)
+              throw t
             }
           }
         } else {
@@ -142,9 +201,9 @@ class KtorServerTelemetry private constructor(
       val postSendPhase = PipelinePhase("OpenTelemetryPostSend")
       pipeline.sendPipeline.insertPhaseAfter(ApplicationSendPipeline.After, postSendPhase)
       pipeline.sendPipeline.intercept(postSendPhase) {
-        val context = call.attributes.getOrNull(contextKey)
+        val context = call.attributes.getOrNull(CONTEXT_KEY)
         if (context != null) {
-          var error: Throwable? = call.attributes.getOrNull(errorKey)
+          var error: Throwable? = call.attributes.getOrNull(ERROR_KEY)
           try {
             proceed()
           } catch (t: Throwable) {
@@ -159,7 +218,7 @@ class KtorServerTelemetry private constructor(
       }
 
       pipeline.environment.monitor.subscribe(Routing.RoutingCallStarted) { call ->
-        val context = call.attributes.getOrNull(contextKey)
+        val context = call.attributes.getOrNull(CONTEXT_KEY)
         if (context != null) {
           HttpServerRoute.update(context, HttpServerRouteSource.SERVER, { _, arg -> arg!!.route.parent.toString() }, call)
         }

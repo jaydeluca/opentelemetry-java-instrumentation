@@ -1,0 +1,479 @@
+/*
+ * Copyright The OpenTelemetry Authors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package io.opentelemetry.instrumentation.config.bridge;
+
+import static java.util.Collections.emptyMap;
+import static java.util.Collections.singletonMap;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.params.provider.Arguments.argumentSet;
+
+import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
+import io.opentelemetry.sdk.autoconfigure.spi.internal.DefaultConfigProperties;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+class ConfigPropertiesBackedDeclarativeConfigPropertiesTest {
+
+  @Test
+  void testTranslateName_regularName() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.kafka.producer-propagation.enabled", "false");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("kafka")
+                .getStructured("producer_propagation")
+                .getBoolean("enabled"))
+        .isNotNull()
+        .isFalse();
+  }
+
+  @Test
+  void testTranslateName_withDevelopmentSuffix_noExperimental() {
+    DeclarativeConfigProperties config =
+        createConfig(
+            "otel.instrumentation.common.experimental.controller-telemetry.enabled", "true");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("common")
+                .getStructured("controller_telemetry/development")
+                .getBoolean("enabled"))
+        .isNotNull()
+        .isTrue();
+  }
+
+  @Test
+  void testTranslateName_withDevelopmentSuffix_alreadyHasExperimental() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.grpc.experimental-span-attributes", "true");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("grpc")
+                .getBoolean("experimental_span_attributes/development"))
+        .isNotNull()
+        .isTrue();
+  }
+
+  @Test
+  void testTranslateName_withExperimentalInMiddle() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.http.client.emit-experimental-telemetry", "true");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("http")
+                .getStructured("client")
+                .getBoolean("emit_experimental_telemetry/development"))
+        .isNotNull()
+        .isTrue();
+  }
+
+  @Test
+  void testJmxPrefix() {
+    DeclarativeConfigProperties config = createConfig("otel.jmx.config", "/path/to/config.yaml");
+
+    assertThat(config.getStructured("java").getStructured("jmx").getString("config"))
+        .isNotNull()
+        .isEqualTo("/path/to/config.yaml");
+  }
+
+  @Test
+  void testJmxMetricsIncludeExcludeMapping() {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("otel.jmx.metrics.included", "jvm.*,kafka.*");
+    properties.put("otel.jmx.metrics.excluded", "kafka.connect.*");
+
+    DeclarativeConfigProperties metrics =
+        DeclarativeConfigBridge.createInstrumentationConfig(
+                DefaultConfigProperties.createFromMap(properties))
+            .getInstrumentationConfig()
+            .getStructured("java")
+            .getStructured("jmx")
+            .getStructured("metrics");
+
+    assertThat(metrics.getScalarList("included", String.class)).containsExactly("jvm.*", "kafka.*");
+    assertThat(metrics.getScalarList("excluded", String.class)).containsExactly("kafka.connect.*");
+  }
+
+  @Test
+  void testGeneralHttpListMapping() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.http.client.capture-request-headers", "header1,header2");
+
+    assertThat(
+            config
+                .getStructured("general")
+                .getStructured("http")
+                .getStructured("client")
+                .getScalarList("request_captured_headers", String.class))
+        .containsExactly("header1", "header2");
+  }
+
+  @Test
+  void testComponentConfigDoesNotUseInstrumentationSpecialCases() {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("component.general.http.client.request-captured-headers", "component-header");
+    properties.put(
+        "otel.instrumentation.http.client.capture-request-headers", "instrumentation-header");
+    properties.put("component.java.jmx.discovery.delay", "42");
+    properties.put("otel.jmx.discovery.delay", "30s");
+    properties.put(
+        "otel.instrumentation.common.peer-service-mapping", "1.2.3.4=InstrumentationService");
+
+    DeclarativeConfigProperties config =
+        ConfigPropertiesBackedDeclarativeConfigProperties.createComponentProperties(
+            DefaultConfigProperties.createFromMap(properties), "component.");
+
+    assertThat(
+            config
+                .getStructured("general")
+                .getStructured("http")
+                .getStructured("client")
+                .getScalarList("request_captured_headers", String.class))
+        .containsExactly("component-header");
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("jmx")
+                .getStructured("discovery")
+                .getLong("delay"))
+        .isEqualTo(42L);
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("common")
+                .getStructuredList("service_peer_mapping"))
+        .isNull();
+  }
+
+  @Test
+  void testMessagingHeadersSelectorMapping() {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("otel.instrumentation.messaging.experimental.headers.included", "a,b");
+    properties.put("otel.instrumentation.messaging.experimental.headers.excluded", "c");
+    properties.put("otel.instrumentation.messaging.experimental.capture-headers", "legacy");
+
+    DeclarativeConfigProperties messaging =
+        DeclarativeConfigBridge.createInstrumentationConfig(
+                DefaultConfigProperties.createFromMap(properties))
+            .getInstrumentationConfig()
+            .getStructured("java")
+            .getStructured("common")
+            .getStructured("messaging");
+
+    assertThat(
+            messaging.getStructured("headers/development").getScalarList("included", String.class))
+        .containsExactly("a", "b");
+    assertThat(
+            messaging.getStructured("headers/development").getScalarList("excluded", String.class))
+        .containsExactly("c");
+    assertThat(messaging.getScalarList("capture_headers/development", String.class))
+        .containsExactly("legacy");
+  }
+
+  @Test
+  void testMessagingBatchSendMessageCreationSpansMapping() {
+    DeclarativeConfigProperties config =
+        createConfig(
+            "otel.instrumentation.messaging.batch-send.message-creation-spans.enabled", "false");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("common")
+                .getStructured("messaging")
+                .getStructured("batch_send")
+                .getStructured("message_creation_spans")
+                .getBoolean("enabled"))
+        .isFalse();
+  }
+
+  @ParameterizedTest
+  @MethodSource("batchSendMessageCreationSpansCases")
+  void testBatchSendMessageCreationSpansPrecedence(
+      Map<String, String> properties, boolean expected) {
+    DeclarativeConfigProperties config =
+        ConfigPropertiesBackedDeclarativeConfigProperties.createInstrumentationConfig(
+            DefaultConfigProperties.createFromMap(properties));
+
+    boolean common =
+        config
+            .getStructured("java")
+            .getStructured("common")
+            .getStructured("messaging")
+            .getStructured("batch_send")
+            .getStructured("message_creation_spans")
+            .getBoolean("enabled", true);
+    boolean aws =
+        config
+            .getStructured("java")
+            .getStructured("aws_sdk")
+            .getStructured("batch_send")
+            .getStructured("message_creation_spans")
+            .getBoolean("enabled", common);
+
+    assertThat(aws).isEqualTo(expected);
+  }
+
+  @Test
+  void testCommonDbQuerySanitizationMapping() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.common.db.query-sanitization.enabled", "false");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("common")
+                .getStructured("db")
+                .getStructured("query_sanitization")
+                .getBoolean("enabled"))
+        .isFalse();
+  }
+
+  @Test
+  void testDeprecatedCommonDbStatementSanitizerMapping() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.common.db-statement-sanitizer.enabled", "false");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("common")
+                .getStructured("db_statement_sanitizer")
+                .getBoolean("enabled"))
+        .isFalse();
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("common")
+                .getStructured("database")
+                .getStructured("statement_sanitizer")
+                .getBoolean("enabled"))
+        .isNull();
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("common")
+                .getStructured("db")
+                .getStructured("query_sanitization")
+                .getBoolean("enabled"))
+        .isNull();
+  }
+
+  @Test
+  void testGraphqlQuerySanitizationMapping() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.graphql.query-sanitization.enabled", "false");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("graphql")
+                .getStructured("query_sanitization")
+                .getBoolean("enabled"))
+        .isFalse();
+  }
+
+  @Test
+  void testDeprecatedGraphqlQuerySanitizerMapping() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.graphql.query-sanitizer.enabled", "false");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("graphql")
+                .getStructured("query_sanitizer")
+                .getBoolean("enabled"))
+        .isFalse();
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("graphql")
+                .getStructured("query_sanitization")
+                .getBoolean("enabled"))
+        .isNull();
+  }
+
+  @Test
+  void testJavaCommonServicePeerMapping() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.common.peer-service-mapping", "1.2.3.4=FooService");
+
+    List<DeclarativeConfigProperties> mappings =
+        config
+            .getStructured("java")
+            .getStructured("common")
+            .getStructuredList("service_peer_mapping");
+    assertThat(mappings).isNotNull().hasSize(1);
+    assertThat(mappings.get(0).getString("peer")).isEqualTo("1.2.3.4");
+    assertThat(mappings.get(0).getString("service_name")).isEqualTo("FooService");
+    // service_namespace is not supported in flat config
+    assertThat(mappings.get(0).getString("service_namespace")).isNull();
+  }
+
+  @Test
+  void testGetInt() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.aws-lambda.flush-timeout", "5000");
+
+    assertThat(config.getStructured("java").getStructured("aws_lambda").getInt("flush_timeout"))
+        .isEqualTo(5000);
+  }
+
+  @Test
+  void testGetLong() {
+    assertThat(
+            createConfig("otel.instrumentation.aws-lambda.flush-timeout", "30000")
+                .getStructured("java")
+                .getStructured("aws_lambda")
+                .getLong("flush_timeout"))
+        .isEqualTo(30000L);
+
+    // special case: duration string
+    assertThat(
+            createConfig("otel.jmx.discovery.delay", "30s")
+                .getStructured("java")
+                .getStructured("jmx")
+                .getStructured("discovery")
+                .getLong("delay"))
+        .isEqualTo(30000L);
+    assertThat(
+            createConfig("otel.metric.export.interval", "30s")
+                .getStructured("java")
+                .getStructured("jmx")
+                .getStructured("discovery")
+                .getLong("delay"))
+        .isEqualTo(30000L);
+  }
+
+  @Test
+  void testGetDouble() {
+    DeclarativeConfigProperties config = createConfig("otel.instrumentation.test.ratio", "0.5");
+
+    assertThat(config.getStructured("java").getStructured("test").getDouble("ratio"))
+        .isEqualTo(0.5);
+  }
+
+  @Test
+  void testGetScalarList_emptyList() {
+    DeclarativeConfigProperties config = createConfig("nomatch", "value");
+
+    assertThat(
+            config.getStructured("java").getStructured("test").getScalarList("items", String.class))
+        .isNull();
+  }
+
+  @Test
+  void testGetScalarList_nonStringType() {
+    DeclarativeConfigProperties config = createConfig("nomatch", "value");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("test")
+                .getScalarList("items", Integer.class))
+        .isNull();
+  }
+
+  @Test
+  void testPathWithJavaPrefix() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.kafka.experimental-span-attributes", "true");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("kafka")
+                .getBoolean("experimental_span_attributes/development"))
+        .isTrue();
+  }
+
+  @Test
+  void testUnderscoreToDashConversion() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.spring-scheduling.test-property", "value");
+
+    assertThat(
+            config
+                .getStructured("java")
+                .getStructured("spring_scheduling")
+                .getString("test_property"))
+        .isEqualTo("value");
+  }
+
+  @Test
+  void testGetPropertyKeys() {
+    DeclarativeConfigProperties config = createConfig("nomatch", "value");
+
+    assertThat(config.getPropertyKeys()).isEmpty();
+  }
+
+  @Test
+  void testGetComponentLoader() {
+    DeclarativeConfigProperties config = createConfig("nomatch", "value");
+
+    assertThat(config.getComponentLoader()).isNotNull();
+  }
+
+  @Test
+  void testWithoutJavaPrefix_doesNotMatch() {
+    DeclarativeConfigProperties config =
+        createConfig("otel.instrumentation.kafka.producer-propagation.enabled", "false");
+
+    // Without "java" prefix, should not match the property
+    assertThat(
+            config
+                .getStructured("kafka")
+                .getStructured("producer_propagation")
+                .getBoolean("enabled"))
+        .isNull();
+  }
+
+  private static Stream<Arguments> batchSendMessageCreationSpansCases() {
+    Map<String, String> awsTrueCommonFalse = new HashMap<>();
+    awsTrueCommonFalse.put(
+        "otel.instrumentation.messaging.batch-send.message-creation-spans.enabled", "false");
+    awsTrueCommonFalse.put(
+        "otel.instrumentation.aws-sdk.batch-send.message-creation-spans.enabled", "true");
+
+    Map<String, String> awsFalseCommonTrue = new HashMap<>();
+    awsFalseCommonTrue.put(
+        "otel.instrumentation.messaging.batch-send.message-creation-spans.enabled", "true");
+    awsFalseCommonTrue.put(
+        "otel.instrumentation.aws-sdk.batch-send.message-creation-spans.enabled", "false");
+
+    return Stream.of(
+        argumentSet("default", emptyMap(), true),
+        argumentSet(
+            "common fallback",
+            singletonMap(
+                "otel.instrumentation.messaging.batch-send.message-creation-spans.enabled",
+                "false"),
+            false),
+        argumentSet("AWS true overrides common false", awsTrueCommonFalse, true),
+        argumentSet("AWS false overrides common true", awsFalseCommonTrue, false));
+  }
+
+  private static DeclarativeConfigProperties createConfig(String key, String value) {
+    Map<String, String> properties = new HashMap<>();
+    properties.put(key, value);
+    return ConfigPropertiesBackedDeclarativeConfigProperties.createInstrumentationConfig(
+        DefaultConfigProperties.createFromMap(properties));
+  }
+}

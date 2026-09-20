@@ -17,7 +17,7 @@ dependencies {
 
   library("org.eclipse.jetty:jetty-server:8.0.0.v20110901")
 
-  implementation(project(":instrumentation:jetty:jetty-common:javaagent"))
+  implementation(project(":instrumentation:jetty:jetty-common-8.0:javaagent"))
   implementation(project(":instrumentation:servlet:servlet-3.0:javaagent"))
   bootstrap(project(":instrumentation:servlet:servlet-common:bootstrap"))
 
@@ -31,13 +31,12 @@ dependencies {
 }
 
 // jetty-server 10+ requires Java 11
-val latestDepTest = findProperty("testLatestDeps") as Boolean
-if (latestDepTest) {
+if (otelProps.testLatestDeps) {
   otelJava {
     minJavaVersionSupported.set(JavaVersion.VERSION_11)
   }
 }
 
 tasks.test {
-  systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+  systemProperty("collectMetadata", otelProps.collectMetadata)
 }

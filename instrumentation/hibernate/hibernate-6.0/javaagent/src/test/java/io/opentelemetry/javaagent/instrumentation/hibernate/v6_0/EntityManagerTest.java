@@ -13,6 +13,7 @@ import static io.opentelemetry.javaagent.instrumentation.hibernate.ExperimentalT
 import static io.opentelemetry.javaagent.instrumentation.hibernate.ExperimentalTestHelper.experimentalSatisfies;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
+import static io.opentelemetry.semconv.DbAttributes.DB_QUERY_SUMMARY;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_CONNECTION_STRING;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
@@ -20,6 +21,8 @@ import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SQL_
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_USER;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemIncubatingValues.H2;
+import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,19 +39,24 @@ import jakarta.persistence.LockModeType;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Persistence;
 import jakarta.persistence.Query;
-import java.util.Arrays;
 import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class EntityManagerTest extends AbstractHibernateTest {
-  static final EntityManagerFactory entityManagerFactory =
+  private static final EntityManagerFactory entityManagerFactory =
       Persistence.createEntityManagerFactory("test-pu");
+
+  @AfterAll
+  static void closeEntityManagerFactory() {
+    entityManagerFactory.close();
+  }
 
   @ParameterizedTest(name = "{index}: {0}")
   @MethodSource("provideHibernateActionParameters")
@@ -70,7 +78,7 @@ class EntityManagerTest extends AbstractHibernateTest {
         () -> {
           try {
             parameter.sessionMethodTest.accept(entityManager, entity);
-          } catch (RuntimeException e) {
+          } catch (RuntimeException ignored) {
             // We expected this, we should see the error field set on the span.
           }
           entityTransaction.commit();
@@ -89,7 +97,11 @@ class EntityManagerTest extends AbstractHibernateTest {
                         span,
                         trace.getSpan(0),
                         "Session." + parameter.methodName + " " + parameter.resource),
-                span -> assertClientSpan(span, trace.getSpan(1), "SELECT db1.Value"),
+                span ->
+                    assertClientSpan(
+                        span,
+                        trace.getSpan(1),
+                        emitStableDatabaseSemconv() ? "select Value" : "SELECT db1.Value"),
                 span ->
                     assertClientSpan(
                         span, !parameter.flushOnCommit ? trace.getSpan(1) : trace.getSpan(3)),
@@ -121,7 +133,7 @@ class EntityManagerTest extends AbstractHibernateTest {
   @SuppressWarnings("deprecation") // TODO DB_CONNECTION_STRING deprecation
   @ParameterizedTest(name = "{index}: {0}")
   @MethodSource("provideAttachesStateParameters")
-  void testAttachesStateToQuery(Parameter parameter) {
+  void testAttachesStateToQuery(QueryParameter parameter) {
     testing.runWithSpan(
         "parent",
         () -> {
@@ -138,13 +150,13 @@ class EntityManagerTest extends AbstractHibernateTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("parent").hasKind(SpanKind.INTERNAL).hasNoParent(),
-                span -> assertSessionSpan(span, trace.getSpan(0), parameter.resource),
+                span -> assertSessionSpan(span, trace.getSpan(0), parameter.sessionSpanName),
                 span ->
-                    span.hasName("SELECT db1.Value")
+                    span.hasName(parameter.clientSpanName)
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
@@ -152,8 +164,15 @@ class EntityManagerTest extends AbstractHibernateTest {
                                 emitStableDatabaseSemconv() ? null : "h2:mem:"),
                             satisfies(
                                 maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
-                            equalTo(maybeStable(DB_OPERATION), "SELECT"),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value")),
+                            equalTo(
+                                DB_QUERY_SUMMARY,
+                                emitStableDatabaseSemconv() ? parameter.clientSpanName : null),
+                            equalTo(
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv() ? null : "SELECT"),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value")),
                 span ->
                     assertTransactionCommitSpan(
                         span,
@@ -173,20 +192,23 @@ class EntityManagerTest extends AbstractHibernateTest {
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName("SELECT " + Value.class.getName())
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "select io.opentelemetry.javaagent.instrumentation.hibernate.v6_0.Value"
+                                : "SELECT io.opentelemetry.javaagent.instrumentation.hibernate.v6_0.Value")
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasStatus(StatusData.unset())
                         .hasEvents(emptyList()),
                 span ->
-                    span.hasName("SELECT db1.Value")
+                    span.hasName(emitStableDatabaseSemconv() ? "select Value" : "SELECT db1.Value")
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))));
   }
 
   private static Stream<Arguments> provideHibernateActionParameters() {
     List<BiConsumer<EntityManager, Value>> sessionMethodTests =
-        Arrays.asList(
+        asList(
             (em, val) -> em.lock(val, LockModeType.PESSIMISTIC_READ),
             (em, val) -> em.refresh(val),
             (em, val) -> em.find(Value.class, val.getId()),
@@ -256,7 +278,7 @@ class EntityManagerTest extends AbstractHibernateTest {
 
   private static Stream<Arguments> provideAttachesStateParameters() {
     List<Function<EntityManager, Query>> queryBuildMethods =
-        Arrays.asList(
+        asList(
             em -> em.createQuery("from Value"),
             em -> em.createNamedQuery("TestNamedQuery"),
             em -> em.createNativeQuery("SELECT * FROM Value"));
@@ -265,21 +287,28 @@ class EntityManagerTest extends AbstractHibernateTest {
         Arguments.of(
             named(
                 "createQuery",
-                new Parameter(
-                    "createQuery",
-                    "SELECT io.opentelemetry.javaagent.instrumentation.hibernate.v6_0.Value",
+                new QueryParameter(
+                    emitStableDatabaseSemconv()
+                        ? "select io.opentelemetry.javaagent.instrumentation.hibernate.v6_0.Value"
+                        : "SELECT io.opentelemetry.javaagent.instrumentation.hibernate.v6_0.Value",
+                    emitStableDatabaseSemconv() ? "select Value" : "SELECT db1.Value",
                     queryBuildMethods.get(0)))),
         Arguments.of(
             named(
                 "getNamedQuery",
-                new Parameter(
-                    "getNamedQuery",
-                    "SELECT io.opentelemetry.javaagent.instrumentation.hibernate.v6_0.Value",
+                new QueryParameter(
+                    emitStableDatabaseSemconv()
+                        ? "select io.opentelemetry.javaagent.instrumentation.hibernate.v6_0.Value"
+                        : "SELECT io.opentelemetry.javaagent.instrumentation.hibernate.v6_0.Value",
+                    emitStableDatabaseSemconv() ? "select Value" : "SELECT db1.Value",
                     queryBuildMethods.get(1)))),
         Arguments.of(
             named(
                 "createSQLQuery",
-                new Parameter("createSQLQuery", "SELECT Value", queryBuildMethods.get(2)))));
+                new QueryParameter(
+                    "SELECT Value",
+                    emitStableDatabaseSemconv() ? "SELECT Value" : "SELECT db1.Value",
+                    queryBuildMethods.get(2)))));
   }
 
   private static class Parameter {
@@ -288,16 +317,6 @@ class EntityManagerTest extends AbstractHibernateTest {
     final boolean attach;
     final boolean flushOnCommit;
     final BiConsumer<EntityManager, Value> sessionMethodTest;
-    final Function<EntityManager, Query> queryBuildMethod;
-
-    Parameter(String methodName, String resource, Function<EntityManager, Query> queryBuildMethod) {
-      this.methodName = methodName;
-      this.resource = resource;
-      this.attach = false;
-      this.flushOnCommit = false;
-      this.sessionMethodTest = null;
-      this.queryBuildMethod = queryBuildMethod;
-    }
 
     Parameter(
         String methodName,
@@ -310,7 +329,21 @@ class EntityManagerTest extends AbstractHibernateTest {
       this.attach = attach;
       this.flushOnCommit = flushOnCommit;
       this.sessionMethodTest = sessionMethodTest;
-      this.queryBuildMethod = null;
+    }
+  }
+
+  private static class QueryParameter {
+    final String sessionSpanName;
+    final String clientSpanName;
+    final Function<EntityManager, Query> queryBuildMethod;
+
+    QueryParameter(
+        String sessionSpanName,
+        String clientSpanName,
+        Function<EntityManager, Query> queryBuildMethod) {
+      this.sessionSpanName = sessionSpanName;
+      this.clientSpanName = clientSpanName;
+      this.queryBuildMethod = queryBuildMethod;
     }
   }
 
@@ -319,13 +352,30 @@ class EntityManagerTest extends AbstractHibernateTest {
     span.hasKind(SpanKind.CLIENT)
         .hasParent(parent)
         .hasAttributesSatisfyingExactly(
-            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
             equalTo(maybeStable(DB_NAME), "db1"),
             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
             equalTo(DB_CONNECTION_STRING, emitStableDatabaseSemconv() ? null : "h2:mem:"),
             satisfies(maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
-            satisfies(maybeStable(DB_OPERATION), val -> val.isInstanceOf(String.class)),
-            equalTo(maybeStable(DB_SQL_TABLE), "Value"));
+            satisfies(
+                DB_QUERY_SUMMARY,
+                val -> {
+                  if (emitStableDatabaseSemconv()) {
+                    val.isInstanceOf(String.class);
+                  } else {
+                    val.isNull();
+                  }
+                }),
+            satisfies(
+                maybeStable(DB_OPERATION),
+                val -> {
+                  if (emitStableDatabaseSemconv()) {
+                    val.isNull();
+                  } else {
+                    val.isInstanceOf(String.class);
+                  }
+                }),
+            equalTo(maybeStable(DB_SQL_TABLE), emitStableDatabaseSemconv() ? null : "Value"));
   }
 
   @SuppressWarnings("deprecation") // TODO DB_CONNECTION_STRING deprecation
@@ -334,13 +384,30 @@ class EntityManagerTest extends AbstractHibernateTest {
         .hasKind(SpanKind.CLIENT)
         .hasParent(parent)
         .hasAttributesSatisfyingExactly(
-            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
             equalTo(maybeStable(DB_NAME), "db1"),
             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
             equalTo(DB_CONNECTION_STRING, emitStableDatabaseSemconv() ? null : "h2:mem:"),
             satisfies(maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
-            satisfies(maybeStable(DB_OPERATION), val -> val.isInstanceOf(String.class)),
-            equalTo(maybeStable(DB_SQL_TABLE), "Value"));
+            satisfies(
+                DB_QUERY_SUMMARY,
+                val -> {
+                  if (emitStableDatabaseSemconv()) {
+                    val.isInstanceOf(String.class);
+                  } else {
+                    val.isNull();
+                  }
+                }),
+            satisfies(
+                maybeStable(DB_OPERATION),
+                val -> {
+                  if (emitStableDatabaseSemconv()) {
+                    val.isNull();
+                  } else {
+                    val.isInstanceOf(String.class);
+                  }
+                }),
+            equalTo(maybeStable(DB_SQL_TABLE), emitStableDatabaseSemconv() ? null : "Value"));
   }
 
   private static void assertSessionSpan(SpanDataAssert span, SpanData parent, String spanName) {

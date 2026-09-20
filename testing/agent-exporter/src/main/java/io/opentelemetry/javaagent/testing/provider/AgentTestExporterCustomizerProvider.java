@@ -5,26 +5,27 @@
 
 package io.opentelemetry.javaagent.testing.provider;
 
+import static java.util.Collections.singletonList;
+
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.testing.exporter.TestExportersUtil;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.DeclarativeConfigurationCustomizer;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.DeclarativeConfigurationCustomizerProvider;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.ConsoleExporterModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.LogRecordExporterModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.LogRecordProcessorModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.LoggerProviderModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.MeterProviderModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.MetricReaderModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.OpenTelemetryConfigurationModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.PeriodicMetricReaderModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.PushMetricExporterModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.SimpleLogRecordProcessorModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.SimpleSpanProcessorModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.SpanExporterModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.SpanProcessorModel;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.TracerProviderModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.DeclarativeConfigurationCustomizer;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.DeclarativeConfigurationCustomizerProvider;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.ConsoleExporterModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.LogRecordExporterModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.LogRecordProcessorModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.LoggerProviderModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.MeterProviderModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.MetricReaderModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.OpenTelemetryConfigurationModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.PeriodicMetricReaderModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.PushMetricExporterModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.SimpleLogRecordProcessorModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.SimpleSpanProcessorModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.SpanExporterModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.SpanProcessorModel;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.TracerProviderModel;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 @AutoService(DeclarativeConfigurationCustomizerProvider.class)
@@ -61,21 +62,20 @@ public class AgentTestExporterCustomizerProvider
     //      processors:
     //        - simple:
     //            exporter:
-    //              agent_test:
+    //              agent_test: {}
     //        - simple:
     //            exporter:
     //              console:
     List<SpanProcessorModel> processors = new ArrayList<>();
     processors.add(
-        getProcessorModel(new SpanExporterModel().withAdditionalProperty("agent_test", null)));
+        getProcessorModel(new SpanExporterModel().setExtensionProperty("agent_test", null)));
     processors.add(
-        getProcessorModel(new SpanExporterModel().withConsole(new ConsoleExporterModel())));
-    model.withTracerProvider(new TracerProviderModel().withProcessors(processors));
+        getProcessorModel(new SpanExporterModel().setConsole(new ConsoleExporterModel())));
+    model.setTracerProvider(new TracerProviderModel().setProcessors(processors));
   }
 
   private static SpanProcessorModel getProcessorModel(SpanExporterModel exporter) {
-    return new SpanProcessorModel()
-        .withSimple(new SimpleSpanProcessorModel().withExporter(exporter));
+    return new SpanProcessorModel().setSimple(new SimpleSpanProcessorModel().setExporter(exporter));
   }
 
   private static void addLoggerProvider(OpenTelemetryConfigurationModel model) {
@@ -84,17 +84,17 @@ public class AgentTestExporterCustomizerProvider
     //      processors:
     //        - simple:
     //            exporter:
-    //              agent_test:
-    model.withLoggerProvider(
+    //              agent_test: {}
+    model.setLoggerProvider(
         new LoggerProviderModel()
-            .withProcessors(
-                Collections.singletonList(
+            .setProcessors(
+                singletonList(
                     new LogRecordProcessorModel()
-                        .withSimple(
+                        .setSimple(
                             new SimpleLogRecordProcessorModel()
-                                .withExporter(
+                                .setExporter(
                                     new LogRecordExporterModel()
-                                        .withAdditionalProperty("agent_test", null))))));
+                                        .setExtensionProperty("agent_test", null))))));
   }
 
   private static void addMeterProvider(OpenTelemetryConfigurationModel model) {
@@ -104,19 +104,19 @@ public class AgentTestExporterCustomizerProvider
     //        - periodic:
     //            interval: 1000000
     //            exporter:
-    //              agent_test:
-    model.withMeterProvider(
+    //              agent_test: {}
+    model.setMeterProvider(
         new MeterProviderModel()
-            .withReaders(
-                Collections.singletonList(
+            .setReaders(
+                singletonList(
                     new MetricReaderModel()
-                        .withPeriodic(
+                        .setPeriodic(
                             new PeriodicMetricReaderModel()
                                 // Set really long interval. We'll call forceFlush when we need the
                                 // metrics instead of collecting them periodically.
-                                .withInterval(1000000)
-                                .withExporter(
+                                .setInterval(1000000)
+                                .setExporter(
                                     new PushMetricExporterModel()
-                                        .withAdditionalProperty("agent_test", null))))));
+                                        .setExtensionProperty("agent_test", null))))));
   }
 }

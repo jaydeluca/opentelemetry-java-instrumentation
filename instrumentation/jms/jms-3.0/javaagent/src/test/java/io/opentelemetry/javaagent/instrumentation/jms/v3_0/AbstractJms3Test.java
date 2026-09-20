@@ -8,17 +8,28 @@ package io.opentelemetry.javaagent.instrumentation.jms.v3_0;
 import static io.opentelemetry.api.common.AttributeKey.stringArrayKey;
 import static io.opentelemetry.api.trace.SpanKind.CONSUMER;
 import static io.opentelemetry.api.trace.SpanKind.PRODUCER;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitOldMessagingSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.instrumentation.testing.junit.MessagingMetricsAssertions.assertCounter;
+import static io.opentelemetry.instrumentation.testing.junit.MessagingMetricsAssertions.assertHistogram;
+import static io.opentelemetry.instrumentation.testing.junit.MessagingMetricsAssertions.assertNoMetric;
+import static io.opentelemetry.instrumentation.testing.junit.MessagingMetricsAssertions.assertNoStableMetrics;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_NAME;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_TEMPORARY;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_MESSAGE_ID;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION_NAME;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION_TYPE;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_SYSTEM;
 import static java.util.Collections.singletonList;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
@@ -28,18 +39,19 @@ import jakarta.jms.Destination;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
 import jakarta.jms.MessageConsumer;
+import jakarta.jms.MessageListener;
 import jakarta.jms.MessageProducer;
 import jakarta.jms.Session;
 import jakarta.jms.TextMessage;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.apache.activemq.artemis.jms.client.ActiveMQConnectionFactory;
 import org.apache.activemq.artemis.jms.client.ActiveMQDestination;
 import org.assertj.core.api.AbstractAssert;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -51,21 +63,24 @@ import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
 @SuppressWarnings("deprecation") // using deprecated semconv
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 abstract class AbstractJms3Test {
-  static final Logger logger = LoggerFactory.getLogger(AbstractJms3Test.class);
+  private static final Logger logger = LoggerFactory.getLogger(AbstractJms3Test.class);
+
+  private static final String INSTRUMENTATION_NAME = "io.opentelemetry.jms-3.0";
 
   @RegisterExtension
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
-  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
+  @RegisterExtension final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
-  static GenericContainer<?> broker;
-  static ActiveMQConnectionFactory connectionFactory;
-  static Connection connection;
-  static Session session;
+  GenericContainer<?> broker;
+  ActiveMQConnectionFactory connectionFactory;
+  Connection connection;
+  Session session;
 
   @BeforeAll
-  static void setUp() throws JMSException {
+  void setUp() throws JMSException {
     broker =
         new GenericContainer<>("quay.io/artemiscloud/activemq-artemis-broker:artemis.2.27.0")
             .withEnv("AMQ_USER", "test")
@@ -76,6 +91,7 @@ abstract class AbstractJms3Test {
             .withStartupTimeout(Duration.ofMinutes(2))
             .withLogConsumer(new Slf4jLogConsumer(logger));
     broker.start();
+    cleanup.deferAfterAll(broker);
 
     connectionFactory =
         new ActiveMQConnectionFactory(
@@ -84,31 +100,19 @@ abstract class AbstractJms3Test {
     connectionFactory.setPassword("test");
 
     connection = connectionFactory.createConnection();
+    connection.setClientID("jms-3-test");
     connection.start();
 
     session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-  }
-
-  @AfterAll
-  static void tearDown() throws JMSException {
-    if (session != null) {
-      session.close();
-    }
-    if (connection != null) {
-      connection.close();
-    }
-    if (connectionFactory != null) {
-      connectionFactory.close();
-    }
-    if (broker != null) {
-      broker.close();
-    }
+    cleanup.deferAfterAll(connectionFactory);
+    cleanup.deferAfterAll(connection);
+    cleanup.deferAfterAll(session);
   }
 
   @ParameterizedTest
   @MethodSource("destinationArguments")
   void testMessageListener(DestinationFactory destinationFactory, boolean isTemporary)
-      throws Exception {
+      throws JMSException {
 
     // given
     Destination destination = destinationFactory.create(session);
@@ -129,7 +133,7 @@ abstract class AbstractJms3Test {
     testing.runWithSpan("parent", () -> producer.send(destination, sentMessage));
 
     // then
-    TextMessage receivedMessage = receivedMessageFuture.get(10, TimeUnit.SECONDS);
+    TextMessage receivedMessage = receivedMessageFuture.orTimeout(10, SECONDS).join();
     assertThat(receivedMessage.getText()).isEqualTo(sentMessage.getText());
 
     String actualDestinationName = ((ActiveMQDestination) destination).getName();
@@ -142,23 +146,48 @@ abstract class AbstractJms3Test {
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("parent").hasNoParent(),
                 span ->
-                    span.hasName(producerDestinationName + " publish")
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? producerDestinationName.equals("(temporary)")
+                                    ? "send"
+                                    : "send " + producerDestinationName
+                                : producerDestinationName + " publish")
                         .hasKind(PRODUCER)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
                             equalTo(MESSAGING_SYSTEM, "jms"),
-                            equalTo(MESSAGING_DESTINATION_NAME, producerDestinationName),
-                            equalTo(MESSAGING_OPERATION, "publish"),
+                            messagingDestinationName(
+                                producerDestinationName, actualDestinationName),
+                            equalTo(
+                                MESSAGING_OPERATION, emitOldMessagingSemconv() ? "publish" : null),
+                            equalTo(
+                                MESSAGING_OPERATION_NAME,
+                                emitStableMessagingSemconv() ? "send" : null),
+                            equalTo(
+                                MESSAGING_OPERATION_TYPE,
+                                emitStableMessagingSemconv() ? "send" : null),
                             equalTo(MESSAGING_MESSAGE_ID, messageId),
                             messagingTempDestination(isTemporary)),
                 span ->
-                    span.hasName(actualDestinationName + " process")
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? actualDestinationName.equals("(temporary)")
+                                    ? "process"
+                                    : "process " + actualDestinationName
+                                : actualDestinationName + " process")
                         .hasKind(CONSUMER)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
                             equalTo(MESSAGING_SYSTEM, "jms"),
                             equalTo(MESSAGING_DESTINATION_NAME, actualDestinationName),
-                            equalTo(MESSAGING_OPERATION, "process"),
+                            equalTo(
+                                MESSAGING_OPERATION, emitOldMessagingSemconv() ? "process" : null),
+                            equalTo(
+                                MESSAGING_OPERATION_NAME,
+                                emitStableMessagingSemconv() ? "process" : null),
+                            equalTo(
+                                MESSAGING_OPERATION_TYPE,
+                                emitStableMessagingSemconv() ? "process" : null),
                             equalTo(MESSAGING_MESSAGE_ID, messageId)),
                 span -> span.hasName("consumer").hasParent(trace.getSpan(2))));
   }
@@ -183,15 +212,151 @@ abstract class AbstractJms3Test {
     testing.waitForTraces(0);
   }
 
+  @Test
+  void shouldRecordSendAndProcessMetrics() throws Exception {
+
+    // given
+    Destination destination = session.createQueue("metricsListenerQueue");
+    TextMessage sentMessage = session.createTextMessage("a message");
+
+    MessageProducer producer = session.createProducer(destination);
+    cleanup.deferCleanup(producer);
+    MessageConsumer consumer = session.createConsumer(destination);
+    cleanup.deferCleanup(consumer);
+
+    CompletableFuture<TextMessage> receivedMessageFuture = new CompletableFuture<>();
+    consumer.setMessageListener(message -> receivedMessageFuture.complete((TextMessage) message));
+
+    // when
+    producer.send(sentMessage);
+
+    // then
+    assertThat(receivedMessageFuture.get(10, SECONDS).getText()).isEqualTo("a message");
+
+    if (!emitStableMessagingSemconv()) {
+      await().untilAsserted(() -> assertThat(testing.spans()).hasSize(2));
+      assertNoStableMetrics(testing, INSTRUMENTATION_NAME);
+      return;
+    }
+
+    Attributes sendAttributes = messagingMetricAttributes("send", "metricsListenerQueue");
+    Attributes processAttributes = messagingMetricAttributes("process", "metricsListenerQueue");
+    assertHistogram(
+        testing,
+        INSTRUMENTATION_NAME,
+        "messaging.client.operation.duration",
+        sendAttributes.toBuilder().put(MESSAGING_OPERATION_TYPE, "send").build());
+    assertCounter(
+        testing, INSTRUMENTATION_NAME, "messaging.client.sent.messages", 1, sendAttributes);
+    assertHistogram(testing, INSTRUMENTATION_NAME, "messaging.process.duration", processAttributes);
+    // A pushed message has no separate receive operation, so process owns the consumed count.
+    assertCounter(
+        testing, INSTRUMENTATION_NAME, "messaging.client.consumed.messages", 1, processAttributes);
+  }
+
+  @Test
+  void shouldRecordReceiveMetrics() throws Exception {
+
+    // given
+    Destination destination = session.createQueue("metricsReceiveQueue");
+    TextMessage sentMessage = session.createTextMessage("a message");
+
+    MessageProducer producer = session.createProducer(destination);
+    cleanup.deferCleanup(producer);
+    MessageConsumer consumer = session.createConsumer(destination);
+    cleanup.deferCleanup(consumer);
+
+    // when
+    producer.send(sentMessage);
+    TextMessage receivedMessage = (TextMessage) consumer.receive();
+
+    // then
+    assertThat(receivedMessage.getText()).isEqualTo("a message");
+
+    if (!emitStableMessagingSemconv()) {
+      await().untilAsserted(() -> assertThat(testing.spans()).hasSize(2));
+      assertNoStableMetrics(testing, INSTRUMENTATION_NAME);
+      return;
+    }
+
+    Attributes receiveAttributes = messagingMetricAttributes("receive", "metricsReceiveQueue");
+    assertHistogram(
+        testing,
+        INSTRUMENTATION_NAME,
+        "messaging.client.operation.duration",
+        messagingMetricAttributes("send", "metricsReceiveQueue").toBuilder()
+            .put(MESSAGING_OPERATION_TYPE, "send")
+            .build(),
+        receiveAttributes.toBuilder().put(MESSAGING_OPERATION_TYPE, "receive").build());
+    assertCounter(
+        testing, INSTRUMENTATION_NAME, "messaging.client.consumed.messages", 1, receiveAttributes);
+    assertNoMetric(testing, INSTRUMENTATION_NAME, "messaging.process.duration");
+  }
+
+  @Test
+  void shouldRecordConsumedMessagesOnceWhenReceivedMessageIsDispatchedToListener()
+      throws Exception {
+
+    // given
+    Destination destination = session.createQueue("metricsReceiveAndDispatchQueue");
+    TextMessage sentMessage = session.createTextMessage("a message");
+
+    MessageProducer producer = session.createProducer(destination);
+    cleanup.deferCleanup(producer);
+    MessageConsumer consumer = session.createConsumer(destination);
+    cleanup.deferCleanup(consumer);
+
+    // when
+    producer.send(sentMessage);
+    // frameworks that poll for messages themselves dispatch them to a message listener afterwards
+    Message receivedMessage = consumer.receive();
+    MessageListener listener = message -> {};
+    listener.onMessage(receivedMessage);
+
+    // then
+    assertThat(((TextMessage) receivedMessage).getText()).isEqualTo("a message");
+
+    if (!emitStableMessagingSemconv()) {
+      await().untilAsserted(() -> assertThat(testing.spans()).hasSize(3));
+      assertNoStableMetrics(testing, INSTRUMENTATION_NAME);
+      return;
+    }
+
+    assertHistogram(
+        testing,
+        INSTRUMENTATION_NAME,
+        "messaging.process.duration",
+        messagingMetricAttributes("process", "metricsReceiveAndDispatchQueue"));
+    // the receive operation already counted this delivery, so the process operation must not count
+    // it again
+    assertCounter(
+        testing,
+        INSTRUMENTATION_NAME,
+        "messaging.client.consumed.messages",
+        1,
+        messagingMetricAttributes("receive", "metricsReceiveAndDispatchQueue"));
+  }
+
+  private static Attributes messagingMetricAttributes(String operationName, String destination) {
+    return Attributes.of(
+        MESSAGING_OPERATION_NAME,
+        operationName,
+        MESSAGING_SYSTEM,
+        "jms",
+        MESSAGING_DESTINATION_NAME,
+        destination);
+  }
+
   @ParameterizedTest
   @MethodSource("destinationArguments")
   void shouldCaptureMessageHeaders(DestinationFactory destinationFactory, boolean isTemporary)
-      throws Exception {
+      throws JMSException {
 
     // given
     Destination destination = destinationFactory.create(session);
     TextMessage sentMessage = session.createTextMessage("hello there");
     sentMessage.setStringProperty("Test_Message_Header", "test");
+    sentMessage.setStringProperty("Uncaptured_Header", "password");
     sentMessage.setIntProperty("Test_Message_Int_Header", 1234);
 
     MessageProducer producer = session.createProducer(destination);
@@ -209,7 +374,7 @@ abstract class AbstractJms3Test {
     testing.runWithSpan("parent", () -> producer.send(sentMessage));
 
     // then
-    TextMessage receivedMessage = receivedMessageFuture.get(10, TimeUnit.SECONDS);
+    TextMessage receivedMessage = receivedMessageFuture.orTimeout(10, SECONDS).join();
     assertThat(receivedMessage.getText()).isEqualTo(sentMessage.getText());
 
     String actualDestinationName = ((ActiveMQDestination) destination).getName();
@@ -222,13 +387,26 @@ abstract class AbstractJms3Test {
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("parent").hasNoParent(),
                 span ->
-                    span.hasName(producerDestinationName + " publish")
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? producerDestinationName.equals("(temporary)")
+                                    ? "send"
+                                    : "send " + producerDestinationName
+                                : producerDestinationName + " publish")
                         .hasKind(PRODUCER)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
                             equalTo(MESSAGING_SYSTEM, "jms"),
-                            equalTo(MESSAGING_DESTINATION_NAME, producerDestinationName),
-                            equalTo(MESSAGING_OPERATION, "publish"),
+                            messagingDestinationName(
+                                producerDestinationName, actualDestinationName),
+                            equalTo(
+                                MESSAGING_OPERATION, emitOldMessagingSemconv() ? "publish" : null),
+                            equalTo(
+                                MESSAGING_OPERATION_NAME,
+                                emitStableMessagingSemconv() ? "send" : null),
+                            equalTo(
+                                MESSAGING_OPERATION_TYPE,
+                                emitStableMessagingSemconv() ? "send" : null),
                             equalTo(MESSAGING_MESSAGE_ID, messageId),
                             messagingTempDestination(isTemporary),
                             equalTo(
@@ -238,13 +416,25 @@ abstract class AbstractJms3Test {
                                 stringArrayKey("messaging.header.Test_Message_Int_Header"),
                                 singletonList("1234"))),
                 span ->
-                    span.hasName(actualDestinationName + " process")
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? actualDestinationName.equals("(temporary)")
+                                    ? "process"
+                                    : "process " + actualDestinationName
+                                : actualDestinationName + " process")
                         .hasKind(CONSUMER)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
                             equalTo(MESSAGING_SYSTEM, "jms"),
                             equalTo(MESSAGING_DESTINATION_NAME, actualDestinationName),
-                            equalTo(MESSAGING_OPERATION, "process"),
+                            equalTo(
+                                MESSAGING_OPERATION, emitOldMessagingSemconv() ? "process" : null),
+                            equalTo(
+                                MESSAGING_OPERATION_NAME,
+                                emitStableMessagingSemconv() ? "process" : null),
+                            equalTo(
+                                MESSAGING_OPERATION_TYPE,
+                                emitStableMessagingSemconv() ? "process" : null),
                             equalTo(MESSAGING_MESSAGE_ID, messageId),
                             equalTo(
                                 stringArrayKey("messaging.header.Test_Message_Header"),
@@ -259,6 +449,13 @@ abstract class AbstractJms3Test {
     return isTemporary
         ? equalTo(MESSAGING_DESTINATION_TEMPORARY, true)
         : satisfies(MESSAGING_DESTINATION_TEMPORARY, AbstractAssert::isNull);
+  }
+
+  static AttributeAssertion messagingDestinationName(
+      String oldDestinationName, String stableDestinationName) {
+    return equalTo(
+        MESSAGING_DESTINATION_NAME,
+        emitStableMessagingSemconv() ? stableDestinationName : oldDestinationName);
   }
 
   private static Stream<Arguments> emptyReceiveArguments() {

@@ -18,20 +18,22 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class AbstractLogbackTest {
 
   protected static final Logger logger = LoggerFactory.getLogger("test");
 
-  protected static ListAppender<ILoggingEvent> listAppender = new ListAppender<>();
+  protected ListAppender<ILoggingEvent> listAppender = new ListAppender<>();
 
   protected final Baggage baggage =
       Baggage.empty().toBuilder().put("baggage_key", "baggage_value").build();
 
   @BeforeAll
-  static void setUp() {
+  void setUp() {
     ch.qos.logback.classic.Logger logbackLogger = (ch.qos.logback.classic.Logger) logger;
     Appender<ILoggingEvent> topLevelListAppender = logbackLogger.getAppender("LIST");
     if (topLevelListAppender != null) {
@@ -63,7 +65,7 @@ public abstract class AbstractLogbackTest {
 
     List<ILoggingEvent> events = listAppender.list;
 
-    assertThat(events.size()).isEqualTo(2);
+    assertThat(events).hasSize(2);
     assertThat(events.get(0).getMessage()).isEqualTo("log message 1");
     assertThat(events.get(0).getMDCPropertyMap())
         .doesNotContainKeys(
@@ -91,13 +93,14 @@ public abstract class AbstractLogbackTest {
 
     List<ILoggingEvent> events = listAppender.list;
 
-    assertThat(events.size()).isEqualTo(3);
+    assertThat(events).hasSize(3);
     assertThat(events.get(0).getMessage()).isEqualTo("log message 1");
     assertThat(events.get(0).getMDCPropertyMap().get(getLoggingKey("trace_id")))
         .isEqualTo(span1.getSpanContext().getTraceId());
     assertThat(events.get(0).getMDCPropertyMap().get(getLoggingKey("span_id")))
         .isEqualTo(span1.getSpanContext().getSpanId());
-    assertThat(events.get(0).getMDCPropertyMap().get(getLoggingKey("trace_flags"))).isEqualTo("01");
+    assertThat(events.get(0).getMDCPropertyMap().get(getLoggingKey("trace_flags")))
+        .isEqualTo(span1.getSpanContext().getTraceFlags().asHex());
     assertThat(events.get(0).getMDCPropertyMap().get("baggage.baggage_key"))
         .isEqualTo(expectBaggage() ? "baggage_value" : null);
     assertThat(events.get(0).getCallerData()).isNotNull();
@@ -116,7 +119,8 @@ public abstract class AbstractLogbackTest {
         .isEqualTo(span2.getSpanContext().getTraceId());
     assertThat(events.get(2).getMDCPropertyMap().get(getLoggingKey("span_id")))
         .isEqualTo(span2.getSpanContext().getSpanId());
-    assertThat(events.get(2).getMDCPropertyMap().get(getLoggingKey("trace_flags"))).isEqualTo("01");
+    assertThat(events.get(2).getMDCPropertyMap().get(getLoggingKey("trace_flags")))
+        .isEqualTo(span2.getSpanContext().getTraceFlags().asHex());
     assertThat(events.get(2).getMDCPropertyMap().get("baggage.baggage_key"))
         .isEqualTo(expectBaggage() ? "baggage_value" : null);
     assertThat(events.get(2).getCallerData()).isNotNull();

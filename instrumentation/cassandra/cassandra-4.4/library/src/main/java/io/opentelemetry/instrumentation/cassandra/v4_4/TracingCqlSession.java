@@ -5,23 +5,28 @@
 
 package io.opentelemetry.instrumentation.cassandra.v4_4;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
+import static java.util.Arrays.asList;
+
 import com.datastax.dse.driver.api.core.cql.reactive.ReactiveResultSet;
 import com.datastax.dse.driver.internal.core.cql.reactive.DefaultReactiveResultSet;
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.DriverException;
 import com.datastax.oss.driver.api.core.cql.AsyncResultSet;
-import com.datastax.oss.driver.api.core.cql.BoundStatement;
 import com.datastax.oss.driver.api.core.cql.ExecutionInfo;
 import com.datastax.oss.driver.api.core.cql.ResultSet;
-import com.datastax.oss.driver.api.core.cql.SimpleStatement;
 import com.datastax.oss.driver.api.core.cql.Statement;
+import com.datastax.oss.driver.api.core.metadata.EndPoint;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.internal.DbServerTarget;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import java.lang.reflect.Proxy;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Supplier;
@@ -35,14 +40,30 @@ final class TracingCqlSession {
   }
 
   CqlSession wrapSession(CqlSession session) {
-    if (session == null) {
-      return null;
-    }
+    return wrapSession(session, (DbServerTarget) null);
+  }
 
+  CqlSession wrapSession(CqlSession session, Set<EndPoint> programmaticContactPoints) {
+    // The driver configuration can be reloaded, so read the configured target once here and keep
+    // that snapshot for the life of the session.
+    DbServerTarget serverTarget =
+        emitStableDatabaseSemconv()
+            ? CassandraServerTarget.of(session, programmaticContactPoints)
+            : null;
+    return wrapSession(session, serverTarget);
+  }
+
+  CqlSession wrapSession(CqlSession session, Collection<InetSocketAddress> contactPoints) {
+    DbServerTarget serverTarget =
+        emitStableDatabaseSemconv() ? CassandraServerTarget.ofAddresses(contactPoints) : null;
+    return wrapSession(session, serverTarget);
+  }
+
+  private CqlSession wrapSession(CqlSession session, @Nullable DbServerTarget serverTarget) {
     List<Class<?>> interfaces = new ArrayList<>();
     Class<?> clazz = session.getClass();
     while (clazz != Object.class) {
-      interfaces.addAll(Arrays.asList(clazz.getInterfaces()));
+      interfaces.addAll(asList(clazz.getInterfaces()));
       clazz = clazz.getSuperclass();
     }
     return (CqlSession)
@@ -53,31 +74,31 @@ final class TracingCqlSession {
               if ("execute".equals(method.getName()) && method.getParameterCount() == 1) {
                 if (method.getParameterTypes()[0] == String.class) {
                   String query = (String) args[0];
-                  return execute(session, query);
+                  return execute(session, serverTarget, query);
                 }
                 if (method.getParameterTypes()[0] == Statement.class) {
                   Statement<?> statement = (Statement<?>) args[0];
-                  return execute(session, statement);
+                  return execute(session, serverTarget, statement);
                 }
               } else if ("executeAsync".equals(method.getName())
                   && method.getParameterCount() == 1) {
                 if (method.getParameterTypes()[0] == String.class) {
                   String query = (String) args[0];
-                  return executeAsync(session, query);
+                  return executeAsync(session, serverTarget, query);
                 }
                 if (method.getParameterTypes()[0] == Statement.class) {
                   Statement<?> statement = (Statement<?>) args[0];
-                  return executeAsync(session, statement);
+                  return executeAsync(session, serverTarget, statement);
                 }
               } else if ("executeReactive".equals(method.getName())
                   && method.getParameterCount() == 1) {
                 if (method.getParameterTypes()[0] == String.class) {
                   String query = (String) args[0];
-                  return executeReactive(session, query);
+                  return executeReactive(session, serverTarget, query);
                 }
                 if (method.getParameterTypes()[0] == Statement.class) {
                   Statement<?> statement = (Statement<?>) args[0];
-                  return executeReactive(session, statement);
+                  return executeReactive(session, serverTarget, statement);
                 }
               }
 
@@ -85,43 +106,45 @@ final class TracingCqlSession {
             });
   }
 
-  private ResultSet execute(CqlSession session, String query) {
-    CassandraRequest request = CassandraRequest.create(session, query);
+  private ResultSet execute(
+      CqlSession session, @Nullable DbServerTarget serverTarget, String query) {
+    CassandraRequest request = CassandraRequest.create(session, serverTarget, query);
     Context context = instrumenter.start(Context.current(), request);
     ResultSet resultSet;
     try (Scope ignored = context.makeCurrent()) {
       resultSet = session.execute(query);
-    } catch (Throwable exception) {
-      instrumenter.end(context, request, getExecutionInfo(exception), exception);
-      throw exception;
+    } catch (Throwable t) {
+      instrumenter.end(context, request, getExecutionInfo(t), t);
+      throw t;
     }
     instrumenter.end(context, request, resultSet.getExecutionInfo(), null);
     return resultSet;
   }
 
-  private ResultSet execute(CqlSession session, Statement<?> statement) {
-    String query = getQuery(statement);
-    CassandraRequest request = CassandraRequest.create(session, query);
+  private ResultSet execute(
+      CqlSession session, @Nullable DbServerTarget serverTarget, Statement<?> statement) {
+    CassandraRequest request = CassandraRequest.create(session, serverTarget, statement);
     Context context = instrumenter.start(Context.current(), request);
     ResultSet resultSet;
     try (Scope ignored = context.makeCurrent()) {
       resultSet = session.execute(statement);
-    } catch (Throwable exception) {
-      instrumenter.end(context, request, getExecutionInfo(exception), exception);
-      throw exception;
+    } catch (Throwable t) {
+      instrumenter.end(context, request, getExecutionInfo(t), t);
+      throw t;
     }
     instrumenter.end(context, request, resultSet.getExecutionInfo(), null);
     return resultSet;
   }
 
-  private CompletionStage<AsyncResultSet> executeAsync(CqlSession session, Statement<?> statement) {
-    String query = getQuery(statement);
-    CassandraRequest request = CassandraRequest.create(session, query);
+  private CompletionStage<AsyncResultSet> executeAsync(
+      CqlSession session, @Nullable DbServerTarget serverTarget, Statement<?> statement) {
+    CassandraRequest request = CassandraRequest.create(session, serverTarget, statement);
     return executeAsync(request, () -> session.executeAsync(statement));
   }
 
-  private CompletionStage<AsyncResultSet> executeAsync(CqlSession session, String query) {
-    CassandraRequest request = CassandraRequest.create(session, query);
+  private CompletionStage<AsyncResultSet> executeAsync(
+      CqlSession session, @Nullable DbServerTarget serverTarget, String query) {
+    CassandraRequest request = CassandraRequest.create(session, serverTarget, query);
     return executeAsync(request, () -> session.executeAsync(query));
   }
 
@@ -140,12 +163,14 @@ final class TracingCqlSession {
     }
   }
 
-  private ReactiveResultSet executeReactive(CqlSession session, String query) {
-    return new DefaultReactiveResultSet(() -> executeAsync(session, query));
+  private ReactiveResultSet executeReactive(
+      CqlSession session, @Nullable DbServerTarget serverTarget, String query) {
+    return new DefaultReactiveResultSet(() -> executeAsync(session, serverTarget, query));
   }
 
-  private ReactiveResultSet executeReactive(CqlSession session, Statement<?> statement) {
-    return new DefaultReactiveResultSet(() -> executeAsync(session, statement));
+  private ReactiveResultSet executeReactive(
+      CqlSession session, @Nullable DbServerTarget serverTarget, Statement<?> statement) {
+    return new DefaultReactiveResultSet(() -> executeAsync(session, serverTarget, statement));
   }
 
   private static <T> CompletableFuture<T> wrap(CompletionStage<T> future, Context context) {
@@ -164,17 +189,7 @@ final class TracingCqlSession {
     return result;
   }
 
-  private static String getQuery(Statement<?> statement) {
-    String query = null;
-    if (statement instanceof SimpleStatement) {
-      query = ((SimpleStatement) statement).getQuery();
-    } else if (statement instanceof BoundStatement) {
-      query = ((BoundStatement) statement).getPreparedStatement().getQuery();
-    }
-
-    return query == null ? "" : query;
-  }
-
+  @Nullable
   private static ExecutionInfo getExecutionInfo(
       @Nullable AsyncResultSet asyncResultSet, @Nullable Throwable throwable) {
     if (asyncResultSet != null) {
@@ -184,6 +199,7 @@ final class TracingCqlSession {
     }
   }
 
+  @Nullable
   private static ExecutionInfo getExecutionInfo(@Nullable Throwable throwable) {
     if (throwable instanceof DriverException) {
       return ((DriverException) throwable).getExecutionInfo();

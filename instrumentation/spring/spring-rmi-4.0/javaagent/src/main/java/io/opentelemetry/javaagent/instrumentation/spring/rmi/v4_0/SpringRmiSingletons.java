@@ -5,52 +5,60 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.rmi.v4_0;
 
+import static io.opentelemetry.instrumentation.api.incubator.semconv.rpc.internal.RpcExceptionEventExtractors.setRpcClientExceptionEventExtractor;
+import static io.opentelemetry.instrumentation.api.incubator.semconv.rpc.internal.RpcExceptionEventExtractors.setRpcServerExceptionEventExtractor;
+
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcClientAttributesExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcServerAttributesExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.rpc.RpcSpanNameExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.util.ClassAndMethod;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
+import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanKindExtractor;
 import io.opentelemetry.javaagent.instrumentation.spring.rmi.v4_0.client.ClientAttributesGetter;
 import io.opentelemetry.javaagent.instrumentation.spring.rmi.v4_0.server.ServerAttributesGetter;
 import java.lang.reflect.Method;
 
-public final class SpringRmiSingletons {
+public class SpringRmiSingletons {
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.spring-rmi-4.0";
 
-  private static final Instrumenter<Method, Void> CLIENT_INSTRUMENTER = buildClientInstrumenter();
-  private static final Instrumenter<ClassAndMethod, Void> SERVER_INSTRUMENTER =
+  private static final Instrumenter<Method, Void> clientInstrumenter = buildClientInstrumenter();
+  private static final Instrumenter<ClassAndMethod, Void> serverInstrumenter =
       buildServerInstrumenter();
 
   private static Instrumenter<Method, Void> buildClientInstrumenter() {
-    ClientAttributesGetter rpcAttributesGetter = ClientAttributesGetter.INSTANCE;
+    ClientAttributesGetter rpcAttributesGetter = new ClientAttributesGetter();
 
-    return Instrumenter.<Method, Void>builder(
-            GlobalOpenTelemetry.get(),
-            INSTRUMENTATION_NAME,
-            RpcSpanNameExtractor.create(rpcAttributesGetter))
-        .addAttributesExtractor(RpcClientAttributesExtractor.create(rpcAttributesGetter))
-        .buildInstrumenter(SpanKindExtractor.alwaysClient());
+    InstrumenterBuilder<Method, Void> builder =
+        Instrumenter.<Method, Void>builder(
+                GlobalOpenTelemetry.get(),
+                INSTRUMENTATION_NAME,
+                RpcSpanNameExtractor.create(rpcAttributesGetter))
+            .addAttributesExtractor(RpcClientAttributesExtractor.create(rpcAttributesGetter));
+    setRpcClientExceptionEventExtractor(builder);
+    return builder.buildInstrumenter(SpanKindExtractor.alwaysClient());
   }
 
   private static Instrumenter<ClassAndMethod, Void> buildServerInstrumenter() {
-    ServerAttributesGetter rpcAttributesGetter = ServerAttributesGetter.INSTANCE;
+    ServerAttributesGetter rpcAttributesGetter = new ServerAttributesGetter();
 
-    return Instrumenter.<ClassAndMethod, Void>builder(
-            GlobalOpenTelemetry.get(),
-            INSTRUMENTATION_NAME,
-            RpcSpanNameExtractor.create(rpcAttributesGetter))
-        .addAttributesExtractor(RpcServerAttributesExtractor.create(rpcAttributesGetter))
-        .buildInstrumenter(SpanKindExtractor.alwaysServer());
+    InstrumenterBuilder<ClassAndMethod, Void> builder =
+        Instrumenter.<ClassAndMethod, Void>builder(
+                GlobalOpenTelemetry.get(),
+                INSTRUMENTATION_NAME,
+                RpcSpanNameExtractor.create(rpcAttributesGetter))
+            .addAttributesExtractor(RpcServerAttributesExtractor.create(rpcAttributesGetter));
+    setRpcServerExceptionEventExtractor(builder);
+    return builder.buildInstrumenter(SpanKindExtractor.alwaysServer());
   }
 
   public static Instrumenter<Method, Void> clientInstrumenter() {
-    return CLIENT_INSTRUMENTER;
+    return clientInstrumenter;
   }
 
   public static Instrumenter<ClassAndMethod, Void> serverInstrumenter() {
-    return SERVER_INSTRUMENTER;
+    return serverInstrumenter;
   }
 
   private SpringRmiSingletons() {}

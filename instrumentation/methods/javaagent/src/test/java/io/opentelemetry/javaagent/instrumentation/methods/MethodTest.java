@@ -7,6 +7,7 @@ package io.opentelemetry.javaagent.instrumentation.methods;
 
 import static io.opentelemetry.instrumentation.testing.junit.code.SemconvCodeStabilityUtil.codeFunctionAssertions;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.opentelemetry.api.trace.Span;
@@ -16,8 +17,8 @@ import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.naming.NamingException;
 import javax.naming.NoInitialContextException;
 import javax.naming.directory.InitialDirContext;
 import javax.naming.ldap.InitialLdapContext;
@@ -43,16 +44,16 @@ class MethodTest {
   }
 
   @Test
-  void bootLoaderMethodTraced() throws Exception {
+  void bootLoaderMethodTraced() throws NamingException {
     InitialLdapContext context = new InitialLdapContext();
     AtomicReference<Throwable> throwableReference = new AtomicReference<>();
     assertThatThrownBy(
             () -> {
               try {
                 context.search("foo", null);
-              } catch (Throwable throwable) {
-                throwableReference.set(throwable);
-                throw throwable;
+              } catch (Throwable t) {
+                throwableReference.set(t);
+                throw t;
               }
             })
         .isInstanceOf(NoInitialContextException.class);
@@ -86,7 +87,7 @@ class MethodTest {
     assertThat(traced.span).isNotNull().satisfies(span -> assertThat(span.isRecording()).isTrue());
 
     traced.countDownLatch.countDown();
-    assertThat(future.get(10, TimeUnit.SECONDS)).isEqualTo("Hello!");
+    assertThat(future.get(10, SECONDS)).isEqualTo("Hello!");
 
     testing.waitAndAssertTraces(
         trace ->
@@ -110,7 +111,7 @@ class MethodTest {
               () -> {
                 try {
                   countDownLatch.await();
-                } catch (InterruptedException exception) {
+                } catch (InterruptedException ignored) {
                   // ignore
                 }
                 completableFuture.complete("Hello!");

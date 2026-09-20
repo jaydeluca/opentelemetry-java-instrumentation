@@ -11,6 +11,7 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
+import java.util.Properties;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
@@ -26,24 +27,43 @@ final class ViburDbcpDataSourceInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        named("start").and(takesArguments(0)), this.getClass().getName() + "$StartAdvice");
+        named("configureFromProperties").and(takesArguments(Properties.class)),
+        getClass().getName() + "$ConfigureFromPropertiesAdvice");
     transformer.applyAdviceToMethod(
-        named("close").and(takesArguments(0)), this.getClass().getName() + "$CloseAdvice");
+        named("start").and(takesArguments(0)), getClass().getName() + "$StartAdvice");
+    transformer.applyAdviceToMethod(
+        named("close").and(takesArguments(0)), getClass().getName() + "$CloseAdvice");
+  }
+
+  @SuppressWarnings("unused")
+  public static class ConfigureFromPropertiesAdvice {
+
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
+    public static void onExit(
+        @Advice.This ViburDBCPDataSource dataSource, @Advice.Argument(0) Properties properties) {
+      if (properties.containsKey("name")) {
+        ViburSingletons.markDataSourceNameConfigured(dataSource, properties.getProperty("name"));
+      }
+    }
   }
 
   @SuppressWarnings("unused")
   public static class StartAdvice {
 
-    @Advice.OnMethodExit(suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
     public static void onExit(@Advice.This ViburDBCPDataSource dataSource) {
-      telemetry().registerMetrics(dataSource);
+      String poolName = dataSource.getName();
+      if (!ViburSingletons.isDataSourceNameConfigured(dataSource)) {
+        poolName = ViburSingletons.getDataSourceName(dataSource);
+      }
+      telemetry().registerMetrics(dataSource, poolName);
     }
   }
 
   @SuppressWarnings("unused")
   public static class CloseAdvice {
 
-    @Advice.OnMethodExit(suppress = Throwable.class, onThrowable = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, onThrowable = Throwable.class, inline = false)
     public static void onExit(@Advice.This ViburDBCPDataSource dataSource) {
       telemetry().unregisterMetrics(dataSource);
     }

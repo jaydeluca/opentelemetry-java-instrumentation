@@ -5,40 +5,47 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.jms.v6_0;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.javaagent.bootstrap.internal.ExperimentalConfig;
-import io.opentelemetry.javaagent.instrumentation.jms.JmsInstrumenterFactory;
-import io.opentelemetry.javaagent.instrumentation.jms.MessageWithDestination;
+import io.opentelemetry.javaagent.instrumentation.jms.common.v1_1.JmsInstrumenterFactory;
+import io.opentelemetry.javaagent.instrumentation.jms.common.v1_1.MessageWithDestination;
 
-public final class SpringJmsSingletons {
+public class SpringJmsSingletons {
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.spring-jms-6.0";
 
-  private static final boolean RECEIVE_TELEMETRY_ENABLED =
+  public static final boolean RECEIVE_TELEMETRY_ENABLED =
       ExperimentalConfig.get().messagingReceiveInstrumentationEnabled();
-  private static final Instrumenter<MessageWithDestination, Void> LISTENER_INSTRUMENTER;
-  private static final Instrumenter<MessageWithDestination, Void> RECEIVE_INSTRUMENTER;
+  private static final Instrumenter<MessageWithDestination, Void> listenerInstrumenter;
+  private static final Instrumenter<MessageWithDestination, Void>
+      listenerInstrumenterWithConsumedMessages;
+  private static final Instrumenter<MessageWithDestination, Void> receiveInstrumenter;
 
   static {
     JmsInstrumenterFactory factory =
         new JmsInstrumenterFactory(GlobalOpenTelemetry.get(), INSTRUMENTATION_NAME)
-            .setCapturedHeaders(ExperimentalConfig.get().getMessagingHeaders())
-            .setMessagingReceiveInstrumentationEnabled(RECEIVE_TELEMETRY_ENABLED);
+            .setHeaders(ExperimentalConfig.get().getMessagingHeaders())
+            .setMessagingReceiveTelemetryEnabled(RECEIVE_TELEMETRY_ENABLED);
 
-    LISTENER_INSTRUMENTER = factory.createConsumerProcessInstrumenter(true);
-    RECEIVE_INSTRUMENTER = factory.createConsumerReceiveInstrumenter();
+    listenerInstrumenter = factory.createConsumerProcessInstrumenter(true, false);
+    listenerInstrumenterWithConsumedMessages =
+        emitStableMessagingSemconv()
+            ? factory.createConsumerProcessInstrumenter(true, true)
+            : listenerInstrumenter;
+    receiveInstrumenter = factory.createConsumerReceiveInstrumenter();
   }
 
-  public static boolean isReceiveTelemetryEnabled() {
-    return RECEIVE_TELEMETRY_ENABLED;
-  }
-
-  public static Instrumenter<MessageWithDestination, Void> listenerInstrumenter() {
-    return LISTENER_INSTRUMENTER;
+  public static Instrumenter<MessageWithDestination, Void> listenerInstrumenter(
+      boolean consumedMessagesRecorded) {
+    return consumedMessagesRecorded
+        ? listenerInstrumenter
+        : listenerInstrumenterWithConsumedMessages;
   }
 
   public static Instrumenter<MessageWithDestination, Void> receiveInstrumenter() {
-    return RECEIVE_INSTRUMENTER;
+    return receiveInstrumenter;
   }
 
   private SpringJmsSingletons() {}

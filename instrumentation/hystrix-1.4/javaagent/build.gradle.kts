@@ -7,6 +7,7 @@ muzzle {
     group.set("com.netflix.hystrix")
     module.set("hystrix-core")
     versions.set("[1.4.0,)")
+    assertInverse.set(true)
   }
 }
 
@@ -25,13 +26,13 @@ tasks {
     // Disable so failure testing below doesn't inadvertently change the behavior.
     jvmArgs("-Dhystrix.command.default.circuitBreaker.enabled=false")
 
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
 
     // Uncomment for debugging:
     // jvmArgs("-Dhystrix.command.default.execution.timeout.enabled=false")
   }
 
-  val testExperimental by registering(Test::class) {
+  val testExperimental = register<Test>("testExperimental") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
@@ -43,7 +44,7 @@ tasks {
     dependsOn(testExperimental)
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }

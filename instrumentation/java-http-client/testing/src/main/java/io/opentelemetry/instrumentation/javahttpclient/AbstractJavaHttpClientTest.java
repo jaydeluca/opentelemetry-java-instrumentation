@@ -6,32 +6,30 @@
 package io.opentelemetry.instrumentation.javahttpclient;
 
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static io.opentelemetry.instrumentation.testing.junit.service.SemconvServiceStabilityUtil.maybeStablePeerService;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
-import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PROTOCOL_VERSION;
+import static io.opentelemetry.semconv.ErrorAttributes.ERROR_TYPE;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_REQUEST_METHOD;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
+import static io.opentelemetry.semconv.UrlAttributes.URL_FULL;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientResult;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientTestOptions;
 import io.opentelemetry.sdk.trace.data.StatusData;
-import io.opentelemetry.semconv.ErrorAttributes;
-import io.opentelemetry.semconv.HttpAttributes;
-import io.opentelemetry.semconv.ServerAttributes;
-import io.opentelemetry.semconv.UrlAttributes;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -65,7 +63,7 @@ public abstract class AbstractJavaHttpClientTest extends AbstractHttpClientTest<
       // received
       requestBuilder.header("java-http-client-http2", "true");
     }
-    if (uri.toString().contains("/read-timeout")) {
+    if (uri.getPath().endsWith("/read-timeout")) {
       requestBuilder.timeout(READ_TIMEOUT);
     }
     return requestBuilder.build();
@@ -106,19 +104,6 @@ public abstract class AbstractJavaHttpClientTest extends AbstractHttpClientTest<
     //  which is not what the test expects
     optionsBuilder.disableTestWithClientParent();
     optionsBuilder.spanEndsAfterBody();
-
-    optionsBuilder.setHttpAttributes(
-        uri -> {
-          Set<AttributeKey<?>> attributes =
-              new HashSet<>(HttpClientTestOptions.DEFAULT_HTTP_ATTRIBUTES);
-          // unopened port or non routable address; or timeout
-          if ("http://localhost:61/".equals(uri.toString())
-              || "https://192.0.2.1/".equals(uri.toString())
-              || uri.toString().contains("/read-timeout")) {
-            attributes.remove(NETWORK_PROTOCOL_VERSION);
-          }
-          return attributes;
-        });
   }
 
   @SuppressWarnings("Interruption") // test calls CompletableFuture.cancel with true
@@ -136,7 +121,7 @@ public abstract class AbstractJavaHttpClientTest extends AbstractHttpClientTest<
                   HttpRequest.newBuilder()
                       .uri(uri)
                       .method(method, HttpRequest.BodyPublishers.noBody())
-                      .header("delay", String.valueOf(TimeUnit.SECONDS.toMillis(5)))
+                      .header("delay", String.valueOf(SECONDS.toMillis(5)))
                       .build();
               return client
                   .sendAsync(request, HttpResponse.BodyHandlers.ofString())
@@ -171,13 +156,13 @@ public abstract class AbstractJavaHttpClientTest extends AbstractHttpClientTest<
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasStatus(StatusData.error())
-                        .hasAttributesSatisfying(
-                            equalTo(UrlAttributes.URL_FULL, uri.toString()),
-                            equalTo(ServerAttributes.SERVER_ADDRESS, uri.getHost()),
-                            equalTo(ServerAttributes.SERVER_PORT, uri.getPort()),
-                            equalTo(HttpAttributes.HTTP_REQUEST_METHOD, method),
-                            equalTo(
-                                ErrorAttributes.ERROR_TYPE, CancellationException.class.getName())),
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(URL_FULL, uri.toString()),
+                            equalTo(SERVER_ADDRESS, uri.getHost()),
+                            equalTo(SERVER_PORT, uri.getPort()),
+                            equalTo(HTTP_REQUEST_METHOD, method),
+                            equalTo(ERROR_TYPE, CancellationException.class.getName()),
+                            equalTo(maybeStablePeerService(), testing.expectedPeerService())),
                 span ->
                     span.hasName("test-http-server")
                         .hasKind(SpanKind.SERVER)

@@ -5,8 +5,14 @@
 
 package io.opentelemetry.instrumentation.awslambdacore.v1_0;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvExceptionSignal.emitExceptionAsLogs;
+import static io.opentelemetry.instrumentation.api.internal.SemconvExceptionSignal.emitExceptionAsSpanEvents;
+import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
-import static org.assertj.core.api.Assertions.assertThat;
+import static io.opentelemetry.semconv.incubating.CloudIncubatingAttributes.CLOUD_ACCOUNT_ID;
+import static io.opentelemetry.semconv.incubating.CloudIncubatingAttributes.CLOUD_RESOURCE_ID;
+import static io.opentelemetry.semconv.incubating.FaasIncubatingAttributes.FAAS_INVOCATION_ID;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.when;
 
@@ -15,13 +21,12 @@ import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
+import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.awslambdacore.v1_0.internal.WrappedLambda;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.LibraryInstrumentationExtension;
 import io.opentelemetry.sdk.trace.data.StatusData;
-import io.opentelemetry.semconv.incubating.CloudIncubatingAttributes;
-import io.opentelemetry.semconv.incubating.FaasIncubatingAttributes;
 import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -29,7 +34,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,7 +69,7 @@ class AwsLambdaStreamWrapperHttpPropagationTest {
   }
 
   @Test
-  void handlerTraced() throws Exception {
+  void handlerTraced() throws IOException {
     String content =
         "{"
             + "\"headers\" : {"
@@ -73,7 +77,7 @@ class AwsLambdaStreamWrapperHttpPropagationTest {
             + "},"
             + "\"body\" : \"hello\""
             + "}";
-    InputStream input = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+    InputStream input = new ByteArrayInputStream(content.getBytes(UTF_8));
     OutputStream output = new ByteArrayOutputStream();
 
     TracingRequestStreamWrapper wrapper =
@@ -91,10 +95,10 @@ class AwsLambdaStreamWrapperHttpPropagationTest {
                         .hasParentSpanId("0000000000000456")
                         .hasAttributesSatisfyingExactly(
                             equalTo(
-                                CloudIncubatingAttributes.CLOUD_RESOURCE_ID,
+                                CLOUD_RESOURCE_ID,
                                 "arn:aws:lambda:us-east-1:123456789:function:test"),
-                            equalTo(CloudIncubatingAttributes.CLOUD_ACCOUNT_ID, "123456789"),
-                            equalTo(FaasIncubatingAttributes.FAAS_INVOCATION_ID, "1-22-333"))));
+                            equalTo(CLOUD_ACCOUNT_ID, "123456789"),
+                            equalTo(FAAS_INVOCATION_ID, "1-22-333"))));
   }
 
   @Test
@@ -106,7 +110,7 @@ class AwsLambdaStreamWrapperHttpPropagationTest {
             + "},"
             + "\"body\" : \"bye\""
             + "}";
-    InputStream input = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+    InputStream input = new ByteArrayInputStream(content.getBytes(UTF_8));
     OutputStream output = new ByteArrayOutputStream();
 
     TracingRequestStreamWrapper wrapper =
@@ -125,28 +129,38 @@ class AwsLambdaStreamWrapperHttpPropagationTest {
                         .hasTraceId("4fd0b6131f19f39af59518d127b0cafe")
                         .hasParentSpanId("0000000000000456")
                         .hasStatus(StatusData.error())
-                        .hasException(thrown)
+                        .hasException(emitExceptionAsSpanEvents() ? thrown : null)
                         .hasAttributesSatisfyingExactly(
                             equalTo(
-                                CloudIncubatingAttributes.CLOUD_RESOURCE_ID,
+                                CLOUD_RESOURCE_ID,
                                 "arn:aws:lambda:us-east-1:123456789:function:test"),
-                            equalTo(CloudIncubatingAttributes.CLOUD_ACCOUNT_ID, "123456789"),
-                            equalTo(FaasIncubatingAttributes.FAAS_INVOCATION_ID, "1-22-333"))));
+                            equalTo(CLOUD_ACCOUNT_ID, "123456789"),
+                            equalTo(FAAS_INVOCATION_ID, "1-22-333"))));
+
+    if (emitExceptionAsLogs()) {
+      testing.waitAndAssertLogRecords(
+          logRecord ->
+              logRecord
+                  .hasSeverity(Severity.ERROR)
+                  .hasEventName("faas.invocation.exception")
+                  .hasException(thrown)
+                  .hasTotalAttributeCount(3));
+    }
   }
 
-  public static final class TestRequestHandler implements RequestStreamHandler {
+  public static class TestRequestHandler implements RequestStreamHandler {
 
-    private static final JsonFactory JSON_FACTORY = new JsonFactory();
+    private static final JsonFactory jsonFactory = new JsonFactory();
 
     @Override
     public void handleRequest(InputStream input, OutputStream output, Context context)
         throws IOException {
       String body = "";
-      try (JsonParser parser = JSON_FACTORY.createParser(input)) {
+      try (JsonParser parser = jsonFactory.createParser(input)) {
         parser.nextToken();
         while (parser.nextToken() != JsonToken.END_OBJECT) {
           parser.nextToken();
-          if (!parser.currentName().equals("body")) {
+          if (!"body".equals(parser.currentName())) {
             parser.skipChildren();
             continue;
           }
@@ -154,9 +168,8 @@ class AwsLambdaStreamWrapperHttpPropagationTest {
           break;
         }
       }
-      BufferedWriter writer =
-          new BufferedWriter(new OutputStreamWriter(output, StandardCharsets.UTF_8));
-      if (body.equals("hello")) {
+      BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(output, UTF_8));
+      if ("hello".equals(body)) {
         writer.write("world");
         writer.flush();
         writer.close();

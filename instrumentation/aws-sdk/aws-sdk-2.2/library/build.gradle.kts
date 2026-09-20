@@ -32,16 +32,14 @@ dependencies {
   testLibrary("software.amazon.awssdk:sfn:2.2.0")
 }
 
-val testLatestDeps = findProperty("testLatestDeps") as Boolean
-
 testing {
   suites {
-    val testCoreOnly by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testCoreOnly") {
       dependencies {
         implementation(project())
         implementation(project(":instrumentation:aws-sdk:aws-sdk-2.2:testing"))
         compileOnly("software.amazon.awssdk:sqs:2.2.0")
-        val version = if (testLatestDeps) "latest.release" else "2.2.0"
+        val version = baseVersion("2.2.0").orLatest()
         implementation("software.amazon.awssdk:aws-core:$version")
         implementation("software.amazon.awssdk:aws-json-protocol:$version")
         implementation("software.amazon.awssdk:dynamodb:$version")
@@ -49,21 +47,31 @@ testing {
       }
     }
 
-    val testLambda by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testLambda") {
       dependencies {
         implementation(project())
         implementation(project(":instrumentation:aws-sdk:aws-sdk-2.2:testing"))
-        val version = if (testLatestDeps) "latest.release" else "2.17.0"
+        val version = baseVersion("2.17.0").orLatest()
         implementation("software.amazon.awssdk:lambda:$version")
       }
     }
 
-    val testBedrockRuntime by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testBedrockRuntime") {
       dependencies {
         implementation(project())
         implementation(project(":instrumentation:aws-sdk:aws-sdk-2.2:testing"))
-        val version = if (testLatestDeps) "latest.release" else "2.25.63"
-        implementation("software.amazon.awssdk:bedrockruntime:$version")
+        compileOnly("software.amazon.awssdk:bedrockruntime:2.26.5")
+        val version = baseVersion("2.25.63").orLatest()
+        runtimeOnly("software.amazon.awssdk:bedrockruntime:$version")
+      }
+    }
+
+    register<JvmTestSuite>("testRdsData") {
+      dependencies {
+        implementation(project())
+        implementation(project(":instrumentation:aws-sdk:aws-sdk-2.2:testing"))
+        val version = baseVersion("2.5.54").orLatest()
+        implementation("software.amazon.awssdk:rdsdata:$version")
       }
     }
   }
@@ -74,17 +82,66 @@ tasks {
     // NB: If you'd like to change these, there is some cleanup work to be done, as most tests ignore this and
     // set the value directly (the "library" does not normally query it, only library-autoconfigure)
     systemProperty("otel.instrumentation.aws-sdk.experimental-span-attributes", true)
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
     jvmArgs("-Dotel.semconv-stability.opt-in=database")
   }
 
+  val testMessagingPreview = register<Test>("testMessagingPreview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      includeTestsMatching("*Sqs*")
+    }
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+  }
+
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      includeTestsMatching("*Sqs*")
+    }
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+  }
+
+  val testCoreOnlyStableSemconv = register<Test>("testCoreOnlyStableSemconv") {
+    val testCoreOnlySourceSet = sourceSets["testCoreOnly"]
+    testClassesDirs = testCoreOnlySourceSet.output.classesDirs
+    classpath = testCoreOnlySourceSet.runtimeClasspath
+
+    jvmArgs("-Dotel.semconv-stability.opt-in=database")
+  }
+
+  val testExceptionSignalLogs = register<Test>("testExceptionSignalLogs") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.semconv.exception.signal.preview=logs")
+  }
+
+  val testRdsDataStableSemconv = register<Test>("testRdsDataStableSemconv") {
+    val testRdsDataSourceSet = sourceSets["testRdsData"]
+    testClassesDirs = testRdsDataSourceSet.output.classesDirs
+    classpath = testRdsDataSourceSet.runtimeClasspath
+
+    jvmArgs("-Dotel.semconv-stability.opt-in=database")
+  }
+
   check {
-    dependsOn(testing.suites, testStableSemconv)
+    dependsOn(
+      testing.suites,
+      testStableSemconv,
+      testRdsDataStableSemconv,
+      testMessagingPreview,
+      testBothSemconv,
+      testCoreOnlyStableSemconv,
+      testExceptionSignalLogs,
+    )
   }
 }

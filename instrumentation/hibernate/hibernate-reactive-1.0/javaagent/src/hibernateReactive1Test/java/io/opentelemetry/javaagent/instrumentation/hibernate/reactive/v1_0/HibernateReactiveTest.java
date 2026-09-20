@@ -7,29 +7,32 @@ package io.opentelemetry.javaagent.instrumentation.hibernate.reactive.v1_0;
 
 import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 import static io.opentelemetry.instrumentation.testing.junit.db.SemconvStabilityUtil.maybeStable;
+import static io.opentelemetry.instrumentation.testing.junit.service.SemconvServiceStabilityUtil.maybeStablePeerService;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static io.opentelemetry.semconv.DbAttributes.DB_QUERY_SUMMARY;
 import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
 import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SQL_TABLE;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_USER;
-import static io.opentelemetry.semconv.incubating.PeerIncubatingAttributes.PEER_SERVICE;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.POSTGRESQL;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.vertx.core.Vertx;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.Persistence;
 import org.hibernate.reactive.mutiny.Mutiny;
 import org.hibernate.reactive.stage.Stage;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -46,19 +49,20 @@ class HibernateReactiveTest {
   private static final String DB = "tempdb";
 
   @RegisterExtension
-  protected static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
+  private static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
+
+  @RegisterExtension
+  private static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
   private static final Vertx vertx = Vertx.vertx();
-  private static GenericContainer<?> container;
   private static String host;
   private static int port;
-  private static EntityManagerFactory entityManagerFactory;
   private static Mutiny.SessionFactory mutinySessionFactory;
   private static Stage.SessionFactory stageSessionFactory;
 
   @BeforeAll
   static void setUp() throws Exception {
-    container =
+    GenericContainer<?> container =
         new GenericContainer<>("postgres:9.6.8")
             .withEnv("POSTGRES_USER", USER_DB)
             .withEnv("POSTGRES_PASSWORD", PW_DB)
@@ -66,47 +70,37 @@ class HibernateReactiveTest {
             .withExposedPorts(5432)
             .withLogConsumer(new Slf4jLogConsumer(logger))
             .withStartupTimeout(Duration.ofMinutes(2));
+    cleanup.deferAfterAll(container::stop);
     container.start();
+    cleanup.deferAfterAll(vertx::close);
 
     host = container.getHost();
     port = container.getMappedPort(5432);
     System.setProperty("db.host", host);
     System.setProperty("db.port", String.valueOf(port));
 
-    entityManagerFactory =
+    EntityManagerFactory entityManagerFactory =
         vertx
             .getOrCreateContext()
             .<EntityManagerFactory>executeBlocking(
                 promise -> promise.complete(Persistence.createEntityManagerFactory("test-pu")))
             .toCompletionStage()
             .toCompletableFuture()
-            .get(30, TimeUnit.SECONDS);
+            .get(30, SECONDS);
+    cleanup.deferAfterAll(entityManagerFactory::close);
 
     Value value = new Value("name");
     value.setId(1L);
 
     mutinySessionFactory = entityManagerFactory.unwrap(Mutiny.SessionFactory.class);
+    cleanup.deferAfterAll(mutinySessionFactory);
     stageSessionFactory = entityManagerFactory.unwrap(Stage.SessionFactory.class);
+    cleanup.deferAfterAll(stageSessionFactory);
 
     mutinySessionFactory
         .withTransaction((session, tx) -> session.merge(value))
         .await()
         .atMost(Duration.ofSeconds(30));
-  }
-
-  @AfterAll
-  static void cleanUp() {
-    if (entityManagerFactory != null) {
-      entityManagerFactory.close();
-    }
-    if (mutinySessionFactory != null) {
-      mutinySessionFactory.close();
-    }
-    if (stageSessionFactory != null) {
-      stageSessionFactory.close();
-    }
-    vertx.close();
-    container.stop();
   }
 
   @Test
@@ -152,7 +146,7 @@ class HibernateReactiveTest {
                                   .thenAccept(value -> testing.runWithSpan("callback", () -> {}));
                             })
                         .whenComplete((value, throwable) -> complete(result, null, throwable))));
-    result.get(30, TimeUnit.SECONDS);
+    result.get(30, SECONDS);
 
     assertTrace();
   }
@@ -177,7 +171,7 @@ class HibernateReactiveTest {
                                   .thenAccept(value -> testing.runWithSpan("callback", () -> {}));
                             })
                         .whenComplete((value, throwable) -> complete(result, null, throwable))));
-    result.get(30, TimeUnit.SECONDS);
+    result.get(30, SECONDS);
 
     assertTrace();
   }
@@ -202,7 +196,7 @@ class HibernateReactiveTest {
                                   .thenAccept(value -> testing.runWithSpan("callback", () -> {}));
                             })
                         .whenComplete((value, throwable) -> complete(result, null, throwable))));
-    result.get(30, TimeUnit.SECONDS);
+    result.get(30, SECONDS);
 
     assertTrace();
   }
@@ -227,7 +221,7 @@ class HibernateReactiveTest {
                                   .thenAccept(value -> testing.runWithSpan("callback", () -> {}));
                             })
                         .whenComplete((value, throwable) -> complete(result, null, throwable))));
-    result.get(30, TimeUnit.SECONDS);
+    result.get(30, SECONDS);
 
     assertTrace();
   }
@@ -253,7 +247,7 @@ class HibernateReactiveTest {
                                   .thenAccept(value -> testing.runWithSpan("callback", () -> {}));
                             })
                         .whenComplete((value, throwable) -> complete(result, value, throwable))));
-    result.get(30, TimeUnit.SECONDS);
+    result.get(30, SECONDS);
 
     assertTrace();
   }
@@ -279,7 +273,7 @@ class HibernateReactiveTest {
                                   .thenAccept(value -> testing.runWithSpan("callback", () -> {}));
                             })
                         .whenComplete((value, throwable) -> complete(result, value, throwable))));
-    result.get(30, TimeUnit.SECONDS);
+    result.get(30, SECONDS);
 
     assertTrace();
   }
@@ -304,18 +298,29 @@ class HibernateReactiveTest {
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("parent").hasKind(SpanKind.INTERNAL),
                 span ->
-                    span.hasName("SELECT tempdb.Value")
+                    span.hasName(
+                            emitStableDatabaseSemconv() ? "select Value" : "SELECT tempdb.Value")
                         .hasKind(SpanKind.CLIENT)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
+                            equalTo(
+                                maybeStable(DB_SYSTEM),
+                                emitStableDatabaseSemconv() ? POSTGRESQL : null),
                             equalTo(maybeStable(DB_NAME), DB),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : USER_DB),
                             equalTo(
                                 maybeStable(DB_STATEMENT),
                                 "select value0_.id as id1_0_0_, value0_.name as name2_0_0_ from Value value0_ where value0_.id=$1"),
-                            equalTo(maybeStable(DB_OPERATION), "SELECT"),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value"),
-                            equalTo(PEER_SERVICE, "test-peer-service"),
+                            equalTo(
+                                DB_QUERY_SUMMARY,
+                                emitStableDatabaseSemconv() ? "select Value" : null),
+                            equalTo(
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv() ? null : "SELECT"),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value"),
+                            equalTo(maybeStablePeerService(), "test-peer-service"),
                             equalTo(SERVER_ADDRESS, host),
                             equalTo(SERVER_PORT, port)),
                 span ->

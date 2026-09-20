@@ -10,26 +10,18 @@ import static java.util.Arrays.asList;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import java.util.List;
 
 @AutoService(InstrumentationModule.class)
-public class ClassLoaderInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class ClassLoaderInstrumentationModule extends InstrumentationModule {
   public ClassLoaderInstrumentationModule() {
     super("internal-class-loader");
   }
 
   @Override
-  public boolean defaultEnabled(ConfigProperties config) {
+  public boolean defaultEnabled() {
     // internal instrumentations are always enabled by default
     return true;
-  }
-
-  @Override
-  public List<String> injectedClassNames() {
-    return getAdditionalHelperClassNames();
   }
 
   @Override
@@ -39,12 +31,5 @@ public class ClassLoaderInstrumentationModule extends InstrumentationModule
         new LoadInjectedClassInstrumentation(),
         new ResourceInjectionInstrumentation(),
         new DefineClassInstrumentation());
-  }
-
-  @Override
-  public boolean isIndyReady() {
-    // This module uses inlined advices to prevent recursion issues with invokedynamic, which is
-    // forced by using 'applyInlineAdvice' in 'transform' method of instrumentations.
-    return true;
   }
 }

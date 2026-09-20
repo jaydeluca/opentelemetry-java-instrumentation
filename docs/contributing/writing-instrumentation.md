@@ -334,6 +334,41 @@ code, see [this section](#writing-java-agent-unit-tests).
 
 ## Additional considerations regarding instrumentations
 
+### Pinned latest dep versions
+
+The `testLatestDeps` builds use pinned dependency versions from
+`.github/config/latest-dep-versions.json` for reproducible CI results. This file is a flat JSON
+mapping of `group:artifact#+` (for unconstrained latest versions) or `group:artifact#range`
+(for constrained ranges like `2.+`) to a specific resolved version.
+
+When adding new instrumentation, any `library` or `testLibrary` dependency will automatically
+resolve to `latest.release` during `testLatestDeps` builds. If you use `latestDepTestLibrary`
+to constrain a version range (e.g. `2.+`), you need to add an entry for that range to the
+JSON file.
+
+> **Note:** When `-PtestLatestDeps=true` is set, every `library`/`testLibrary` dependency and
+> every `latestDepTestLibrary` range must have a matching entry in
+> `.github/config/latest-dep-versions.json`. If the entry is missing the build fails fast
+> rather than silently falling back to live Maven Central resolution. After adding a new
+> `library(...)`, `testLibrary(...)`, or ranged `latestDepTestLibrary(...)` declaration, run
+> the `resolveLatestDepVersions` command below to regenerate the JSON file.
+
+To update the pinned versions locally:
+
+```
+./gradlew resolveLatestDepVersions -PtestLatestDeps=true -PresolveLatestDeps=true
+```
+
+A [daily CI job](../../.github/workflows/update-latest-dep-versions.yml) resolves all dynamic
+versions and opens a PR if any have changed. If CI fails on that PR, it typically means a new
+library version broke an instrumentation. To fix it:
+
+1. Create a branch from main
+2. Fix the instrumentation
+3. Update the pinned versions — either run the `resolveLatestDepVersions` command above to
+   update all versions, or manually bump just the offending entry in the JSON file
+4. Open a PR with both the fix and the version update so CI proves it works
+
 ### Documentation
 
 All new instrumentation modules should include relevant documentation. See our docs on
@@ -426,28 +461,27 @@ accessible from the instrumented application code.
 Ideally javaagent instrumentation is just a thin wrapper over library instrumentation, and so there
 is no need to write unit tests that directly access the javaagent instrumentation classes.
 
-If you still want to write a unit test against javaagent instrumentation, add another module
-named `javaagent-unit-tests`. Continuing with the example above:
-
-```
-instrumentation ->
-    ...
-    yarpc-1.0 ->
-        javaagent
-            build.gradle.kts
-        javaagent-unit-tests
-            build.gradle.kts
-        ...
-```
-
-Set up the unit tests project as a standard Java project:
+If you still want to write a unit test against javaagent instrumentation, add a JVM test suite
+whose name ends with `unitTests` to the `javaagent` module. These suites run without the javaagent
+and keep the instrumentation classes on the test classpath:
 
 ```kotlin
-plugins {
-  id("otel.java-conventions")
+testing {
+  suites {
+    register<JvmTestSuite>("unitTests") {
+      dependencies {
+        implementation(project())
+      }
+    }
+  }
 }
 
-dependencies {
-  testImplementation(project(":instrumentation:yarpc-1.0:javaagent"))
+tasks {
+  check {
+    dependsOn(testing.suites)
+  }
 }
 ```
+
+Place the tests under `src/unitTests`. Add any test-only dependencies to the suite's
+`dependencies` block.

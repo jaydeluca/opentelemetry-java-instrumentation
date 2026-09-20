@@ -26,15 +26,18 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
-@SuppressWarnings("PreferJavaTimeOverload")
 class SpringRestTemplateTest extends AbstractHttpClientTest<HttpEntity<String>> {
 
   @RegisterExtension
   static final InstrumentationExtension testing = HttpClientInstrumentationExtension.forAgent();
 
-  static RestTemplate restTemplate = buildClient(false);
-  static RestTemplate restTemplateWithReadTimeout = buildClient(true);
+  private static final boolean EXPERIMENTAL_ATTRIBUTES =
+      Boolean.getBoolean("otel.instrumentation.http.client.emit-experimental-telemetry");
 
+  private static final RestTemplate restTemplate = buildClient(false);
+  private static final RestTemplate restTemplateWithReadTimeout = buildClient(true);
+
+  @SuppressWarnings("PreferJavaTimeOverload")
   private static RestTemplate buildClient(boolean readTimeout) {
     SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
     factory.setConnectTimeout((int) CONNECTION_TIMEOUT.toMillis());
@@ -45,7 +48,7 @@ class SpringRestTemplateTest extends AbstractHttpClientTest<HttpEntity<String>> 
   }
 
   private static RestTemplate getClient(URI uri) {
-    if (uri.toString().contains("/read-timeout")) {
+    if (uri.getPath().endsWith("/read-timeout")) {
       return restTemplateWithReadTimeout;
     }
     return restTemplate;
@@ -67,8 +70,8 @@ class SpringRestTemplateTest extends AbstractHttpClientTest<HttpEntity<String>> 
           .exchange(uri.toString(), HttpMethod.valueOf(method), request, String.class)
           .getStatusCode()
           .value();
-    } catch (ResourceAccessException exception) {
-      throw (Exception) exception.getCause();
+    } catch (ResourceAccessException e) {
+      throw (Exception) e.getCause();
     }
   }
 
@@ -80,20 +83,21 @@ class SpringRestTemplateTest extends AbstractHttpClientTest<HttpEntity<String>> 
       Map<String, String> headers,
       HttpClientResult httpClientResult) {
     try {
-      restTemplate.execute(
-          uri.toString(),
-          HttpMethod.valueOf(method),
-          req -> headers.forEach(req.getHeaders()::add),
-          response -> {
-            byte[] buffer = new byte[1024];
-            try (InputStream inputStream = response.getBody()) {
-              while (inputStream.read(buffer) >= 0) {}
-            }
-            httpClientResult.complete(response.getStatusCode().value());
-            return null;
-          });
-    } catch (ResourceAccessException exception) {
-      httpClientResult.complete(exception.getCause());
+      getClient(uri)
+          .execute(
+              uri.toString(),
+              HttpMethod.valueOf(method),
+              req -> headers.forEach(req.getHeaders()::add),
+              response -> {
+                byte[] buffer = new byte[1024];
+                try (InputStream inputStream = response.getBody()) {
+                  while (inputStream.read(buffer) >= 0) {}
+                }
+                httpClientResult.complete(response.getStatusCode().value());
+                return null;
+              });
+    } catch (ResourceAccessException e) {
+      httpClientResult.complete(e.getCause());
     }
   }
 
@@ -103,9 +107,11 @@ class SpringRestTemplateTest extends AbstractHttpClientTest<HttpEntity<String>> 
 
     // no enum value for TEST
     optionsBuilder.disableTestNonStandardHttpMethod();
-    optionsBuilder.setExpectedClientSpanNameMapper(
-        (uri, method) -> method + " " + getTemplate(uri));
-    optionsBuilder.setExpectedUrlTemplateMapper(SpringRestTemplateTest::getTemplate);
+    if (EXPERIMENTAL_ATTRIBUTES) {
+      optionsBuilder.setExpectedClientSpanNameMapper(
+          (uri, method) -> method + " " + getTemplate(uri));
+      optionsBuilder.setExpectedUrlTemplateMapper(SpringRestTemplateTest::getTemplate);
+    }
   }
 
   private static String getTemplate(URI uri) {

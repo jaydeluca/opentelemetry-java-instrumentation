@@ -6,18 +6,20 @@
 package io.opentelemetry.instrumentation.jmx.rules;
 
 import static io.opentelemetry.instrumentation.jmx.rules.assertions.DataPointAttributes.attribute;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
+import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 import io.opentelemetry.instrumentation.jmx.rules.assertions.AttributeMatcher;
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.net.URISyntaxException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -25,11 +27,11 @@ import org.testcontainers.images.builder.Transferable;
 
 class HadoopTest extends TargetSystemTest {
 
-  public static final String ENDPOINT_PLACEHOLDER = "<<ENDPOINT_PLACEHOLDER>>";
+  private static final String ENDPOINT_PLACEHOLDER = "<<ENDPOINT_PLACEHOLDER>>";
 
   @Test
-  void testMetrics_Hadoop2x() throws URISyntaxException, IOException {
-    List<String> yamlFiles = Collections.singletonList("hadoop.yaml");
+  void testMetrics_Hadoop2x() throws IOException {
+    List<String> yamlFiles = singletonList("hadoop.yaml");
 
     yamlFiles.forEach(this::validateYamlSyntax);
 
@@ -42,34 +44,52 @@ class HadoopTest extends TargetSystemTest {
                 "/hadoop/etc/hadoop/hadoop-env.sh")
             .withCreateContainerCmdModifier(cmd -> cmd.withHostName("test-host"))
             .withStartupTimeout(Duration.ofMinutes(3))
-            .withExposedPorts(50070)
-            .waitingFor(Wait.forListeningPorts(50070));
+            .withExposedPorts(50070, 50090)
+            .waitingFor(Wait.forListeningPorts(50070, 50090));
 
     copyAgentToTarget(target);
     copyYamlFilesToTarget(target, yamlFiles);
+
+    startWeaverValidation(
+        "hadoop.yaml",
+        result ->
+            result
+                .checkNothingUnregisteredWithPrefix("hadoop.")
+                .checkRegisteredMetrics(
+                    "hadoop.",
+                    asList(
+                        "hadoop.dfs.capacity.limit",
+                        "hadoop.dfs.capacity.used",
+                        "hadoop.dfs.block.count",
+                        "hadoop.dfs.block.missing",
+                        "hadoop.dfs.block.corrupt",
+                        "hadoop.dfs.volume.failure.count",
+                        "hadoop.dfs.file.count",
+                        "hadoop.dfs.connection.count",
+                        "hadoop.datanode.live",
+                        "hadoop.datanode.dead"),
+                    emptyList())
+                .checkRegisteredAttributes("hadoop.", asList("hadoop.node.name"), emptyList()));
 
     startTarget(target);
 
     verifyMetrics(createMetricsVerifier());
   }
 
-  private String readAndPreprocessEnvFile(String fileName) throws URISyntaxException, IOException {
-    Path path = Paths.get(getClass().getClassLoader().getResource(fileName).toURI());
-
-    String data;
-    try (Stream<String> lines = Files.lines(path)) {
-      data =
-          lines
-              .map(line -> line.replace(ENDPOINT_PLACEHOLDER, getOtlpEndpoint()))
-              .collect(Collectors.joining("\n"));
+  private String readAndPreprocessEnvFile(String fileName) throws IOException {
+    try (InputStream input =
+            requireNonNull(getClass().getClassLoader().getResourceAsStream(fileName));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input, UTF_8))) {
+      return reader
+          .lines()
+          .map(line -> line.replace(ENDPOINT_PLACEHOLDER, getOtlpEndpoint()))
+          .collect(joining("\n"));
     }
-
-    return data;
   }
 
   @Test
-  void testMetrics_Hadoop3x() throws URISyntaxException, IOException {
-    List<String> yamlFiles = Collections.singletonList("hadoop.yaml");
+  void testMetrics_Hadoop3x() throws IOException {
+    List<String> yamlFiles = singletonList("hadoop.yaml");
 
     yamlFiles.forEach(this::validateYamlSyntax);
 
@@ -87,6 +107,27 @@ class HadoopTest extends TargetSystemTest {
 
     copyAgentToTarget(target);
     copyYamlFilesToTarget(target, yamlFiles);
+
+    startWeaverValidation(
+        "hadoop.yaml",
+        result ->
+            result
+                .checkNothingUnregisteredWithPrefix("hadoop.")
+                .checkRegisteredMetrics(
+                    "hadoop.",
+                    asList(
+                        "hadoop.dfs.capacity.limit",
+                        "hadoop.dfs.capacity.used",
+                        "hadoop.dfs.block.count",
+                        "hadoop.dfs.block.missing",
+                        "hadoop.dfs.block.corrupt",
+                        "hadoop.dfs.volume.failure.count",
+                        "hadoop.dfs.file.count",
+                        "hadoop.dfs.connection.count",
+                        "hadoop.datanode.live",
+                        "hadoop.datanode.dead"),
+                    emptyList())
+                .checkRegisteredAttributes("hadoop.", asList("hadoop.node.name"), emptyList()));
 
     startTarget(target);
 

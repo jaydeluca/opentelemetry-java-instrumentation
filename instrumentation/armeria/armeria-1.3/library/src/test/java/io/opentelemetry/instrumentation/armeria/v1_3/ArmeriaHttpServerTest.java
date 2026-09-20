@@ -10,7 +10,6 @@ import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpServerTest;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpServerInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpServerTestOptions;
-import java.util.Collections;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 class ArmeriaHttpServerTest extends AbstractArmeriaHttpServerTest {
@@ -22,12 +21,10 @@ class ArmeriaHttpServerTest extends AbstractArmeriaHttpServerTest {
   protected ServerBuilder configureServer(ServerBuilder sb) {
     return sb.decorator(
         ArmeriaServerTelemetry.builder(testing.getOpenTelemetry())
-            .setCapturedRequestHeaders(
-                Collections.singletonList(AbstractHttpServerTest.TEST_REQUEST_HEADER))
-            .setCapturedResponseHeaders(
-                Collections.singletonList(AbstractHttpServerTest.TEST_RESPONSE_HEADER))
+            .setRequestHeaders(AbstractHttpServerTest.TEST_HEADERS)
+            .setResponseHeaders(AbstractHttpServerTest.TEST_HEADERS)
             .build()
-            .newDecorator());
+            .createDecorator());
   }
 
   @Override

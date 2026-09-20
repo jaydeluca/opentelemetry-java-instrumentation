@@ -10,6 +10,7 @@ plugins {
   id("com.github.jk1.dependency-license-report")
 
   id("otel.java-conventions")
+  id("otel.nullaway-conventions")
   id("otel.publish-conventions")
   id("io.opentelemetry.instrumentation.javaagent-shadowing")
   id("org.spdx.sbom")
@@ -19,17 +20,17 @@ description = "OpenTelemetry Javaagent"
 group = "io.opentelemetry.javaagent"
 
 // this configuration collects libs that will be placed in the bootstrap classloader
-val bootstrapLibs by configurations.creating {
+val bootstrapLibs = configurations.create("bootstrapLibs") {
   isCanBeResolved = true
   isCanBeConsumed = false
 }
 // this configuration collects only required instrumentations and agent machinery
-val baseJavaagentLibs by configurations.creating {
+val baseJavaagentLibs = configurations.create("baseJavaagentLibs") {
   isCanBeResolved = true
   isCanBeConsumed = false
 }
 // this configuration collects libs that will be placed in the agent classloader, isolated from the instrumented application code
-val javaagentLibs by configurations.creating {
+val javaagentLibs = configurations.create("javaagentLibs") {
   isCanBeResolved = true
   isCanBeConsumed = false
   extendsFrom(baseJavaagentLibs)
@@ -48,7 +49,7 @@ listOf(baseJavaagentLibs, javaagentLibs).forEach {
   }
 }
 
-val licenseReportDependencies by configurations.creating {
+val licenseReportDependencies = configurations.create("licenseReportDependencies") {
   extendsFrom(bootstrapLibs)
   extendsFrom(baseJavaagentLibs)
 }
@@ -89,9 +90,12 @@ dependencies {
   baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.42:javaagent"))
   baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.47:javaagent"))
   baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.50:javaagent"))
-  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.52:javaagent"))
   baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.56:javaagent"))
-  baseJavaagentLibs(project(":instrumentation:opentelemetry-instrumentation-api:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.57:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.59:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.63:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-api:opentelemetry-api-1.65:javaagent"))
+  baseJavaagentLibs(project(":instrumentation:opentelemetry-instrumentation-api:opentelemetry-instrumentation-api-1.14:javaagent"))
   baseJavaagentLibs(project(":instrumentation:opentelemetry-instrumentation-annotations-1.16:javaagent"))
   baseJavaagentLibs(project(":instrumentation:executors:javaagent"))
   baseJavaagentLibs(project(":instrumentation:internal:internal-application-logger:javaagent"))
@@ -149,7 +153,7 @@ tasks {
     }
   }
 
-  val buildBootstrapLibs by registering(ShadowJar::class) {
+  val buildBootstrapLibs = register<ShadowJar>("buildBootstrapLibs") {
     configurations = listOf(bootstrapLibs)
 
     // exclude the agent part of the javaagent-extension-api; these classes will be added in relocate tasks
@@ -160,34 +164,21 @@ tasks {
     archiveFileName.set("bootstrapLibs.jar")
   }
 
-  val relocateBaseJavaagentLibsTmp by registering(ShadowJar::class) {
+  val relocateBaseJavaagentLibs = register<ShadowJar>("relocateBaseJavaagentLibs") {
     configurations = listOf(baseJavaagentLibs)
 
     excludeBootstrapClasses()
 
     duplicatesStrategy = DuplicatesStrategy.FAIL
-    // TODO: remove after updating contrib to 1.50.0
-    filesMatching("io/opentelemetry/contrib/gcp/resource/version.properties") {
-      duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    }
     exclude("META-INF/LICENSE")
     exclude("META-INF/NOTICE")
     exclude("META-INF/maven/**")
-
-    archiveFileName.set("baseJavaagentLibs-relocated-tmp.jar")
-  }
-
-  val relocateBaseJavaagentLibs by registering(Jar::class) {
-    dependsOn(relocateBaseJavaagentLibsTmp)
-
-    copyByteBuddy(relocateBaseJavaagentLibsTmp.get().archiveFile)
-
-    duplicatesStrategy = DuplicatesStrategy.FAIL
+    exclude("META-INF/versions/*/OSGI-INF/MANIFEST.MF")
 
     archiveFileName.set("baseJavaagentLibs-relocated.jar")
   }
 
-  val relocateJavaagentLibsTmp by registering(ShadowJar::class) {
+  val relocateJavaagentLibs = register<ShadowJar>("relocateJavaagentLibs") {
     configurations = listOf(javaagentLibs)
 
     excludeBootstrapClasses()
@@ -195,32 +186,19 @@ tasks {
     exclude("okhttp3/internal/publicsuffix/PublicSuffixDatabase.list")
 
     duplicatesStrategy = DuplicatesStrategy.FAIL
-    // TODO: remove after updating contrib to 1.50.0
-    filesMatching("io/opentelemetry/contrib/gcp/resource/version.properties") {
-      duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    }
     filesMatching("META-INF/io/opentelemetry/instrumentation/**") {
       duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     }
     exclude("META-INF/LICENSE")
     exclude("META-INF/NOTICE")
     exclude("META-INF/maven/**")
-
-    archiveFileName.set("javaagentLibs-relocated-tmp.jar")
-  }
-
-  val relocateJavaagentLibs by registering(Jar::class) {
-    dependsOn(relocateJavaagentLibsTmp)
-
-    copyByteBuddy(relocateJavaagentLibsTmp.get().archiveFile)
-
-    duplicatesStrategy = DuplicatesStrategy.FAIL
+    exclude("META-INF/versions/*/OSGI-INF/MANIFEST.MF")
 
     archiveFileName.set("javaagentLibs-relocated.jar")
   }
 
   // Includes everything needed for OOTB experience
-  val shadowJar by existing(ShadowJar::class) {
+  val shadowJar = named<ShadowJar>("shadowJar") {
     dependsOn(buildBootstrapLibs)
     from(zipTree(buildBootstrapLibs.get().archiveFile))
 
@@ -244,7 +222,7 @@ tasks {
   }
 
   // Includes only the agent machinery and required instrumentations
-  val baseJavaagentJar by registering(ShadowJar::class) {
+  val baseJavaagentJar = register<ShadowJar>("baseJavaagentJar") {
     dependsOn(buildBootstrapLibs)
     from(zipTree(buildBootstrapLibs.get().archiveFile))
 
@@ -265,7 +243,7 @@ tasks {
     archiveClassifier.set("dontuse")
   }
 
-  val baseJar by configurations.creating {
+  configurations.create("baseJar") {
     isCanBeConsumed = true
     isCanBeResolved = false
   }
@@ -299,11 +277,27 @@ tasks {
     }
   }
 
-  val cleanLicenses by registering(Delete::class) {
+  val cleanLicenses = register<Delete>("cleanLicenses") {
     delete(rootProject.file("licenses"))
   }
 
-  val removeLicenseDate by registering {
+  val trimLicenseTrailingWhitespace = register<DefaultTask>("trimLicenseTrailingWhitespace") {
+    val licenseFile = rootDir.toPath().resolve("licenses/licenses.md")
+    val newline = System.lineSeparator()
+    doLast {
+      if (Files.exists(licenseFile)) {
+        val content = String(Files.readAllBytes(licenseFile), Charsets.UTF_8)
+        val normalized = content.lineSequence()
+          .map { it.trimEnd() }
+          .toList()
+          .dropLastWhile { it.isEmpty() }
+          .joinToString(newline) + newline
+        Files.write(licenseFile, normalized.toByteArray(Charsets.UTF_8))
+      }
+    }
+  }
+
+  val removeLicenseDate = register<DefaultTask>("removeLicenseDate") {
     // removing the license report date makes it idempotent
     val rootDirPath = rootDir.toPath()
     doLast {
@@ -328,7 +322,7 @@ tasks {
   val generateLicenseReportTask = named("generateLicenseReport")
   generateLicenseReportTask.configure {
     dependsOn(cleanLicenses)
-    finalizedBy(":spotlessApply")
+    finalizedBy(trimLicenseTrailingWhitespace)
     finalizedBy(removeLicenseDate)
     // disable licence report generation unless this task is explicitly run
     // the files produced by this task are used by other tasks without declaring them as dependency
@@ -433,25 +427,6 @@ fun CopySpec.isolateClasses(jar: Provider<RegularFile>) {
     exclude("META-INF/*.SF")
     exclude("META-INF/maven/**")
     exclude("META-INF/MANIFEST.MF")
-  }
-}
-
-fun CopySpec.copyByteBuddy(jar: Provider<RegularFile>) {
-  // Byte buddy jar includes classes compiled for java 5 at the root of the jar and the same classes
-  // compiled for java 8 under META-INF/versions/9. Here we move the classes from
-  // META-INF/versions/9/net/bytebuddy to net/bytebuddy to get rid of the duplicate classes.
-  from(zipTree(jar)) {
-    eachFile {
-      if (path.startsWith("net/bytebuddy/") &&
-        // this is our class that we have placed in the byte buddy package, need to preserve it
-        !path.startsWith("net/bytebuddy/agent/builder/AgentBuilderUtil")
-      ) {
-        exclude()
-      } else if (path.startsWith("META-INF/versions/9/net/bytebuddy/")) {
-        path = path.removePrefix("META-INF/versions/9/")
-      }
-    }
-    includeEmptyDirs = false
   }
 }
 

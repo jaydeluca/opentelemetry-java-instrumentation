@@ -5,17 +5,19 @@
 
 package io.opentelemetry.instrumentation.api.incubator.builder.internal;
 
+import static java.util.Objects.requireNonNull;
+
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.propagation.TextMapSetter;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.incubator.config.internal.CommonConfig;
 import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpClientExperimentalMetrics;
-import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpClientPeerServiceAttributesExtractor;
+import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpClientServicePeerAttributesExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.http.HttpExperimentalAttributesExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.http.internal.HttpClientUrlTemplateUtil;
-import io.opentelemetry.instrumentation.api.incubator.semconv.net.PeerServiceResolver;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
@@ -34,7 +36,7 @@ import io.opentelemetry.semconv.SchemaUrls;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Objects;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -45,9 +47,6 @@ import javax.annotation.Nullable;
  * any time.
  */
 public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
-
-  // copied from PeerIncubatingAttributes
-  private static final AttributeKey<String> PEER_SERVICE = AttributeKey.stringKey("peer.service");
 
   private final String instrumentationName;
   private final OpenTelemetry openTelemetry;
@@ -67,19 +66,6 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
   private boolean emitExperimentalHttpClientTelemetry = false;
   private Consumer<InstrumenterBuilder<REQUEST, RESPONSE>> builderCustomizer = b -> {};
 
-  private DefaultHttpClientInstrumenterBuilder(
-      String instrumentationName,
-      OpenTelemetry openTelemetry,
-      HttpClientAttributesGetter<REQUEST, RESPONSE> attributesGetter,
-      @Nullable TextMapSetter<REQUEST> headerSetter) {
-    this.instrumentationName = Objects.requireNonNull(instrumentationName, "instrumentationName");
-    this.openTelemetry = Objects.requireNonNull(openTelemetry, "openTelemetry");
-    this.attributesGetter = Objects.requireNonNull(attributesGetter, "attributesGetter");
-    httpSpanNameExtractorBuilder = HttpSpanNameExtractor.builder(attributesGetter);
-    httpAttributesExtractorBuilder = HttpClientAttributesExtractor.builder(attributesGetter);
-    this.headerSetter = headerSetter;
-  }
-
   public static <REQUEST, RESPONSE> DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> create(
       String instrumentationName,
       OpenTelemetry openTelemetry,
@@ -97,7 +83,20 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
         instrumentationName,
         openTelemetry,
         attributesGetter,
-        Objects.requireNonNull(headerSetter, "headerSetter"));
+        requireNonNull(headerSetter, "headerSetter"));
+  }
+
+  private DefaultHttpClientInstrumenterBuilder(
+      String instrumentationName,
+      OpenTelemetry openTelemetry,
+      HttpClientAttributesGetter<REQUEST, RESPONSE> attributesGetter,
+      @Nullable TextMapSetter<REQUEST> headerSetter) {
+    this.instrumentationName = requireNonNull(instrumentationName, "instrumentationName");
+    this.openTelemetry = requireNonNull(openTelemetry, "openTelemetry");
+    this.attributesGetter = requireNonNull(attributesGetter, "attributesGetter");
+    httpSpanNameExtractorBuilder = HttpSpanNameExtractor.builder(attributesGetter);
+    httpAttributesExtractorBuilder = HttpClientAttributesExtractor.builder(attributesGetter);
+    this.headerSetter = headerSetter;
   }
 
   /**
@@ -119,10 +118,30 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
   }
 
   /**
+   * Configures which HTTP request headers are captured as span attributes.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
+   */
+  @CanIgnoreReturnValue
+  public DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> setRequestHeaders(
+      IncludeExclude requestHeaders) {
+    httpAttributesExtractorBuilder.setRequestHeaders(requestHeaders);
+    return this;
+  }
+
+  /**
    * Configures the HTTP request headers that will be captured as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
    *
    * @param requestHeaders A list of HTTP header names.
    */
+  @SuppressWarnings("deprecation") // this is the exact-name API, so it calls the deprecated setter
   @CanIgnoreReturnValue
   public DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> setCapturedRequestHeaders(
       Collection<String> requestHeaders) {
@@ -131,10 +150,30 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
   }
 
   /**
+   * Configures which HTTP response headers are captured as span attributes.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
+   */
+  @CanIgnoreReturnValue
+  public DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> setResponseHeaders(
+      IncludeExclude responseHeaders) {
+    httpAttributesExtractorBuilder.setResponseHeaders(responseHeaders);
+    return this;
+  }
+
+  /**
    * Configures the HTTP response headers that will be captured as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
    *
    * @param responseHeaders A list of HTTP header names.
    */
+  @SuppressWarnings("deprecation") // this is the exact-name API, so it calls the deprecated setter
   @CanIgnoreReturnValue
   public DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> setCapturedResponseHeaders(
       Collection<String> responseHeaders) {
@@ -177,14 +216,16 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
   }
 
   /**
-   * Configures the instrumentation to redact sensitive URL parameters.
+   * Configures the instrumentation to redact specific URL query parameters.
    *
-   * @param redactQueryParameters {@code true} if the sensitive URL parameters have to be redacted.
+   * @param sensitiveQueryParameters the set of query parameter names whose values should be
+   *     redacted.
    */
   @CanIgnoreReturnValue
-  public DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> setRedactQueryParameters(
-      boolean redactQueryParameters) {
-    Experimental.setRedactQueryParameters(httpAttributesExtractorBuilder, redactQueryParameters);
+  public DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> setSensitiveQueryParameters(
+      Set<String> sensitiveQueryParameters) {
+    Experimental.setSensitiveQueryParameters(
+        httpAttributesExtractorBuilder, sensitiveQueryParameters);
     return this;
   }
 
@@ -197,21 +238,6 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
       UnaryOperator<SpanNameExtractor<REQUEST>> spanNameExtractorCustomizer) {
     this.spanNameExtractorCustomizer = spanNameExtractorCustomizer;
     return this;
-  }
-
-  /** Sets custom {@link PeerServiceResolver}. */
-  @CanIgnoreReturnValue
-  public DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> setPeerServiceResolver(
-      PeerServiceResolver peerServiceResolver) {
-    return addAttributesExtractor(
-        HttpClientPeerServiceAttributesExtractor.create(attributesGetter, peerServiceResolver));
-  }
-
-  /** Sets the {@code peer.service} attribute for http client spans. */
-  @CanIgnoreReturnValue
-  public DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> setPeerService(
-      String peerService) {
-    return addAttributesExtractor(AttributesExtractor.constant(PEER_SERVICE, peerService));
   }
 
   @CanIgnoreReturnValue
@@ -241,7 +267,8 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
             .addAttributesExtractor(httpAttributesExtractorBuilder.build())
             .addAttributesExtractors(additionalExtractors)
             .addOperationMetrics(HttpClientMetrics.get())
-            .setSchemaUrl(SchemaUrls.V1_37_0);
+            .setSchemaUrl(SchemaUrls.V1_41_0);
+    setHttpClientExceptionEventExtractor(builder);
     if (emitExperimentalHttpClientTelemetry) {
       builder
           .addAttributesExtractor(HttpExperimentalAttributesExtractor.create(attributesGetter))
@@ -261,7 +288,17 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
           SpanNameExtractor<? super BUILDERREQUEST> spanNameExtractor) {
     return Instrumenter.<BUILDERREQUEST, BUILDERRESPONSE>builder(
             openTelemetry, instrumentationName, spanNameExtractor)
-        .setSchemaUrl(SchemaUrls.V1_37_0);
+        .setSchemaUrl(SchemaUrls.V1_41_0);
+  }
+
+  public static <REQUEST> void setHttpClientExceptionEventExtractor(
+      InstrumenterBuilder<REQUEST, ?> builder) {
+    Experimental.setExceptionEventExtractor(
+        builder,
+        (logRecordBuilder, context, request) -> {
+          logRecordBuilder.setEventName("http.client.request.exception");
+          logRecordBuilder.setSeverity(Severity.WARN);
+        });
   }
 
   @CanIgnoreReturnValue
@@ -269,11 +306,12 @@ public final class DefaultHttpClientInstrumenterBuilder<REQUEST, RESPONSE> {
     set(config::getKnownHttpRequestMethods, this::setKnownMethods);
     set(config::getClientRequestHeaders, this::setCapturedRequestHeaders);
     set(config::getClientResponseHeaders, this::setCapturedResponseHeaders);
-    set(config::getPeerServiceResolver, this::setPeerServiceResolver);
     set(
         config::shouldEmitExperimentalHttpClientTelemetry,
         this::setEmitExperimentalHttpClientTelemetry);
-    set(config::redactQueryParameters, this::setRedactQueryParameters);
+    set(config::getSensitiveQueryParameters, this::setSensitiveQueryParameters);
+    addAttributesExtractor(
+        HttpClientServicePeerAttributesExtractor.create(attributesGetter, openTelemetry));
     return this;
   }
 

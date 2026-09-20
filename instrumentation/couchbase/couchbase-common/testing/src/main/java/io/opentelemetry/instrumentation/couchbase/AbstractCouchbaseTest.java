@@ -5,15 +5,8 @@
 
 package io.opentelemetry.instrumentation.couchbase;
 
-import static io.opentelemetry.instrumentation.testing.junit.db.SemconvStabilityUtil.maybeStable;
-import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
-import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
-import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME;
-import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
-import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
-import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
-import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.COUCHBASE;
-import static java.util.Collections.emptyList;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitOldDatabaseSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 
 import com.couchbase.client.java.bucket.BucketType;
 import com.couchbase.client.java.cluster.BucketSettings;
@@ -24,13 +17,10 @@ import com.couchbase.mock.BucketConfiguration;
 import com.couchbase.mock.CouchbaseMock;
 import com.couchbase.mock.http.query.QueryServer;
 import com.couchbase.mock.httpio.HttpServer;
-import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.test.utils.PortUtils;
-import io.opentelemetry.sdk.testing.assertj.AttributeAssertion;
-import io.opentelemetry.sdk.testing.assertj.SpanDataAssert;
+import io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.LongAssertConsumer;
+import io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.StringAssertConsumer;
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.TestInstance;
@@ -40,6 +30,8 @@ import org.slf4j.LoggerFactory;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class AbstractCouchbaseTest {
   private static final Logger logger = LoggerFactory.getLogger(AbstractCouchbaseTest.class);
+  private static final boolean EXPERIMENTAL_ATTRIBUTES =
+      Boolean.getBoolean("otel.instrumentation.couchbase.experimental-span-attributes");
 
   protected static final String USERNAME = "Administrator";
   protected static final String PASSWORD = "password";
@@ -66,9 +58,9 @@ public abstract class AbstractCouchbaseTest {
   @BeforeAll
   void setUp() throws Exception {
     mock = new CouchbaseMock("127.0.0.1", port, 1, 1);
-    Field httpServerFiled = CouchbaseMock.class.getDeclaredField("httpServer");
-    httpServerFiled.setAccessible(true);
-    HttpServer httpServer = (HttpServer) httpServerFiled.get(mock);
+    Field httpServerField = CouchbaseMock.class.getDeclaredField("httpServer");
+    httpServerField.setAccessible(true);
+    HttpServer httpServer = (HttpServer) httpServerField.get(mock);
     httpServer.register("/query", new QueryServer());
     mock.start();
     logger.info("CouchbaseMock listening on localhost:{}", port);
@@ -92,7 +84,7 @@ public abstract class AbstractCouchbaseTest {
     mock.stop();
   }
 
-  protected DefaultCouchbaseEnvironment.Builder envBuilder(
+  private DefaultCouchbaseEnvironment.Builder envBuilder(
       EnvBuilder envBuilder, BucketSettings bucketSettings) {
     return envBuilder.apply(bucketSettings, mock.getCarrierPort(bucketSettings.name()), port);
   }
@@ -105,71 +97,97 @@ public abstract class AbstractCouchbaseTest {
   }
 
   @FunctionalInterface
-  public interface EnvBuilder {
+  private interface EnvBuilder {
     DefaultCouchbaseEnvironment.Builder apply(
         BucketSettings bucketSettings, int carrierDirectPort, int httpDirectPort);
   }
 
-  protected SpanDataAssert assertCouchbaseSpan(SpanDataAssert span, String operation) {
-    return assertCouchbaseSpan(span, operation, null);
+  /** Override to return true in subclasses that include network attributes (e.g., 2.6+). */
+  protected boolean includesNetworkAttributes() {
+    return false;
   }
 
-  protected SpanDataAssert assertCouchbaseSpan(
-      SpanDataAssert span, String operation, String bucketName) {
-    return assertCouchbaseSpan(span, operation, operation, bucketName, null);
+  /**
+   * Override to return false in subclasses that capture the network peer but not the local socket
+   * address, because core-io before 1.6.0 has no field to read it from (e.g., 2.0-2.5). Defaults to
+   * {@link #includesNetworkAttributes()} since every other subclass that has one also has the
+   * other.
+   */
+  protected boolean includesExperimentalLocalAddressAttribute() {
+    return includesNetworkAttributes();
   }
 
-  @SuppressWarnings("deprecation") // using deprecated semconv
-  protected SpanDataAssert assertCouchbaseSpan(
-      SpanDataAssert span, String spanName, String operation, String bucketName, String statement) {
-    span.hasName(spanName).hasKind(SpanKind.CLIENT);
+  /**
+   * Override to return false in subclasses that capture the network peer but cannot correlate a
+   * request with its operation id, because core-io before 1.6.0 has no method to read it from
+   * (e.g., 2.0-2.5). Defaults to {@link #includesNetworkAttributes()} since every other subclass
+   * that has one also has the other.
+   */
+  protected boolean includesExperimentalOperationIdAttribute() {
+    return includesNetworkAttributes();
+  }
 
-    List<AttributeAssertion> assertions = new ArrayList<>();
-    assertions.add(equalTo(maybeStable(DB_SYSTEM), COUCHBASE));
-    if (operation != null) {
-      assertions.add(equalTo(maybeStable(DB_OPERATION), operation));
+  /**
+   * Override to return false in subclasses that capture the network peer but not the node the
+   * driver considers itself connected to, because core-io before 1.6.0 has no reliable method to
+   * read it from for the whole 2.0-2.5 range. This only affects the old (non-stable) semantic
+   * conventions' server address/port fallback; defaults to {@link #includesNetworkAttributes()}
+   * since every other subclass that has one also has the other.
+   */
+  protected boolean includesOldServerAddressAttribute() {
+    return includesNetworkAttributes();
+  }
+
+  /**
+   * Override to return true in subclasses where experimental attributes are enabled (when
+   * otel.instrumentation.couchbase.experimental-span-attributes=true).
+   */
+  protected boolean includesExperimentalAttributes() {
+    return EXPERIMENTAL_ATTRIBUTES;
+  }
+
+  protected String networkType() {
+    return includesNetworkAttributes() && emitOldDatabaseSemconv() ? "ipv4" : null;
+  }
+
+  protected String networkPeerAddress() {
+    return includesNetworkAttributes() ? "127.0.0.1" : null;
+  }
+
+  protected LongAssertConsumer networkPeerPort() {
+    return includesNetworkAttributes() ? val -> val.isNotNull() : val -> val.isNull();
+  }
+
+  protected String configuredServerAddress() {
+    return emitStableDatabaseSemconv() ? "127.0.0.1" : null;
+  }
+
+  protected StringAssertConsumer serverAddress() {
+    if (emitStableDatabaseSemconv()) {
+      return val -> val.isEqualTo(configuredServerAddress());
     }
-    if (bucketName != null) {
-      assertions.add(equalTo(maybeStable(DB_NAME), bucketName));
-    }
-    if (statement != null) {
-      assertions.add(satisfies(maybeStable(DB_STATEMENT), s -> s.startsWith(statement)));
-    }
-
-    if (statement != null) {
-      if (statement.startsWith("SELECT")) {
-        // N1QL queries get operation_id but NOT local.address experimental attribute
-        assertions.addAll(couchbaseN1qlAttributes());
-      } else {
-        // ViewQuery operations get local.address but NOT operation_id experimental attribute
-        assertions.addAll(couchbaseQueryAttributes());
-      }
-    } else if (operation != null && operation.startsWith("ClusterManager.")) {
-      // ClusterManager operations have no experimental attributes
-      assertions.addAll(couchbaseClusterManagerAttributes());
-    } else {
-      // KV operations (get, upsert, etc.) get both experimental attributes
-      assertions.addAll(couchbaseAttributes());
-    }
-
-    span.hasAttributesSatisfyingExactly(assertions);
-
-    return span;
+    return includesOldServerAddressAttribute() ? val -> val.isNotNull() : val -> val.isNull();
   }
 
-  protected List<AttributeAssertion> couchbaseAttributes() {
-    return emptyList();
+  protected LongAssertConsumer serverPort() {
+    return !emitStableDatabaseSemconv() && includesOldServerAddressAttribute()
+        ? val -> val.isNotNull()
+        : val -> val.isNull();
   }
 
-  protected List<AttributeAssertion> couchbaseQueryAttributes() {
-    return emptyList();
+  protected String spanName(String operation) {
+    return emitStableDatabaseSemconv() ? operation + " " + configuredServerAddress() : operation;
   }
 
-  protected List<AttributeAssertion> couchbaseClusterManagerAttributes() {
-    return emptyList();
+  protected StringAssertConsumer experimentalOperationId() {
+    return includesExperimentalAttributes() && includesExperimentalOperationIdAttribute()
+        ? val -> val.isNotNull()
+        : val -> val.isNull();
   }
 
-  protected List<AttributeAssertion> couchbaseN1qlAttributes() {
-    return emptyList();
+  protected StringAssertConsumer experimentalLocalAddress() {
+    return includesExperimentalAttributes() && includesExperimentalLocalAddressAttribute()
+        ? val -> val.isNotNull()
+        : val -> val.isNull();
   }
 }

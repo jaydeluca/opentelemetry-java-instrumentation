@@ -1,0 +1,11 @@
+display_name: Undertow
+description: This instrumentation enables HTTP server spans and HTTP server metrics for Undertow.
+library_link: https://undertow.io/
+semantic_conventions:
+  - HTTP_SERVER_SPANS
+  - HTTP_SERVER_METRICS
+configurations:
+  - ref: http.known-methods
+  - ref: http.server.capture-request-headers
+  - ref: http.server.capture-response-headers
+  - ref: http.server.emit-experimental-telemetry

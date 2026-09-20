@@ -16,12 +16,12 @@ import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.QUERY_PARAM;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.REDIRECT;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.SUCCESS;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import io.opentelemetry.instrumentation.testing.GlobalTraceUtil;
 import io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import javax.servlet.AsyncContext;
 import javax.servlet.RequestDispatcher;
@@ -67,7 +67,7 @@ public class TestServlet3 {
             } else if (CAPTURE_PARAMETERS.equals(endpoint)) {
               req.setCharacterEncoding("UTF8");
               String value = req.getParameter("test-parameter");
-              if (!value.equals("test value õäöü")) {
+              if (!"test value õäöü".equals(value)) {
                 throw new IllegalStateException(
                     "request parameter does not have expected value " + value);
               }
@@ -87,7 +87,7 @@ public class TestServlet3 {
               resp.setContentType("text/html");
               resp.setStatus(endpoint.getStatus());
               resp.setContentLength(endpoint.getBody().length());
-              byte[] body = endpoint.getBody().getBytes(StandardCharsets.UTF_8);
+              byte[] body = endpoint.getBody().getBytes(UTF_8);
               resp.getOutputStream().write(body, 0, body.length);
             }
             return null;
@@ -142,7 +142,7 @@ public class TestServlet3 {
                     } else if (CAPTURE_PARAMETERS.equals(endpoint)) {
                       req.setCharacterEncoding("UTF8");
                       String value = req.getParameter("test-parameter");
-                      if (!value.equals("test value õäöü")) {
+                      if (!"test value õäöü".equals(value)) {
                         throw new IllegalStateException(
                             "request parameter does not have expected value " + value);
                       }
@@ -158,11 +158,12 @@ public class TestServlet3 {
                       resp.setStatus(endpoint.getStatus());
                       PrintWriter writer = resp.getWriter();
                       writer.print(endpoint.getBody());
-                      if (req.getClass().getName().contains("catalina")) {
+                      if (req.getServletContext().getClass().getName().contains("catalina")) {
                         // on tomcat close the writer to ensure response is sent immediately,
                         // otherwise there is a chance that tomcat resets the connection before the
                         // response is sent
                         writer.close();
+                        resp.flushBuffer();
                       }
                       throw new IllegalStateException(endpoint.getBody());
                     } else if (HTML_PRINT_WRITER.equals(endpoint)) {
@@ -179,18 +180,18 @@ public class TestServlet3 {
                     }
                     return null;
                   });
-            } catch (Exception exception) {
-              if (exception instanceof RuntimeException) {
-                throw (RuntimeException) exception;
+            } catch (Exception e) {
+              if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
               }
-              throw new IllegalStateException(exception);
+              throw new IllegalStateException(e);
             } finally {
               latch.countDown();
             }
           });
       try {
         latch.await();
-      } catch (InterruptedException exception) {
+      } catch (InterruptedException ignored) {
         Thread.currentThread().interrupt();
       }
     }
@@ -227,7 +228,7 @@ public class TestServlet3 {
               } else if (CAPTURE_PARAMETERS.equals(endpoint)) {
                 req.setCharacterEncoding("UTF8");
                 String value = req.getParameter("test-parameter");
-                if (!value.equals("test value õäöü")) {
+                if (!"test value õäöü".equals(value)) {
                   throw new IllegalStateException(
                       "request parameter does not have expected value " + value);
                 }
@@ -294,6 +295,7 @@ public class TestServlet3 {
     protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
       if (req.getServletPath().equals("/recursive")) {
         resp.getWriter().print("Hello Recursive");
+        return;
       }
 
       int depth = Integer.parseInt(req.getParameter("depth"));

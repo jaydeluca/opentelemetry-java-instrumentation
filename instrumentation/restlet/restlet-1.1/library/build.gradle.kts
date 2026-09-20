@@ -18,6 +18,6 @@ dependencies {
   latestDepTestLibrary("org.restlet:org.restlet:1.+") // see restlet-2.0 module
 }
 
-tasks.withType<Test>().configureEach {
-  jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+tasks.test {
+  systemProperty("collectMetadata", otelProps.collectMetadata)
 }

@@ -6,12 +6,15 @@
 package io.opentelemetry.instrumentation.spring.autoconfigure.internal.instrumentation.webflux;
 
 import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.instrumentation.api.incubator.config.internal.InstrumentationConfig;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.ConditionalOnEnabledInstrumentation;
+import io.opentelemetry.instrumentation.spring.webflux.v5_3.SpringWebfluxClientTelemetry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.web.reactive.function.client.WebClientCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.WebFilter;
 
@@ -33,14 +36,26 @@ public class SpringWebfluxInstrumentationAutoConfiguration {
   // static to avoid "is not eligible for getting processed by all BeanPostProcessors" warning
   @Bean
   static WebClientBeanPostProcessor otelWebClientBeanPostProcessor(
-      ObjectProvider<OpenTelemetry> openTelemetryProvider,
-      ObjectProvider<InstrumentationConfig> configProvider) {
-    return new WebClientBeanPostProcessor(openTelemetryProvider, configProvider);
+      ObjectProvider<OpenTelemetry> openTelemetryProvider) {
+    return new WebClientBeanPostProcessor(openTelemetryProvider);
   }
 
   @Bean
-  WebFilter telemetryFilter(OpenTelemetry openTelemetry, InstrumentationConfig config) {
-    return WebClientBeanPostProcessor.getWebfluxServerTelemetry(openTelemetry, config)
+  WebFilter telemetryFilter(OpenTelemetry openTelemetry) {
+    return WebClientBeanPostProcessor.getWebfluxServerTelemetry(openTelemetry)
         .createWebFilterAndRegisterReactorHook();
+  }
+
+  @Configuration
+  @ConditionalOnClass(WebClientCustomizer.class)
+  static class OpentelemetryWebClientCustomizerConfiguration {
+
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE + 10)
+    WebClientCustomizer otelWebClientCustomizer(OpenTelemetry openTelemetry) {
+      SpringWebfluxClientTelemetry webfluxClientTelemetry =
+          WebClientBeanPostProcessor.getWebfluxClientTelemetry(openTelemetry);
+      return builder -> builder.filters(webfluxClientTelemetry::addFilter);
+    }
   }
 }

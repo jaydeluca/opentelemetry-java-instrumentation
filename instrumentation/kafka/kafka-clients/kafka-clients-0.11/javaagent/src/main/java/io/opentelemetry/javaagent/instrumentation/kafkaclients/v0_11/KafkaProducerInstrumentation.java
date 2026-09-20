@@ -5,8 +5,9 @@
 
 package io.opentelemetry.javaagent.instrumentation.kafkaclients.v0_11;
 
+import static io.opentelemetry.javaagent.instrumentation.kafkaclients.v0_11.KafkaSingletons.PRODUCER_PROPAGATION_ENABLED;
+import static io.opentelemetry.javaagent.instrumentation.kafkaclients.v0_11.KafkaSingletons.PRODUCER_SPAN_CONTEXT_PROPAGATION_ENABLED;
 import static io.opentelemetry.javaagent.instrumentation.kafkaclients.v0_11.KafkaSingletons.producerInstrumenter;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
@@ -15,7 +16,7 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaProducerRequest;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaPropagation;
-import io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge;
+import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaUtil;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
 import javax.annotation.Nullable;
@@ -26,9 +27,10 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.producer.Callback;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 
-public class KafkaProducerInstrumentation implements TypeInstrumentation {
+class KafkaProducerInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -38,12 +40,11 @@ public class KafkaProducerInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(isPublic())
+        isPublic()
             .and(named("send"))
             .and(takesArgument(0, named("org.apache.kafka.clients.producer.ProducerRecord")))
             .and(takesArgument(1, named("org.apache.kafka.clients.producer.Callback"))),
-        KafkaProducerInstrumentation.class.getName() + "$SendAdvice");
+        getClass().getName() + "$SendAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -65,7 +66,7 @@ public class KafkaProducerInstrumentation implements TypeInstrumentation {
 
       @Nullable
       public static AdviceScope start(KafkaProducerRequest request) {
-        Context parentContext = Java8BytecodeBridge.currentContext();
+        Context parentContext = Context.current();
         if (!producerInstrumenter().shouldStart(parentContext, request)) {
           return null;
         }
@@ -73,14 +74,13 @@ public class KafkaProducerInstrumentation implements TypeInstrumentation {
         return new AdviceScope(parentContext, request, context, context.makeCurrent());
       }
 
-      public Callback wrapCallback(Callback originalCallback) {
+      public Callback wrapCallback(@Nullable Callback originalCallback) {
         return new ProducerCallback(originalCallback, parentContext, context, request);
       }
 
       public ProducerRecord<?, ?> propagateContext(
-          ApiVersions apiVersions, ProducerRecord<?, ?> record) {
-        if (KafkaSingletons.isProducerPropagationEnabled()
-            && KafkaPropagation.shouldPropagate(apiVersions)) {
+          ProducerRecord<?, ?> record, boolean shouldPropagate) {
+        if (shouldPropagate) {
           return KafkaPropagation.propagateContext(context, record);
         }
         return record;
@@ -99,26 +99,38 @@ public class KafkaProducerInstrumentation implements TypeInstrumentation {
       @ToArgument(value = 0, index = 1),
       @ToArgument(value = 1, index = 2)
     })
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static Object[] onEnter(
         @Advice.FieldValue("apiVersions") ApiVersions apiVersions,
         @Advice.FieldValue("clientId") String clientId,
+        @Advice.FieldValue("producerConfig") ProducerConfig producerConfig,
         @Advice.Argument(0) ProducerRecord<?, ?> originalRecord,
-        @Advice.Argument(1) Callback originalCallback) {
+        @Advice.Argument(1) @Nullable Callback originalCallback) {
       ProducerRecord<?, ?> record = originalRecord;
       Callback callback = originalCallback;
 
-      KafkaProducerRequest request = KafkaProducerRequest.create(record, clientId);
+      String bootstrapServers =
+          KafkaUtil.extractBootstrapServers(
+              producerConfig.getList(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG));
+      // read the mutable api versions state once, so that both decisions below are consistent
+      boolean canPropagateHeaders = KafkaPropagation.shouldPropagate(apiVersions);
+      boolean shouldPropagate = PRODUCER_PROPAGATION_ENABLED && canPropagateHeaders;
+      KafkaProducerRequest request =
+          KafkaProducerRequest.create(
+              record,
+              clientId,
+              bootstrapServers,
+              PRODUCER_SPAN_CONTEXT_PROPAGATION_ENABLED && canPropagateHeaders);
       AdviceScope adviceScope = AdviceScope.start(request);
       if (adviceScope == null) {
         return new Object[] {null, record, callback};
       }
-      record = adviceScope.propagateContext(apiVersions, record);
+      record = adviceScope.propagateContext(record, shouldPropagate);
       callback = adviceScope.wrapCallback(callback);
       return new Object[] {adviceScope, record, callback};
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable, @Advice.Enter Object[] enterResult) {
 

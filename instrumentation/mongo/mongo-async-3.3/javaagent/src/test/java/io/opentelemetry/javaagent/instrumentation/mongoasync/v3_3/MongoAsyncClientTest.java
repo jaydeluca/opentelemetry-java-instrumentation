@@ -5,6 +5,9 @@
 
 package io.opentelemetry.javaagent.instrumentation.mongoasync.v3_3;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.junit.jupiter.api.Assumptions.abort;
+
 import com.mongodb.ConnectionString;
 import com.mongodb.async.SingleResultCallback;
 import com.mongodb.async.client.MongoClient;
@@ -16,24 +19,24 @@ import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import com.mongodb.connection.ClusterSettings;
 import io.opentelemetry.instrumentation.mongo.testing.AbstractMongoClientTest;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.Document;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.extension.RegisterExtension;
-import org.opentest4j.TestAbortedException;
 
 class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Document>> {
 
   @RegisterExtension
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
+
+  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
   private MongoClient client;
 
@@ -49,13 +52,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
                             new ConnectionString("mongodb://" + host + ":" + port))
                         .build())
                 .build());
-  }
-
-  @AfterAll
-  void cleanup() {
-    if (client != null) {
-      client.close();
-    }
+    cleanup.deferAfterAll(client);
   }
 
   @Override
@@ -64,27 +61,30 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
   }
 
   @Override
-  public void createCollection(String dbName, String collectionName) {
+  protected void createCollection(String dbName, String collectionName) {
     MongoDatabase db = client.getDatabase(dbName);
     db.createCollection(collectionName, toCallback(result -> {}));
   }
 
   @Override
-  public void createCollectionNoDescription(String dbName, String collectionName) {
-    MongoDatabase db = MongoClients.create("mongodb://" + host + ":" + port).getDatabase(dbName);
-    db.createCollection(collectionName, toCallback(result -> {}));
+  protected void createCollectionNoDescription(String dbName, String collectionName) {
+    MongoClient mongoClient = MongoClients.create("mongodb://" + host + ":" + port);
+    cleanup.deferAfterAll(mongoClient);
+    mongoClient.getDatabase(dbName).createCollection(collectionName, toCallback(result -> {}));
   }
 
   @Override
-  public void createCollectionWithAlreadyBuiltClientOptions(String dbName, String collectionName) {
+  protected void createCollectionWithAlreadyBuiltClientOptions(
+      String dbName, String collectionName) {
     MongoClientSettings clientSettings = client.getSettings();
     MongoClientSettings newClientSettings = MongoClientSettings.builder(clientSettings).build();
-    MongoDatabase db = MongoClients.create(newClientSettings).getDatabase(dbName);
-    db.createCollection(collectionName, toCallback(result -> {}));
+    MongoClient mongoClient = MongoClients.create(newClientSettings);
+    cleanup.deferAfterAll(mongoClient);
+    mongoClient.getDatabase(dbName).createCollection(collectionName, toCallback(result -> {}));
   }
 
   @Override
-  public void createCollectionCallingBuildTwice(String dbName, String collectionName) {
+  protected void createCollectionCallingBuildTwice(String dbName, String collectionName) {
     MongoClientSettings.Builder settings =
         MongoClientSettings.builder()
             .clusterSettings(
@@ -93,12 +93,13 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
                     .applyConnectionString(new ConnectionString("mongodb://" + host + ":" + port))
                     .build());
     settings.build();
-    MongoDatabase db = MongoClients.create(settings.build()).getDatabase(dbName);
-    db.createCollection(collectionName, toCallback(result -> {}));
+    MongoClient mongoClient = MongoClients.create(settings.build());
+    cleanup.deferAfterAll(mongoClient);
+    mongoClient.getDatabase(dbName).createCollection(collectionName, toCallback(result -> {}));
   }
 
   @Override
-  public long getCollection(String dbName, String collectionName) {
+  protected long getCollection(String dbName, String collectionName) {
     MongoDatabase db = client.getDatabase(dbName);
     CompletableFuture<Long> count = new CompletableFuture<>();
     db.getCollection(collectionName).count(toCallback(o -> count.complete(((Long) o))));
@@ -106,7 +107,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
   }
 
   @Override
-  public MongoCollection<Document> setupInsert(String dbName, String collectionName)
+  protected MongoCollection<Document> setupInsert(String dbName, String collectionName)
       throws InterruptedException {
     MongoCollection<Document> collection =
         testing()
@@ -116,7 +117,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
                   MongoDatabase db = client.getDatabase(dbName);
                   CountDownLatch latch = new CountDownLatch(1);
                   db.createCollection(collectionName, toCallback(result -> latch.countDown()));
-                  latch.await(30, TimeUnit.SECONDS);
+                  latch.await(30, SECONDS);
                   return db.getCollection(collectionName);
                 });
     ignoreTracesAndClear(1);
@@ -124,7 +125,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
   }
 
   @Override
-  public long insert(MongoCollection<Document> collection) {
+  protected long insert(MongoCollection<Document> collection) {
     CompletableFuture<Long> count = new CompletableFuture<>();
     collection.insertOne(
         new Document("password", "SECRET"),
@@ -133,7 +134,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
   }
 
   @Override
-  public MongoCollection<Document> setupUpdate(String dbName, String collectionName)
+  protected MongoCollection<Document> setupUpdate(String dbName, String collectionName)
       throws InterruptedException {
     MongoCollection<Document> collection =
         testing()
@@ -143,12 +144,12 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
                   MongoDatabase db = client.getDatabase(dbName);
                   CountDownLatch latch1 = new CountDownLatch(1);
                   db.createCollection(collectionName, toCallback(result -> latch1.countDown()));
-                  latch1.await(30, TimeUnit.SECONDS);
+                  latch1.await(30, SECONDS);
                   MongoCollection<Document> coll = db.getCollection(collectionName);
                   CountDownLatch latch2 = new CountDownLatch(1);
                   coll.insertOne(
                       new Document("password", "OLDPW"), toCallback(result -> latch2.countDown()));
-                  latch2.await(30, TimeUnit.SECONDS);
+                  latch2.await(30, SECONDS);
                   return coll;
                 });
     ignoreTracesAndClear(1);
@@ -156,7 +157,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
   }
 
   @Override
-  public long update(MongoCollection<Document> collection) {
+  protected long update(MongoCollection<Document> collection) {
     CompletableFuture<UpdateResult> result = new CompletableFuture<>();
     CompletableFuture<Long> count = new CompletableFuture<>();
     collection.updateOne(
@@ -171,7 +172,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
   }
 
   @Override
-  public MongoCollection<Document> setupDelete(String dbName, String collectionName)
+  protected MongoCollection<Document> setupDelete(String dbName, String collectionName)
       throws InterruptedException {
     MongoCollection<Document> collection =
         testing()
@@ -181,12 +182,12 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
                   MongoDatabase db = client.getDatabase(dbName);
                   CountDownLatch latch1 = new CountDownLatch(1);
                   db.createCollection(collectionName, toCallback(result -> latch1.countDown()));
-                  latch1.await(30, TimeUnit.SECONDS);
+                  latch1.await(30, SECONDS);
                   MongoCollection<Document> coll = db.getCollection(collectionName);
                   CountDownLatch latch2 = new CountDownLatch(1);
                   coll.insertOne(
                       new Document("password", "SECRET"), toCallback(result -> latch2.countDown()));
-                  latch2.await(30, TimeUnit.SECONDS);
+                  latch2.await(30, SECONDS);
                   return coll;
                 });
     ignoreTracesAndClear(1);
@@ -194,7 +195,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
   }
 
   @Override
-  public long delete(MongoCollection<Document> collection) {
+  protected long delete(MongoCollection<Document> collection) {
     CompletableFuture<DeleteResult> result = new CompletableFuture<>();
     CompletableFuture<Long> count = new CompletableFuture<>();
     collection.deleteOne(
@@ -208,17 +209,17 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
   }
 
   @Override
-  public MongoCollection<Document> setupGetMore(String dbName, String collectionName) {
-    throw new TestAbortedException("not tested on async");
+  protected MongoCollection<Document> setupGetMore(String dbName, String collectionName) {
+    return abort("not tested on async");
   }
 
   @Override
-  public void getMore(MongoCollection<Document> collection) {
-    throw new TestAbortedException("not tested on async");
+  protected void getMore(MongoCollection<Document> collection) {
+    abort("not tested on async");
   }
 
   @Override
-  public void error(String dbName, String collectionName) throws Throwable {
+  protected void error(String dbName, String collectionName) throws Throwable {
     MongoCollection<Document> collection =
         testing()
             .runWithSpan(
@@ -227,7 +228,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
                   MongoDatabase db = client.getDatabase(dbName);
                   CountDownLatch latch = new CountDownLatch(1);
                   db.createCollection(collectionName, toCallback(result -> latch.countDown()));
-                  latch.await(30, TimeUnit.SECONDS);
+                  latch.await(30, SECONDS);
                   return db.getCollection(collectionName);
                 });
     ignoreTracesAndClear(1);
@@ -239,7 +240,7 @@ class MongoAsyncClientTest extends AbstractMongoClientTest<MongoCollection<Docum
     throw result.join();
   }
 
-  <T> SingleResultCallback<T> toCallback(Consumer<Object> closure) {
+  private static <T> SingleResultCallback<T> toCallback(Consumer<Object> closure) {
     return (result, t) -> {
       if (t != null) {
         closure.accept(t);

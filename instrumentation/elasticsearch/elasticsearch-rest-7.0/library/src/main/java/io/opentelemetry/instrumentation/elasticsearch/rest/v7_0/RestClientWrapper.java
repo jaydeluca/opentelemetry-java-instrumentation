@@ -5,6 +5,8 @@
 
 package io.opentelemetry.instrumentation.elasticsearch.rest.v7_0;
 
+import static net.bytebuddy.matcher.ElementMatchers.any;
+
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
@@ -16,17 +18,19 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import javax.annotation.Nullable;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.description.modifier.Visibility;
+import net.bytebuddy.dynamic.loading.ClassInjector;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
 import net.bytebuddy.implementation.InvocationHandlerAdapter;
-import net.bytebuddy.matcher.ElementMatchers;
 import org.apache.http.Header;
 import org.elasticsearch.client.Node;
 import org.elasticsearch.client.Request;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.ResponseListener;
 import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientPackageAccess;
 
 class RestClientWrapper {
   private static final Class<?> proxyClass = createProxyClass();
@@ -42,7 +46,7 @@ class RestClientWrapper {
         // are in a child class loader of RestClient's class loader and Instrumenter is not visible
         // for RestClient
         .defineField("instrumenterSupplier", Supplier.class, Visibility.PUBLIC)
-        .method(ElementMatchers.any())
+        .method(any())
         .intercept(
             InvocationHandlerAdapter.of(
                 (proxy, method, args) -> {
@@ -62,7 +66,8 @@ class RestClientWrapper {
                     Request request = (Request) args[0];
                     Context parentContext = Context.current();
                     ElasticsearchRestRequest otelRequest =
-                        ElasticsearchRestRequest.create(request.getMethod(), request.getEndpoint());
+                        ElasticsearchRestRequest.create(
+                            request.getMethod(), request.getEndpoint(), null, request.getEntity());
                     if (!instrumenter.shouldStart(parentContext, otelRequest)) {
                       return method.invoke(target, args);
                     }
@@ -88,7 +93,8 @@ class RestClientWrapper {
                     ResponseListener responseListener = (ResponseListener) args[1];
                     Context parentContext = Context.current();
                     ElasticsearchRestRequest otelRequest =
-                        ElasticsearchRestRequest.create(request.getMethod(), request.getEndpoint());
+                        ElasticsearchRestRequest.create(
+                            request.getMethod(), request.getEndpoint(), null, request.getEntity());
                     if (!instrumenter.shouldStart(parentContext, otelRequest)) {
                       return method.invoke(target, args);
                     }
@@ -110,7 +116,11 @@ class RestClientWrapper {
                   return method.invoke(target, args);
                 }))
         .make()
-        .load(RestClient.class.getClassLoader(), ClassLoadingStrategy.Default.INJECTION)
+        .load(
+            RestClient.class.getClassLoader(),
+            ClassInjector.UsingReflection.isAvailable()
+                ? ClassLoadingStrategy.Default.INJECTION
+                : ClassLoadingStrategy.UsingLookup.of(RestClientPackageAccess.getLookup()))
         .getLoaded();
   }
 
@@ -125,12 +135,13 @@ class RestClientWrapper {
   private static Field getProxyField(Class<?> clazz, String fieldName) {
     try {
       return clazz.getDeclaredField(fieldName);
-    } catch (NoSuchFieldException exception) {
-      throw new IllegalStateException("Could not find proxy field", exception);
+    } catch (NoSuchFieldException e) {
+      throw new IllegalStateException("Could not find proxy field", e);
     }
   }
 
   @SuppressWarnings("unchecked") // casting reflection result
+  @Nullable
   private static Instrumenter<ElasticsearchRestRequest, Response> getInstrumenter(Object proxy)
       throws IllegalAccessException {
     Supplier<Instrumenter<ElasticsearchRestRequest, Response>> supplier =
@@ -160,8 +171,8 @@ class RestClientWrapper {
           }
           try {
             return (RestClient) constructor.newInstance(arguments);
-          } catch (Exception exception) {
-            throw new IllegalStateException("Failed to construct proxy instance", exception);
+          } catch (Exception e) {
+            throw new IllegalStateException("Failed to construct proxy instance", e);
           }
         };
       }
@@ -185,8 +196,8 @@ class RestClientWrapper {
       instrumenterSupplierField.set(
           wrapped, (Supplier<Instrumenter<ElasticsearchRestRequest, Response>>) () -> instrumenter);
       return wrapped;
-    } catch (Exception exception) {
-      throw new IllegalStateException("Failed to construct proxy instance", exception);
+    } catch (Exception e) {
+      throw new IllegalStateException("Failed to construct proxy instance", e);
     }
   }
 

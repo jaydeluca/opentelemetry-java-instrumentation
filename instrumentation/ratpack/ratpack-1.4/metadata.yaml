@@ -1,0 +1,10 @@
+display_name: Ratpack
+description: >
+  This instrumentation enriches HTTP server spans with route information, and enables controller
+  spans for Ratpack handlers (controller spans are disabled by default).
+features:
+  - HTTP_ROUTE
+  - CONTROLLER_SPANS
+library_link: https://ratpack.io/
+configurations:
+  - ref: common.controller-telemetry.enabled

@@ -13,7 +13,7 @@ import org.springframework.jms.annotation.JmsListener;
 import org.springframework.stereotype.Component;
 
 @Component
-public class TestListener {
+class TestListener {
 
   private static final Logger logger = LoggerFactory.getLogger(TestListener.class);
 
@@ -21,7 +21,7 @@ public class TestListener {
     LoggerUtils.setLevel(logger, Level.INFO);
   }
 
-  @JmsListener(destination = "SpringListenerJms2")
+  @JmsListener(destination = "SpringListenerJms2", subscription = "durable-subscription")
   void receiveMessage(String message) {
     logger.info("received: {}", message);
   }

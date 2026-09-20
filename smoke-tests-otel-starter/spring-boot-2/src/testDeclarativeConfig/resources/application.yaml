@@ -1,6 +1,6 @@
 otel:
   # "file_format" serves as opt-in to the new file format
-  file_format: "1.0-rc.1"
+  file_format: "1.1"
   resource:
     detection/development:
       detectors:
@@ -38,10 +38,15 @@ otel:
       - tracecontext:
       - baggage:
 
+  distribution:
+    spring_starter:
+      thread_details_enabled: true
+
   instrumentation/development:
     java:
-      runtime-telemetry:
-        emit_experimental_telemetry: true
-      http:
-        client:
-          emit_experimental_telemetry: true
+      common:
+        http:
+          client:
+            emit_experimental_telemetry/development: true
+      runtime_telemetry:
+        emit_experimental_metrics/development: true

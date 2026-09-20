@@ -8,8 +8,6 @@ muzzle {
     module.set("undertow-core")
     versions.set("[1.4.0.Final,)")
     assertInverse.set(true)
-    // release missing in maven central
-    skip("2.2.25.Final")
   }
 }
 
@@ -21,13 +19,25 @@ dependencies {
   bootstrap(project(":instrumentation:undertow-1.4:bootstrap"))
 }
 
-tasks.withType<Test>().configureEach {
-  jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+tasks {
+  withType<Test>().configureEach {
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+  }
+
+  val testExceptionSignalLogs = register<Test>("testExceptionSignalLogs") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.semconv.exception.signal.preview=logs")
+    systemProperty("metadataConfig", "otel.semconv.exception.signal.preview=logs")
+  }
+
+  check {
+    dependsOn(testExceptionSignalLogs)
+  }
 }
 
 // since 2.3.x, undertow is compiled by JDK 11
-val latestDepTest = findProperty("testLatestDeps") as Boolean
-if (latestDepTest) {
+if (otelProps.testLatestDeps) {
   otelJava {
     minJavaVersionSupported.set(JavaVersion.VERSION_11)
   }

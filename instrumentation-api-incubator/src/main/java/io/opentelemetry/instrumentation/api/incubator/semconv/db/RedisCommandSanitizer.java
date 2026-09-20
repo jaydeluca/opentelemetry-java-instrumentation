@@ -5,10 +5,10 @@
 
 package io.opentelemetry.instrumentation.api.incubator.semconv.db;
 
+import static io.opentelemetry.instrumentation.api.internal.StringUtils.truncate;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
-import static java.util.Collections.unmodifiableMap;
 
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -38,6 +38,10 @@ public final class RedisCommandSanitizer {
 
   private static final Map<String, CommandSanitizer> SANITIZERS;
   private static final CommandSanitizer DEFAULT = new CommandAndNumArgs(0);
+
+  // maximum sanitized command length
+  // visible for testing
+  static final int LIMIT = 32 * 1024;
 
   static {
     Map<String, CommandSanitizer> sanitizers = new HashMap<>();
@@ -192,9 +196,10 @@ public final class RedisCommandSanitizer {
     // Server
     // CONFIG SET can set any property, including the master password
     sanitizers.put("CONFIG", keepTwoArgs);
+    // ACL SETUSER can contain passwords (prefixed with '>') or password hashes (prefixed with '#')
+    sanitizers.put("ACL", keepOneArg);
     for (String command :
         asList(
-            "ACL",
             "BGREWRITEAOF",
             "BGSAVE",
             "COMMAND",
@@ -346,26 +351,35 @@ public final class RedisCommandSanitizer {
       sanitizers.put(command, KeepAllArgs.INSTANCE);
     }
 
-    SANITIZERS = unmodifiableMap(sanitizers);
+    SANITIZERS = sanitizers;
   }
 
-  public static RedisCommandSanitizer create(boolean statementSanitizationEnabled) {
-    return new RedisCommandSanitizer(statementSanitizationEnabled);
+  public static RedisCommandSanitizer create(boolean querySanitizationEnabled) {
+    return new RedisCommandSanitizer(querySanitizationEnabled);
   }
 
-  private final boolean statementSanitizationEnabled;
+  private final boolean querySanitizationEnabled;
 
-  private RedisCommandSanitizer(boolean statementSanitizationEnabled) {
-    this.statementSanitizationEnabled = statementSanitizationEnabled;
+  private RedisCommandSanitizer(boolean querySanitizationEnabled) {
+    this.querySanitizationEnabled = querySanitizationEnabled;
   }
 
   public String sanitize(String command, List<?> args) {
-    if (!statementSanitizationEnabled) {
+    if (!querySanitizationEnabled) {
       return KeepAllArgs.INSTANCE.sanitize(command, args);
     }
     return SANITIZERS
         .getOrDefault(command.toUpperCase(Locale.ROOT), DEFAULT)
         .sanitize(command, args);
+  }
+
+  private static boolean isOverLimit(StringBuilder builder) {
+    return builder.length() > LIMIT;
+  }
+
+  private static String limit(StringBuilder builder) {
+    truncate(builder, LIMIT);
+    return builder.toString();
   }
 
   interface CommandSanitizer {
@@ -380,6 +394,9 @@ public final class RedisCommandSanitizer {
       StringBuilder sanitized = new StringBuilder(command);
       for (Object arg : args) {
         sanitized.append(" ").append(argToString(arg));
+        if (isOverLimit(sanitized)) {
+          return limit(sanitized);
+        }
       }
       return sanitized.toString();
     }
@@ -399,9 +416,15 @@ public final class RedisCommandSanitizer {
       StringBuilder sanitized = new StringBuilder(command);
       for (int i = 0; i < numOfArgsToKeep && i < args.size(); ++i) {
         sanitized.append(" ").append(argToString(args.get(i)));
+        if (isOverLimit(sanitized)) {
+          return limit(sanitized);
+        }
       }
       for (int i = numOfArgsToKeep; i < args.size(); ++i) {
         sanitized.append(" ?");
+        if (isOverLimit(sanitized)) {
+          return limit(sanitized);
+        }
       }
       return sanitized.toString();
     }
@@ -422,11 +445,17 @@ public final class RedisCommandSanitizer {
       // append all "initial" arguments before key-value pairs start
       for (int i = 0; i < numOfArgsBeforeKeyValue && i < args.size(); ++i) {
         sanitized.append(" ").append(argToString(args.get(i)));
+        if (isOverLimit(sanitized)) {
+          return limit(sanitized);
+        }
       }
 
       // loop over keys only
       for (int i = numOfArgsBeforeKeyValue; i < args.size(); i += 2) {
         sanitized.append(" ").append(argToString(args.get(i))).append(" ?");
+        if (isOverLimit(sanitized)) {
+          return limit(sanitized);
+        }
       }
       return sanitized.toString();
     }
@@ -453,10 +482,16 @@ public final class RedisCommandSanitizer {
       // log the script, number of keys and all keys
       for (; i < (numberOfKeys + 2) && i < args.size(); ++i) {
         sanitized.append(" ").append(argToString(args.get(i)));
+        if (isOverLimit(sanitized)) {
+          return limit(sanitized);
+        }
       }
       // mask the rest
       for (; i < args.size(); ++i) {
         sanitized.append(" ?");
+        if (isOverLimit(sanitized)) {
+          return limit(sanitized);
+        }
       }
       return sanitized.toString();
     }
@@ -464,7 +499,7 @@ public final class RedisCommandSanitizer {
 
   static String argToString(Object arg) {
     if (arg instanceof byte[]) {
-      return new String((byte[]) arg, StandardCharsets.UTF_8);
+      return new String((byte[]) arg, UTF_8);
     } else {
       return String.valueOf(arg);
     }

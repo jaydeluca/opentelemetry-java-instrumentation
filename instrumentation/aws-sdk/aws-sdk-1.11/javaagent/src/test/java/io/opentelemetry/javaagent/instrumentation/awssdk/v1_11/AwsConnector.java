@@ -5,6 +5,8 @@
 
 package io.opentelemetry.javaagent.instrumentation.awssdk.v1_11;
 
+import static java.util.Collections.singletonMap;
+
 import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
@@ -28,8 +30,8 @@ import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
 import com.amazonaws.services.sqs.model.PurgeQueueRequest;
 import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
 import com.amazonaws.services.sqs.model.ReceiveMessageResult;
+import java.net.URI;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.EnumSet;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
@@ -44,10 +46,11 @@ class AwsConnector {
 
   AwsConnector() {
     localStack =
-        new LocalStackContainer(DockerImageName.parse("localstack/localstack:2.0.2"))
+        new LocalStackContainer(DockerImageName.parse("localstack/localstack:4.14.0"))
             .withServices("sqs", "sns", "s3")
             .withEnv("DEBUG", "1")
             .withEnv("SQS_PROVIDER", "elasticmq")
+            .withEnv("SQS_ENDPOINT_STRATEGY", "path")
             .withStartupTimeout(Duration.ofMinutes(2));
     localStack.start();
     localStack.followOutput(new Slf4jLogConsumer(LoggerFactory.getLogger("test")));
@@ -82,12 +85,14 @@ class AwsConnector {
   }
 
   String createQueue(String queueName) {
-    return sqsClient.createQueue(queueName).getQueueUrl();
+    return externalQueueUrl(sqsClient.createQueue(queueName).getQueueUrl());
   }
 
   String getQueueArn(String queueUrl) {
     return sqsClient
-        .getQueueAttributes(new GetQueueAttributesRequest(queueUrl).withAttributeNames("QueueArn"))
+        .getQueueAttributes(
+            new GetQueueAttributesRequest(externalQueueUrl(queueUrl))
+                .withAttributeNames("QueueArn"))
         .getAttributes()
         .get("QueueArn");
   }
@@ -112,8 +117,8 @@ class AwsConnector {
 
   void setQueuePublishingPolicy(String queueUrl, String queueArn) {
     sqsClient.setQueueAttributes(
-        queueUrl,
-        Collections.singletonMap(
+        externalQueueUrl(queueUrl),
+        singletonMap(
             "Policy",
             String.format(
                 "{"
@@ -167,11 +172,12 @@ class AwsConnector {
   }
 
   ReceiveMessageResult receiveMessage(String queueUrl) {
-    return sqsClient.receiveMessage(new ReceiveMessageRequest(queueUrl).withWaitTimeSeconds(20));
+    return sqsClient.receiveMessage(
+        new ReceiveMessageRequest(externalQueueUrl(queueUrl)).withWaitTimeSeconds(20));
   }
 
   void purgeQueue(String queueUrl) {
-    sqsClient.purgeQueue(new PurgeQueueRequest(queueUrl));
+    sqsClient.purgeQueue(new PurgeQueueRequest(externalQueueUrl(queueUrl)));
   }
 
   void putSampleData(String bucketName) {
@@ -186,5 +192,11 @@ class AwsConnector {
     if (localStack != null) {
       localStack.stop();
     }
+  }
+
+  private String externalQueueUrl(String queueUrl) {
+    URI endpoint = localStack.getEndpoint();
+    URI queueUri = URI.create(queueUrl);
+    return endpoint.resolve(queueUri.getRawPath()).toString();
   }
 }

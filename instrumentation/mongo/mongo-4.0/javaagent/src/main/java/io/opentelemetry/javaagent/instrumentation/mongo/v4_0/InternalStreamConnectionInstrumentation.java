@@ -5,14 +5,15 @@
 
 package io.opentelemetry.javaagent.instrumentation.mongo.v4_0;
 
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
 
+import com.mongodb.connection.ConnectionDescription;
 import com.mongodb.internal.async.SingleResultCallback;
 import io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
+import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.Advice.AssignReturned;
 import net.bytebuddy.asm.Advice.AssignReturned.ToArguments.ToArgument;
@@ -28,49 +29,61 @@ final class InternalStreamConnectionInstrumentation implements TypeInstrumentati
 
   @Override
   public void transform(TypeTransformer transformer) {
+    transformer.applyAdviceToMethod(named("open"), getClass().getName() + "$OpenAdvice");
     // before 5.2.0
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("openAsync"))
+        named("openAsync")
             .and(takesArgument(0, named("com.mongodb.internal.async.SingleResultCallback"))),
-        this.getClass().getName() + "$SingleResultCallbackArg0Advice");
+        getClass().getName() + "$SingleResultCallbackArg0Advice");
     // since 5.2.0
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("openAsync"))
+        named("openAsync")
             .and(takesArgument(1, named("com.mongodb.internal.async.SingleResultCallback"))),
-        this.getClass().getName() + "$SingleResultCallbackArg1Advice");
+        getClass().getName() + "$SingleResultCallbackArg1Advice");
     // before 5.2.0
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("readAsync"))
+        named("readAsync")
             .and(takesArgument(1, named("com.mongodb.internal.async.SingleResultCallback"))),
-        this.getClass().getName() + "$SingleResultCallbackArg1Advice");
+        getClass().getName() + "$SingleResultCallbackArg1Advice");
     // since 5.2.0
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("readAsync"))
+        named("readAsync")
             .and(takesArgument(2, named("com.mongodb.internal.async.SingleResultCallback"))),
-        this.getClass().getName() + "$SingleResultCallbackArg2Advice");
+        getClass().getName() + "$SingleResultCallbackArg2Advice");
     // removed in 5.2.0
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("writeAsync"))
+        named("writeAsync")
             .and(takesArgument(1, named("com.mongodb.internal.async.SingleResultCallback"))),
-        this.getClass().getName() + "$SingleResultCallbackArg1Advice");
+        getClass().getName() + "$SingleResultCallbackArg1Advice");
     // since 5.2.0, earlier versions instrument writeAsync instead
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("sendMessageAsync"))
+        named("sendMessageAsync")
             .and(takesArgument(3, named("com.mongodb.internal.async.SingleResultCallback"))),
-        this.getClass().getName() + "$SingleResultCallbackArg3Advice");
+        getClass().getName() + "$SingleResultCallbackArg3Advice");
+  }
+
+  @SuppressWarnings("unused")
+  public static class OpenAdvice {
+
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    public static MongoConnectionPeer.OpenState onEnter() {
+      return MongoConnectionPeer.startOpen();
+    }
+
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
+    public static void onExit(
+        @Advice.Enter MongoConnectionPeer.OpenState state,
+        @Advice.FieldValue("description") @Nullable ConnectionDescription connectionDescription,
+        @Advice.Thrown @Nullable Throwable error) {
+      MongoConnectionPeer.endOpen(state, connectionDescription, error);
+    }
   }
 
   @SuppressWarnings("unused")
   public static class SingleResultCallbackArg0Advice {
 
     @AssignReturned.ToArguments(@ToArgument(0))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static SingleResultCallback<Object> wrapCallback(
         @Advice.Argument(0) SingleResultCallback<Object> callback) {
       return new SingleResultCallbackWrapper(Java8BytecodeBridge.currentContext(), callback);
@@ -81,7 +94,7 @@ final class InternalStreamConnectionInstrumentation implements TypeInstrumentati
   public static class SingleResultCallbackArg1Advice {
 
     @AssignReturned.ToArguments(@ToArgument(1))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static SingleResultCallback<Object> wrapCallback(
         @Advice.Argument(1) SingleResultCallback<Object> callback) {
       return new SingleResultCallbackWrapper(Java8BytecodeBridge.currentContext(), callback);
@@ -92,7 +105,7 @@ final class InternalStreamConnectionInstrumentation implements TypeInstrumentati
   public static class SingleResultCallbackArg2Advice {
 
     @AssignReturned.ToArguments(@ToArgument(2))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static SingleResultCallback<Object> wrapCallback(
         @Advice.Argument(2) SingleResultCallback<Object> callback) {
       return new SingleResultCallbackWrapper(Java8BytecodeBridge.currentContext(), callback);
@@ -103,7 +116,7 @@ final class InternalStreamConnectionInstrumentation implements TypeInstrumentati
   public static class SingleResultCallbackArg3Advice {
 
     @AssignReturned.ToArguments(@ToArgument(3))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static SingleResultCallback<Object> wrapCallback(
         @Advice.Argument(3) SingleResultCallback<Object> callback) {
       return new SingleResultCallbackWrapper(Java8BytecodeBridge.currentContext(), callback);

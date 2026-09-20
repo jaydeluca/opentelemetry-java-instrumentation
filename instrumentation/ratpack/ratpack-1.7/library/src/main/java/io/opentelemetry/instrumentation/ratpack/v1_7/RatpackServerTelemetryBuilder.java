@@ -7,6 +7,7 @@ package io.opentelemetry.instrumentation.ratpack.v1_7;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.incubator.builder.internal.DefaultHttpServerInstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanNameExtractor;
@@ -18,7 +19,7 @@ import java.util.function.UnaryOperator;
 import ratpack.http.Request;
 import ratpack.http.Response;
 
-/** A builder for {@link RatpackServerTelemetry}. */
+/** Builder for {@link RatpackServerTelemetry}. */
 public final class RatpackServerTelemetryBuilder {
 
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.ratpack-1.7";
@@ -35,8 +36,8 @@ public final class RatpackServerTelemetryBuilder {
   }
 
   /**
-   * Adds an additional {@link AttributesExtractor} to invoke to set attributes to instrumented
-   * items. The {@link AttributesExtractor} will be executed after all default extractors.
+   * Adds an {@link AttributesExtractor} to extract attributes from requests and responses. Executed
+   * after all default extractors.
    */
   @CanIgnoreReturnValue
   public RatpackServerTelemetryBuilder addAttributesExtractor(
@@ -46,10 +47,34 @@ public final class RatpackServerTelemetryBuilder {
   }
 
   /**
-   * Configures the HTTP server request headers that will be captured as span attributes.
+   * Configures which HTTP request headers are captured as span attributes.
    *
-   * @param requestHeaders A list of HTTP header names.
+   * <p>Header values are captured under the {@code http.request.header.<key>} attribute key. The
+   * {@code <key>} part in the attribute key is the lowercase header name.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
    */
+  @CanIgnoreReturnValue
+  public RatpackServerTelemetryBuilder setRequestHeaders(IncludeExclude requestHeaders) {
+    builder.setRequestHeaders(requestHeaders);
+    return this;
+  }
+
+  /**
+   * Configures HTTP request headers to capture as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
+   *
+   * @param requestHeaders HTTP header names to capture.
+   * @deprecated Use {@link #setRequestHeaders(IncludeExclude)} instead, which matches glob patterns
+   *     rather than literal header names. May be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public RatpackServerTelemetryBuilder setCapturedRequestHeaders(
       Collection<String> requestHeaders) {
@@ -58,10 +83,34 @@ public final class RatpackServerTelemetryBuilder {
   }
 
   /**
-   * Configures the HTTP server response headers that will be captured as span attributes.
+   * Configures which HTTP response headers are captured as span attributes.
    *
-   * @param responseHeaders A list of HTTP header names.
+   * <p>Header values are captured under the {@code http.response.header.<key>} attribute key. The
+   * {@code <key>} part in the attribute key is the lowercase header name.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
    */
+  @CanIgnoreReturnValue
+  public RatpackServerTelemetryBuilder setResponseHeaders(IncludeExclude responseHeaders) {
+    builder.setResponseHeaders(responseHeaders);
+    return this;
+  }
+
+  /**
+   * Configures HTTP response headers to capture as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
+   *
+   * @param responseHeaders HTTP header names to capture.
+   * @deprecated Use {@link #setResponseHeaders(IncludeExclude)} instead, which matches glob
+   *     patterns rather than literal header names. May be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public RatpackServerTelemetryBuilder setCapturedResponseHeaders(
       Collection<String> responseHeaders) {
@@ -70,16 +119,15 @@ public final class RatpackServerTelemetryBuilder {
   }
 
   /**
-   * Configures the instrumentation to recognize an alternative set of HTTP request methods.
+   * Configures recognized HTTP request methods.
    *
-   * <p>By default, this instrumentation defines "known" methods as the ones listed in <a
-   * href="https://www.rfc-editor.org/rfc/rfc9110.html#name-methods">RFC9110</a> and the PATCH
-   * method defined in <a href="https://www.rfc-editor.org/rfc/rfc5789.html">RFC5789</a>.
+   * <p>By default, recognizes methods from <a
+   * href="https://www.rfc-editor.org/rfc/rfc9110.html#name-methods">RFC9110</a> and PATCH from <a
+   * href="https://www.rfc-editor.org/rfc/rfc5789.html">RFC5789</a>.
    *
-   * <p>Note: calling this method <b>overrides</b> the default known method sets completely; it does
-   * not supplement it.
+   * <p><b>Note:</b> This <b>overrides</b> defaults completely; it does not supplement them.
    *
-   * @param knownMethods A set of recognized HTTP request methods.
+   * @param knownMethods HTTP request methods to recognize.
    * @see HttpServerAttributesExtractorBuilder#setKnownMethods(Collection)
    */
   @CanIgnoreReturnValue
@@ -88,22 +136,7 @@ public final class RatpackServerTelemetryBuilder {
     return this;
   }
 
-  /**
-   * Sets custom server {@link SpanNameExtractor} via transform function.
-   *
-   * @deprecated Use {@link #setSpanNameExtractorCustomizer(UnaryOperator)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public RatpackServerTelemetryBuilder setSpanNameExtractor(
-      UnaryOperator<SpanNameExtractor<Request>> serverSpanNameExtractor) {
-    return setSpanNameExtractorCustomizer(serverSpanNameExtractor);
-  }
-
-  /**
-   * Sets a customizer that receives the default {@link SpanNameExtractor} and returns a customized
-   * one.
-   */
+  /** Customizes the {@link SpanNameExtractor} by transforming the default instance. */
   @CanIgnoreReturnValue
   public RatpackServerTelemetryBuilder setSpanNameExtractorCustomizer(
       UnaryOperator<SpanNameExtractor<Request>> spanNameExtractorCustomizer) {
@@ -111,7 +144,7 @@ public final class RatpackServerTelemetryBuilder {
     return this;
   }
 
-  /** Returns a new {@link RatpackServerTelemetry} with the configuration of this builder. */
+  /** Returns a new instance with the configured settings. */
   public RatpackServerTelemetry build() {
     return new RatpackServerTelemetry(builder.build());
   }

@@ -8,32 +8,46 @@ package io.opentelemetry.javaagent.instrumentation.influxdb.v2_4;
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbClientAttributesGetter;
 import javax.annotation.Nullable;
 
-final class InfluxDbAttributesGetter implements DbClientAttributesGetter<InfluxDbRequest, Void> {
+final class InfluxDbAttributesGetter implements DbClientAttributesGetter<InfluxDbOperation, Void> {
 
   @Nullable
   @Override
-  public String getDbQueryText(InfluxDbRequest request) {
-    return request.getSqlStatementInfo().getFullStatement();
+  public String getDbOperationName(InfluxDbOperation request) {
+    return request.getOperation();
   }
 
   @Nullable
   @Override
-  public String getDbOperationName(InfluxDbRequest request) {
-    if (request.getOperation() != null) {
-      return request.getOperation();
-    }
-    return request.getSqlStatementInfo().getOperation();
+  @SuppressWarnings("deprecation") // old database semconv still use db.operation
+  public String getDbOperation(InfluxDbOperation request) {
+    String operation = request.getOperation();
+    return "write".equals(operation) ? "WRITE" : operation;
   }
 
   @Override
-  public String getDbSystem(InfluxDbRequest request) {
+  public String getDbSystemName(InfluxDbOperation request) {
     return "influxdb";
   }
 
   @Nullable
   @Override
-  public String getDbNamespace(InfluxDbRequest request) {
-    String dbName = request.getDbName();
-    return "".equals(dbName) ? null : dbName;
+  public String getDbNamespace(InfluxDbOperation request) {
+    return request.getNamespace();
+  }
+
+  @Nullable
+  @Override
+  public String getDbQueryText(InfluxDbOperation request) {
+    return null;
+  }
+
+  @Override
+  public String getServerAddress(InfluxDbOperation request) {
+    return request.getHost();
+  }
+
+  @Override
+  public Integer getServerPort(InfluxDbOperation request) {
+    return request.getPort();
   }
 }

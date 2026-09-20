@@ -5,40 +5,57 @@
 
 package io.opentelemetry.instrumentation.api.incubator.semconv.messaging;
 
-import static io.opentelemetry.instrumentation.api.internal.AttributesExtractorUtil.internalSet;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.LEGACY_MESSAGING_SCHEMA_URL;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitOldMessagingSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.messagingSchemaUrl;
+import static io.opentelemetry.semconv.ErrorAttributes.ERROR_TYPE;
+import static java.util.Collections.emptyList;
+import static java.util.Collections.unmodifiableList;
+import static java.util.Objects.requireNonNull;
 
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
+import io.opentelemetry.instrumentation.api.internal.SchemaUrlProvider;
 import io.opentelemetry.instrumentation.api.internal.SpanKey;
 import io.opentelemetry.instrumentation.api.internal.SpanKeyProvider;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
  * Extractor of <a
- * href="https://github.com/open-telemetry/semantic-conventions/blob/main/docs/messaging/messaging-spans.md">messaging
+ * href="https://github.com/open-telemetry/semantic-conventions/blob/v1.43.0/docs/messaging/messaging-spans.md">messaging
  * attributes</a>.
  *
  * <p>This class delegates to a type-specific {@link MessagingAttributesGetter} for individual
  * attribute extraction from request/response objects.
  */
 public final class MessagingAttributesExtractor<REQUEST, RESPONSE>
-    implements AttributesExtractor<REQUEST, RESPONSE>, SpanKeyProvider {
+    implements AttributesExtractor<REQUEST, RESPONSE>, SchemaUrlProvider, SpanKeyProvider {
 
   // copied from MessagingIncubatingAttributes
   private static final AttributeKey<Long> MESSAGING_BATCH_MESSAGE_COUNT =
       AttributeKey.longKey("messaging.batch.message_count");
-  private static final AttributeKey<String> MESSAGING_CLIENT_ID =
+  private static final AttributeKey<String> MESSAGING_CLIENT_ID_OLD =
       AttributeKey.stringKey("messaging.client_id");
+  private static final AttributeKey<String> MESSAGING_CLIENT_ID =
+      AttributeKey.stringKey("messaging.client.id");
   private static final AttributeKey<Boolean> MESSAGING_DESTINATION_ANONYMOUS =
       AttributeKey.booleanKey("messaging.destination.anonymous");
   private static final AttributeKey<String> MESSAGING_DESTINATION_NAME =
       AttributeKey.stringKey("messaging.destination.name");
   private static final AttributeKey<String> MESSAGING_DESTINATION_PARTITION_ID =
       AttributeKey.stringKey("messaging.destination.partition.id");
+  private static final AttributeKey<String> MESSAGING_DESTINATION_SUBSCRIPTION_NAME =
+      AttributeKey.stringKey("messaging.destination.subscription.name");
   private static final AttributeKey<String> MESSAGING_DESTINATION_TEMPLATE =
       AttributeKey.stringKey("messaging.destination.template");
   private static final AttributeKey<Boolean> MESSAGING_DESTINATION_TEMPORARY =
@@ -53,67 +70,154 @@ public final class MessagingAttributesExtractor<REQUEST, RESPONSE>
       AttributeKey.stringKey("messaging.message.id");
   private static final AttributeKey<String> MESSAGING_OPERATION =
       AttributeKey.stringKey("messaging.operation");
+  private static final AttributeKey<String> MESSAGING_OPERATION_NAME =
+      AttributeKey.stringKey("messaging.operation.name");
+  private static final AttributeKey<String> MESSAGING_OPERATION_TYPE =
+      AttributeKey.stringKey("messaging.operation.type");
   private static final AttributeKey<String> MESSAGING_SYSTEM =
       AttributeKey.stringKey("messaging.system");
 
   static final String TEMP_DESTINATION_NAME = "(temporary)";
 
   /**
-   * Creates the messaging attributes extractor for the given {@link MessageOperation operation}
-   * with default configuration.
+   * Creates the messaging attributes extractor for the given operation type.
+   *
+   * @param operationName the system-specific name of the operation, emitted as {@code
+   *     messaging.operation.name}, e.g. {@code send}, {@code poll} or {@code ack}.
    */
   public static <REQUEST, RESPONSE> AttributesExtractor<REQUEST, RESPONSE> create(
-      MessagingAttributesGetter<REQUEST, RESPONSE> getter, MessageOperation operation) {
+      MessagingAttributesGetter<REQUEST, RESPONSE> getter,
+      MessagingOperationType operationType,
+      String operationName) {
+    return builder(getter, operationType, operationName).build();
+  }
+
+  /**
+   * @deprecated Use {@link #create(MessagingAttributesGetter, MessagingOperationType, String)}. May
+   *     be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
+  public static <REQUEST, RESPONSE> AttributesExtractor<REQUEST, RESPONSE> create(
+      MessagingAttributesGetter<REQUEST, RESPONSE> getter, @Nullable MessageOperation operation) {
     return builder(getter, operation).build();
   }
 
   /**
-   * Returns a new {@link MessagingAttributesExtractorBuilder} for the given {@link MessageOperation
-   * operation} that can be used to configure the messaging attributes extractor.
+   * Returns a new {@link MessagingAttributesExtractorBuilder} configured for the given operation
+   * type.
+   *
+   * @param operationName the system-specific name of the operation, emitted as {@code
+   *     messaging.operation.name}, e.g. {@code send}, {@code poll} or {@code ack}.
    */
   public static <REQUEST, RESPONSE> MessagingAttributesExtractorBuilder<REQUEST, RESPONSE> builder(
-      MessagingAttributesGetter<REQUEST, RESPONSE> getter, MessageOperation operation) {
-    return new MessagingAttributesExtractorBuilder<>(getter, operation);
+      MessagingAttributesGetter<REQUEST, RESPONSE> getter,
+      MessagingOperationType operationType,
+      String operationName) {
+    return new MessagingAttributesExtractorBuilder<>(
+        getter, operationType, requireNonNull(operationName, "operationName"), true);
+  }
+
+  /**
+   * @deprecated Use {@link #builder(MessagingAttributesGetter, MessagingOperationType, String)}.
+   *     May be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
+  public static <REQUEST, RESPONSE> MessagingAttributesExtractorBuilder<REQUEST, RESPONSE> builder(
+      MessagingAttributesGetter<REQUEST, RESPONSE> getter, @Nullable MessageOperation operation) {
+    return new MessagingAttributesExtractorBuilder<>(
+        getter, operation == null ? null : operation.type(), null, false);
   }
 
   private final MessagingAttributesGetter<REQUEST, RESPONSE> getter;
-  private final MessageOperation operation;
-  private final List<String> capturedHeaders;
+  @Nullable private final MessagingOperationType operationType;
+  @Nullable private final String operationName;
+  private final boolean supportsStableSemconv;
+  @Nullable private final IncludeExclude headers;
+  // exact header names that the selector includes, queried directly so that getters which only
+  // implement getMessageHeader() keep working
+  private final List<String> exactHeaderNames;
+  private final Map<String, AttributeKey<List<String>>> exactHeaderAttributeKeys;
+  // whether the selector can match header names that are not listed in exactHeaderNames, which
+  // requires enumerating the header names of each message
+  private final boolean enumerateHeaderNames;
 
   MessagingAttributesExtractor(
       MessagingAttributesGetter<REQUEST, RESPONSE> getter,
-      MessageOperation operation,
-      List<String> capturedHeaders) {
+      @Nullable MessagingOperationType operationType,
+      @Nullable String operationName,
+      boolean supportsStableSemconv,
+      @Nullable IncludeExclude headers) {
     this.getter = getter;
-    this.operation = operation;
-    this.capturedHeaders = new ArrayList<>(capturedHeaders);
+    this.operationType = operationType;
+    this.operationName = operationName;
+    this.supportsStableSemconv = supportsStableSemconv;
+    this.headers = headers;
+
+    Set<String> exactNames = new LinkedHashSet<>();
+    boolean enumerate = false;
+    if (headers != null) {
+      List<String> included = headers.getIncluded();
+      // a selector without included patterns matches every header name that is not excluded
+      enumerate = included.isEmpty();
+      for (String pattern : included) {
+        if (pattern.indexOf('*') != -1 || pattern.indexOf('?') != -1) {
+          enumerate = true;
+        } else if (headers.matches(pattern)) {
+          exactNames.add(pattern);
+        }
+      }
+    }
+    this.exactHeaderNames = unmodifiableList(new ArrayList<>(exactNames));
+    this.exactHeaderAttributeKeys =
+        CapturedMessageHeadersUtil.createLiteralAttributeKeys(exactHeaderNames);
+    this.enumerateHeaderNames = enumerate;
   }
 
   @Override
   public void onStart(AttributesBuilder attributes, Context parentContext, REQUEST request) {
-    internalSet(attributes, MESSAGING_SYSTEM, getter.getSystem(request));
+    boolean emitOldSemconv = !supportsStableSemconv || emitOldMessagingSemconv();
+    boolean emitStableSemconv = supportsStableSemconv && emitStableMessagingSemconv();
+    attributes.put(MESSAGING_SYSTEM, getter.getSystem(request));
     boolean isTemporaryDestination = getter.isTemporaryDestination(request);
     if (isTemporaryDestination) {
-      internalSet(attributes, MESSAGING_DESTINATION_TEMPORARY, true);
-      internalSet(attributes, MESSAGING_DESTINATION_NAME, TEMP_DESTINATION_NAME);
+      attributes.put(MESSAGING_DESTINATION_TEMPORARY, true);
+      if (emitStableSemconv) {
+        attributes.put(MESSAGING_DESTINATION_NAME, getter.getDestination(request));
+        attributes.put(MESSAGING_DESTINATION_TEMPLATE, getter.getDestinationTemplate(request));
+      } else {
+        attributes.put(MESSAGING_DESTINATION_NAME, TEMP_DESTINATION_NAME);
+      }
     } else {
-      internalSet(attributes, MESSAGING_DESTINATION_NAME, getter.getDestination(request));
-      internalSet(
-          attributes, MESSAGING_DESTINATION_TEMPLATE, getter.getDestinationTemplate(request));
+      attributes.put(MESSAGING_DESTINATION_NAME, getter.getDestination(request));
+      attributes.put(MESSAGING_DESTINATION_TEMPLATE, getter.getDestinationTemplate(request));
     }
-    internalSet(
-        attributes, MESSAGING_DESTINATION_PARTITION_ID, getter.getDestinationPartitionId(request));
+    attributes.put(MESSAGING_DESTINATION_PARTITION_ID, getter.getDestinationPartitionId(request));
     boolean isAnonymousDestination = getter.isAnonymousDestination(request);
     if (isAnonymousDestination) {
-      internalSet(attributes, MESSAGING_DESTINATION_ANONYMOUS, true);
+      attributes.put(MESSAGING_DESTINATION_ANONYMOUS, true);
     }
-    internalSet(attributes, MESSAGING_MESSAGE_CONVERSATION_ID, getter.getConversationId(request));
-    internalSet(attributes, MESSAGING_MESSAGE_BODY_SIZE, getter.getMessageBodySize(request));
-    internalSet(
-        attributes, MESSAGING_MESSAGE_ENVELOPE_SIZE, getter.getMessageEnvelopeSize(request));
-    internalSet(attributes, MESSAGING_CLIENT_ID, getter.getClientId(request));
-    if (operation != null) {
-      internalSet(attributes, MESSAGING_OPERATION, operation.operationName());
+    attributes.put(MESSAGING_MESSAGE_CONVERSATION_ID, getter.getConversationId(request));
+    if (emitOldSemconv) {
+      // the message size attributes are opt-in in the v1.43 messaging semantic conventions
+      attributes.put(MESSAGING_MESSAGE_BODY_SIZE, getter.getMessageBodySize(request));
+      attributes.put(MESSAGING_MESSAGE_ENVELOPE_SIZE, getter.getMessageEnvelopeSize(request));
+      attributes.put(MESSAGING_CLIENT_ID_OLD, getter.getClientId(request));
+    }
+    if (emitStableSemconv) {
+      attributes.put(MESSAGING_CLIENT_ID, getter.getClientId(request));
+      // messaging.destination.subscription.name only exists in the v1.43 messaging semantic
+      // conventions
+      attributes.put(
+          MESSAGING_DESTINATION_SUBSCRIPTION_NAME, getter.getDestinationSubscriptionName(request));
+    }
+    if (emitOldSemconv && operationType != null) {
+      attributes.put(MESSAGING_OPERATION, operationType.legacyOperationName());
+    }
+    if (emitStableSemconv) {
+      attributes.put(MESSAGING_OPERATION_NAME, operationName);
+      if (operationType != null) {
+        attributes.put(MESSAGING_OPERATION_TYPE, operationType.value());
+      }
     }
   }
 
@@ -124,16 +228,39 @@ public final class MessagingAttributesExtractor<REQUEST, RESPONSE>
       REQUEST request,
       @Nullable RESPONSE response,
       @Nullable Throwable error) {
-    internalSet(attributes, MESSAGING_MESSAGE_ID, getter.getMessageId(request, response));
-    internalSet(
-        attributes, MESSAGING_BATCH_MESSAGE_COUNT, getter.getBatchMessageCount(request, response));
+    attributes.put(MESSAGING_MESSAGE_ID, getter.getMessageId(request, response));
+    attributes.put(MESSAGING_BATCH_MESSAGE_COUNT, getter.getBatchMessageCount(request, response));
+    if (supportsStableSemconv && emitStableMessagingSemconv()) {
+      String errorType = getter.getErrorType(request, response, error);
+      if (errorType == null && error != null) {
+        errorType = error.getClass().getName();
+      }
+      attributes.put(ERROR_TYPE, errorType);
+    }
 
-    for (String name : capturedHeaders) {
+    for (String name : headerNames(request)) {
       List<String> values = getter.getMessageHeader(request, name);
       if (!values.isEmpty()) {
-        internalSet(attributes, CapturedMessageHeadersUtil.attributeKey(name), values);
+        attributes.put(
+            CapturedMessageHeadersUtil.attributeKey(name, exactHeaderAttributeKeys), values);
       }
     }
+  }
+
+  private Collection<String> headerNames(REQUEST request) {
+    if (headers == null) {
+      return emptyList();
+    }
+    if (!enumerateHeaderNames) {
+      return exactHeaderNames;
+    }
+    Set<String> names = new LinkedHashSet<>(exactHeaderNames);
+    for (String name : getter.getMessageHeaderNames(request)) {
+      if (headers.matches(name)) {
+        names.add(name);
+      }
+    }
+    return names;
   }
 
   /**
@@ -143,18 +270,27 @@ public final class MessagingAttributesExtractor<REQUEST, RESPONSE>
   @Override
   @Nullable
   public SpanKey internalGetSpanKey() {
-    if (operation == null) {
+    if (operationType == null) {
       return null;
     }
 
-    switch (operation) {
-      case PUBLISH:
+    switch (operationType) {
+      case CREATE:
+        return SpanKey.PRODUCER_CREATE;
+      case SEND:
         return SpanKey.PRODUCER;
       case RECEIVE:
         return SpanKey.CONSUMER_RECEIVE;
       case PROCESS:
         return SpanKey.CONSUMER_PROCESS;
+      case SETTLE:
+        return SpanKey.CONSUMER_SETTLE;
     }
     throw new IllegalStateException("Can't possibly happen");
+  }
+
+  @Override
+  public String internalGetSchemaUrl() {
+    return supportsStableSemconv ? messagingSchemaUrl() : LEGACY_MESSAGING_SCHEMA_URL;
   }
 }

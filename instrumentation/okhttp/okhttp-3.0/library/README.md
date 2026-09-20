@@ -1,13 +1,13 @@
 # Library Instrumentation for OkHttp version 3.0 and higher
 
-Provides OpenTelemetry instrumentation for [okhttp3](https://square.github.io/okhttp/).
+Provides OpenTelemetry instrumentation for [okhttp3](https://lysine.dev/okhttp/).
 
 ## Quickstart
 
 ### Add these dependencies to your project
 
 Replace `OPENTELEMETRY_VERSION` with the [latest
-release]( https://central.sonatype.com/artifact/io.opentelemetry.instrumentation/opentelemetry-okhttp-3.0).
+release](https://central.sonatype.com/artifact/io.opentelemetry.instrumentation/opentelemetry-okhttp-3.0).
 
 For Maven, add to your `pom.xml` dependencies:
 
@@ -43,7 +43,7 @@ public class OkHttpConfiguration {
 
   //Use this Call.Factory implementation for making standard http client calls.
   public Call.Factory createTracedClient(OpenTelemetry openTelemetry) {
-    return OkHttpTelemetry.builder(openTelemetry).build().newCallFactory(createClient());
+    return OkHttpTelemetry.builder(openTelemetry).build().createCallFactory(createClient());
   }
 
   //your configuration of the OkHttpClient goes here:

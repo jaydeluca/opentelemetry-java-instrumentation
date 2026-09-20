@@ -5,26 +5,26 @@
 
 package io.opentelemetry.instrumentation.openai.v1_1;
 
+import static java.util.stream.Collectors.toList;
+
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionChunk;
-import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.completions.CompletionUsage;
 import io.opentelemetry.api.logs.Logger;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 final class StreamListener {
 
   private final Context context;
-  private final ChatCompletionCreateParams request;
-  private final List<StreamedMessageBuffer> choiceBuffers;
+  private final ChatCompletionRequest request;
+  private final Map<Long, StreamedMessageBuffer> choiceBuffers;
 
-  private final Instrumenter<ChatCompletionCreateParams, ChatCompletion> instrumenter;
+  private final Instrumenter<ChatCompletionRequest, ChatCompletion> instrumenter;
   private final Logger eventLogger;
   private final boolean captureMessageContent;
   private final boolean newSpan;
@@ -36,8 +36,8 @@ final class StreamListener {
 
   StreamListener(
       Context context,
-      ChatCompletionCreateParams request,
-      Instrumenter<ChatCompletionCreateParams, ChatCompletion> instrumenter,
+      ChatCompletionRequest request,
+      Instrumenter<ChatCompletionRequest, ChatCompletion> instrumenter,
       Logger eventLogger,
       boolean captureMessageContent,
       boolean newSpan) {
@@ -47,7 +47,7 @@ final class StreamListener {
     this.eventLogger = eventLogger;
     this.captureMessageContent = captureMessageContent;
     this.newSpan = newSpan;
-    choiceBuffers = new ArrayList<>();
+    choiceBuffers = new TreeMap<>();
     hasEnded = new AtomicBoolean();
   }
 
@@ -57,14 +57,9 @@ final class StreamListener {
     chunk.usage().ifPresent(u -> usage = u);
 
     for (ChatCompletionChunk.Choice choice : chunk.choices()) {
-      while (choiceBuffers.size() <= choice.index()) {
-        choiceBuffers.add(null);
-      }
-      StreamedMessageBuffer buffer = choiceBuffers.get((int) choice.index());
-      if (buffer == null) {
-        buffer = new StreamedMessageBuffer(choice.index(), captureMessageContent);
-        choiceBuffers.set((int) choice.index(), buffer);
-      }
+      StreamedMessageBuffer buffer =
+          choiceBuffers.computeIfAbsent(
+              choice.index(), index -> new StreamedMessageBuffer(index, captureMessageContent));
       buffer.append(choice.delta());
       if (choice.finishReason().isPresent()) {
         buffer.finishReason = choice.finishReason().get().toString();
@@ -97,9 +92,9 @@ final class StreamListener {
             .model(model)
             .id(responseId)
             .choices(
-                choiceBuffers.stream()
+                choiceBuffers.values().stream()
                     .map(StreamedMessageBuffer::toChoice)
-                    .collect(Collectors.toList()));
+                    .collect(toList()));
 
     if (usage != null) {
       result.usage(usage);

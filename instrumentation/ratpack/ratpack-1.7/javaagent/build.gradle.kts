@@ -7,11 +7,7 @@ muzzle {
     group.set("io.ratpack")
     module.set("ratpack-core")
     versions.set("[1.7.0,)")
-  }
-  fail {
-    group.set("io.ratpack")
-    module.set("ratpack-core")
-    versions.set("[1.0,1.7)")
+    assertInverse.set(true)
   }
 }
 
@@ -27,11 +23,24 @@ dependencies {
 
 tasks {
   withType<Test>().configureEach {
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
     jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+    systemProperty("metadataConfig", "otel.instrumentation.common.experimental.controller-telemetry.enabled=true")
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=service.peer")
+  }
+
+  check {
+    dependsOn(testStableSemconv)
+  }
+
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }

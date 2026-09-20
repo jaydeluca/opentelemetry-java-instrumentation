@@ -17,11 +17,13 @@ import okhttp3.Response;
 public class OkHttpClientInstrumenterBuilderFactory {
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.okhttp-3.0";
 
-  private OkHttpClientInstrumenterBuilderFactory() {}
-
   public static DefaultHttpClientInstrumenterBuilder<Interceptor.Chain, Response> create(
       OpenTelemetry openTelemetry) {
     return DefaultHttpClientInstrumenterBuilder.create(
-        INSTRUMENTATION_NAME, openTelemetry, OkHttpAttributesGetter.INSTANCE);
+            INSTRUMENTATION_NAME, openTelemetry, new OkHttpAttributesGetter())
+        .setBuilderCustomizer(
+            builder -> builder.setInstrumentationVersion(InstrumentationVersion.VERSION));
   }
+
+  private OkHttpClientInstrumenterBuilderFactory() {}
 }

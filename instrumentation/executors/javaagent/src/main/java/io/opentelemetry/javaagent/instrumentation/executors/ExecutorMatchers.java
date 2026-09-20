@@ -7,14 +7,15 @@ package io.opentelemetry.javaagent.instrumentation.executors;
 
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.extendsClass;
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.implementsInterface;
+import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
 import static java.util.logging.Level.FINE;
 import static net.bytebuddy.matcher.ElementMatchers.any;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 
-import io.opentelemetry.javaagent.bootstrap.internal.AgentInstrumentationConfig;
-import java.util.Arrays;
-import java.util.Collections;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -44,7 +45,7 @@ final class ExecutorMatchers {
   static {
     Set<String> combined =
         new HashSet<>(
-            Arrays.asList(
+            asList(
                 "akka.actor.ActorSystemImpl$$anon$1",
                 "akka.dispatch.BalancingDispatcher",
                 "akka.dispatch.Dispatcher",
@@ -98,16 +99,16 @@ final class ExecutorMatchers {
                 "scala.concurrent.Future$InternalCallbackExecutor$",
                 "scala.concurrent.impl.ExecutionContextImpl"));
     combined.addAll(
-        AgentInstrumentationConfig.get()
-            .getList("otel.instrumentation.executors.include", emptyList()));
-    INSTRUMENTED_EXECUTOR_NAMES = Collections.unmodifiableSet(combined);
+        DeclarativeConfigUtil.getInstrumentationConfig(GlobalOpenTelemetry.get(), "executors")
+            .getScalarList("include", String.class, emptyList()));
+    INSTRUMENTED_EXECUTOR_NAMES = combined;
 
-    INSTRUMENTED_EXECUTOR_PREFIXES = Collections.singletonList("slick.util.AsyncExecutor$");
+    INSTRUMENTED_EXECUTOR_PREFIXES = singletonList("slick.util.AsyncExecutor$");
   }
 
   static ElementMatcher.Junction<TypeDescription> executorNameMatcher() {
-    if (AgentInstrumentationConfig.get()
-        .getBoolean("otel.instrumentation.executors.include-all", false)) {
+    if (DeclarativeConfigUtil.getInstrumentationConfig(GlobalOpenTelemetry.get(), "executors")
+        .getBoolean("include_all", false)) {
       return any();
     }
 

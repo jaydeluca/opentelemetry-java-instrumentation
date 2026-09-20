@@ -5,6 +5,22 @@
 
 package io.opentelemetry.instrumentation.couchbase.springdata;
 
+import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
+import static io.opentelemetry.instrumentation.testing.junit.db.SemconvStabilityUtil.maybeStable;
+import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_ADDRESS;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PEER_PORT;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_TYPE;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemNameIncubatingValues.COUCHBASE;
+import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.couchbase.client.java.Cluster;
@@ -17,14 +33,13 @@ import io.opentelemetry.instrumentation.couchbase.AbstractCouchbaseTest;
 import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
-import java.util.Collections;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
+@SuppressWarnings("deprecation")
 public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouchbaseTest {
 
   @RegisterExtension
@@ -36,10 +51,9 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
   private TestRepository repository;
 
   @BeforeAll
-  void setUp() {
+  void setUpSpring() {
     CouchbaseEnvironment environment = envBuilder(bucketCouchbase).build();
-    Cluster couchbaseCluster =
-        CouchbaseCluster.create(environment, Collections.singletonList("127.0.0.1"));
+    Cluster couchbaseCluster = CouchbaseCluster.create(environment, singletonList("127.0.0.1"));
 
     // Create view for SpringRepository's findAll()
     couchbaseCluster
@@ -48,7 +62,7 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
         .insertDesignDocument(
             DesignDocument.create(
                 "testDocument",
-                Collections.singletonList(
+                singletonList(
                     DefaultView.create(
                         "all",
                         "function (doc, meta) {"
@@ -56,13 +70,13 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
                             + "    emit(meta.id, null);"
                             + " }"
                             + "}"))));
-    CouchbaseConfig.environment = environment;
-    CouchbaseConfig.bucketSettings = bucketCouchbase;
+    CouchbaseConfig.configure(environment, bucketCouchbase);
 
     // Close all buckets and disconnect
     couchbaseCluster.disconnect();
 
     applicationContext = new AnnotationConfigApplicationContext(CouchbaseConfig.class);
+    cleanup.deferAfterAll(applicationContext);
     repository = applicationContext.getBean(TestRepository.class);
   }
 
@@ -70,11 +84,6 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
     testing.clearData();
     repository.deleteAll();
     testing.waitForTraces(2);
-  }
-
-  @AfterAll
-  void cleanUp() {
-    applicationContext.close();
   }
 
   protected abstract TestDocument findById(TestRepository repository, String id);
@@ -85,19 +94,29 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
   void emptyRepo() {
     Iterable<TestDocument> result = repository.findAll();
 
-    assertThat(result.iterator().hasNext()).isFalse();
+    assertThat(result).isEmpty();
 
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    assertCouchbaseSpan(
-                            span,
-                            bucketCouchbase.name(),
-                            null,
-                            bucketCouchbase.name(),
-                            "ViewQuery(testDocument/all)")
-                        .hasNoParent()));
+                    span.hasName(bucketCouchbase.name())
+                        .hasKind(SpanKind.CLIENT)
+                        .hasNoParent()
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            satisfies(
+                                maybeStable(DB_STATEMENT),
+                                val -> val.startsWith("ViewQuery(testDocument/all)")),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"),
+                                experimentalLocalAddress()))));
   }
 
   @Test
@@ -112,8 +131,25 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.upsert", bucketCouchbase.name())
-                        .hasNoParent()));
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketCouchbase.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasNoParent()
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId()))));
   }
 
   @Test
@@ -135,11 +171,45 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("someTrace").hasKind(SpanKind.INTERNAL).hasNoParent(),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.upsert", bucketCouchbase.name())
-                        .hasParent(trace.getSpan(0)),
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketCouchbase.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId())),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.get", bucketCouchbase.name())
-                        .hasParent(trace.getSpan(0))));
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.get " + bucketCouchbase.name()
+                                : "Bucket.get")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.get"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId()))));
   }
 
   @Test
@@ -159,11 +229,45 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("someTrace").hasKind(SpanKind.INTERNAL).hasNoParent(),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.upsert", bucketCouchbase.name())
-                        .hasParent(trace.getSpan(0)),
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketCouchbase.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId())),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.upsert", bucketCouchbase.name())
-                        .hasParent(trace.getSpan(0))));
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketCouchbase.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId()))));
   }
 
   @Test
@@ -185,18 +289,62 @@ public abstract class AbstractCouchbaseSpringRepositoryTest extends AbstractCouc
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("someTrace").hasKind(SpanKind.INTERNAL).hasNoParent(),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.upsert", bucketCouchbase.name())
-                        .hasParent(trace.getSpan(0)),
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.upsert " + bucketCouchbase.name()
+                                : "Bucket.upsert")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.upsert"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId())),
                 span ->
-                    assertCouchbaseSpan(span, "Bucket.remove", bucketCouchbase.name())
-                        .hasParent(trace.getSpan(0)),
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "Bucket.remove " + bucketCouchbase.name()
+                                : "Bucket.remove")
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            equalTo(maybeStable(DB_OPERATION), "Bucket.remove"),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"), experimentalLocalAddress()),
+                            satisfies(
+                                stringKey("couchbase.operation_id"), experimentalOperationId())),
                 span ->
-                    assertCouchbaseSpan(
-                            span,
-                            bucketCouchbase.name(),
-                            null,
-                            bucketCouchbase.name(),
-                            "ViewQuery(testDocument/all)")
-                        .hasParent(trace.getSpan(0))));
+                    span.hasName(bucketCouchbase.name())
+                        .hasKind(SpanKind.CLIENT)
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(maybeStable(DB_SYSTEM), COUCHBASE),
+                            equalTo(maybeStable(DB_NAME), bucketCouchbase.name()),
+                            satisfies(
+                                maybeStable(DB_STATEMENT),
+                                val -> val.startsWith("ViewQuery(testDocument/all)")),
+                            equalTo(NETWORK_TYPE, networkType()),
+                            equalTo(NETWORK_PEER_ADDRESS, networkPeerAddress()),
+                            satisfies(NETWORK_PEER_PORT, networkPeerPort()),
+                            satisfies(SERVER_ADDRESS, serverAddress()),
+                            satisfies(SERVER_PORT, serverPort()),
+                            satisfies(
+                                stringKey("couchbase.local.address"),
+                                experimentalLocalAddress()))));
   }
 }

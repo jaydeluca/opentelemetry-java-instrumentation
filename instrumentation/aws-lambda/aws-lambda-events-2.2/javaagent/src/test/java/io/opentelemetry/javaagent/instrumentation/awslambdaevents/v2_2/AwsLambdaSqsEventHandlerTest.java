@@ -28,7 +28,12 @@ class AwsLambdaSqsEventHandlerTest extends AbstractAwsLambdaSqsEventHandlerTest 
     return testing;
   }
 
-  private static final class TestRequestHandler implements RequestHandler<SQSEvent, Void> {
+  @Override
+  protected String instrumentationName() {
+    return "io.opentelemetry.aws-lambda-events-2.2";
+  }
+
+  private static class TestRequestHandler implements RequestHandler<SQSEvent, Void> {
     @Override
     public Void handleRequest(SQSEvent input, Context context) {
       return null;

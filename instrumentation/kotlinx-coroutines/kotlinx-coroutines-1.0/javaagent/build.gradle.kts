@@ -18,6 +18,7 @@ muzzle {
     group.set("org.jetbrains.kotlinx")
     module.set("kotlinx-coroutines-core-jvm")
     versions.set("[1.3.9,)")
+    assertInverse.set(true)
     extraDependency(project(":instrumentation-annotations"))
     extraDependency("io.opentelemetry:opentelemetry-api:1.27.0")
   }
@@ -26,6 +27,7 @@ muzzle {
 dependencies {
   compileOnly("io.opentelemetry:opentelemetry-extension-kotlin")
   compileOnly("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
+  compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.0.0")
   compileOnly(project(":opentelemetry-instrumentation-annotations-shaded-for-instrumenting", configuration = "shadow"))
 
   implementation("org.ow2.asm:asm-tree")
@@ -50,5 +52,21 @@ kotlin {
     jvmTarget.set(JvmTarget.JVM_1_8)
     // generate metadata for Java 1.8 reflection on method parameters, used in @WithSpan tests
     javaParameters = true
+  }
+}
+
+tasks {
+  named("byteBuddyKotlin") {
+    enabled = false
+  }
+
+  val testV3Preview = register<Test>("testV3Preview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+  }
+
+  check {
+    dependsOn(testV3Preview)
   }
 }

@@ -11,20 +11,18 @@ permissions:
 
 jobs:
   common:
-    uses: ./.github/workflows/build-common.yml
+    uses: $/.github/workflows/build-common.yml
     with:
       no-build-cache: true
     secrets:
       DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
-      FLAKY_TEST_REPORTER_ACCESS_KEY: ${{ secrets.FLAKY_TEST_REPORTER_ACCESS_KEY }}
 
   test-latest-deps:
-    uses: ./.github/workflows/reusable-test-latest-deps.yml
+    uses: $/.github/workflows/reusable-test-latest-deps.yml
     with:
       no-build-cache: true
     secrets:
       DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
-      FLAKY_TEST_REPORTER_ACCESS_KEY: ${{ secrets.FLAKY_TEST_REPORTER_ACCESS_KEY }}
 
   # muzzle is not included here because it doesn't use gradle cache anyway and so is already covered
   # by the normal daily build
@@ -40,10 +38,11 @@ jobs:
       - common
       - test-latest-deps
     if: always()
-    uses: ./.github/workflows/reusable-workflow-notification.yml
+    uses: $/.github/workflows/reusable-workflow-notification.yml
     with:
       success: >-
         ${{
           needs.common.result == 'success' &&
           needs.test-latest-deps.result == 'success'
         }}
+      failure-notification-after-attempts: 2

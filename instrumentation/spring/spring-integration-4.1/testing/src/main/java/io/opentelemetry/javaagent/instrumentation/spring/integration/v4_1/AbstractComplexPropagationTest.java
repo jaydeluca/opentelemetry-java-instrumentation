@@ -5,21 +5,24 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1.SpringIntegrationTestHelper.messagingAttributes;
+import static java.util.Collections.singletonMap;
+import static java.util.stream.Collectors.toMap;
+
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.stream.Collectors;
-import javax.annotation.Nullable;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -33,15 +36,17 @@ import org.springframework.integration.support.MessageBuilder;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.SubscribableChannel;
 
-public abstract class AbstractComplexPropagationTest {
+abstract class AbstractComplexPropagationTest {
+
+  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
   private final Class<?> additionalContextClass;
-  protected InstrumentationExtension testing;
+  private final InstrumentationExtension testing;
 
-  ConfigurableApplicationContext applicationContext;
+  private ConfigurableApplicationContext applicationContext;
 
-  public AbstractComplexPropagationTest(
-      InstrumentationExtension testing, @Nullable Class<?> additionalContextClass) {
+  AbstractComplexPropagationTest(
+      InstrumentationExtension testing, Class<?> additionalContextClass) {
     this.testing = testing;
     this.additionalContextClass = additionalContextClass;
   }
@@ -56,15 +61,9 @@ public abstract class AbstractComplexPropagationTest {
     SpringApplication springApplication =
         new SpringApplication(contextClasses.toArray(new Class<?>[0]));
     springApplication.setDefaultProperties(
-        Collections.singletonMap("spring.main.web-application-type", "none"));
+        singletonMap("spring.main.web-application-type", "none"));
     applicationContext = springApplication.run();
-  }
-
-  @AfterEach
-  void tearDown() {
-    if (applicationContext != null) {
-      applicationContext.close();
-    }
+    cleanup.deferCleanup(applicationContext);
   }
 
   @Test
@@ -84,11 +83,23 @@ public abstract class AbstractComplexPropagationTest {
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("application.sendChannel process").hasKind(SpanKind.CONSUMER),
                 span ->
-                    span.hasName("application.receiveChannel process")
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? "process application.sendChannel"
+                                : "application.sendChannel process")
+                        .hasKind(SpanKind.CONSUMER)
+                        .hasAttributesSatisfyingExactly(
+                            messagingAttributes("process", "application.sendChannel")),
+                span ->
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? "process application.receiveChannel"
+                                : "application.receiveChannel process")
                         .hasParent(trace.getSpan(0))
-                        .hasKind(SpanKind.CONSUMER),
+                        .hasKind(SpanKind.CONSUMER)
+                        .hasAttributesSatisfyingExactly(
+                            messagingAttributes("process", "application.receiveChannel")),
                 span -> span.hasName("handler").hasParent(trace.getSpan(1))));
 
     receiveChannel.unsubscribe(messageHandler);
@@ -98,9 +109,14 @@ public abstract class AbstractComplexPropagationTest {
   @SpringBootConfiguration
   @EnableAutoConfiguration
   static class ExternalQueueConfig {
+    @Bean(destroyMethod = "shutdownNow")
+    ExecutorService sendChannelExecutor() {
+      return Executors.newSingleThreadExecutor();
+    }
+
     @Bean
     SubscribableChannel sendChannel() {
-      return new ExecutorChannel(Executors.newSingleThreadExecutor());
+      return new ExecutorChannel(sendChannelExecutor());
     }
 
     @Bean
@@ -129,7 +145,7 @@ public abstract class AbstractComplexPropagationTest {
                   try {
                     Payload payload = externalQueue().take();
                     receiveChannel().send(payload.toMessage());
-                  } catch (InterruptedException e) {
+                  } catch (InterruptedException ignored) {
                     Thread.currentThread().interrupt();
                   }
                 }
@@ -138,8 +154,8 @@ public abstract class AbstractComplexPropagationTest {
   }
 
   static class Payload {
-    String body;
-    Map<String, String> headers;
+    private final String body;
+    private final Map<String, String> headers;
 
     Payload(String body, Map<String, String> headers) {
       this.body = body;
@@ -151,7 +167,7 @@ public abstract class AbstractComplexPropagationTest {
       Map<String, String> headers =
           message.getHeaders().entrySet().stream()
               .filter(kv -> kv.getValue() instanceof String)
-              .collect(Collectors.toMap(Map.Entry::getKey, kv -> (String) kv.getValue()));
+              .collect(toMap(Map.Entry::getKey, kv -> (String) kv.getValue()));
       return new Payload(body, headers);
     }
 

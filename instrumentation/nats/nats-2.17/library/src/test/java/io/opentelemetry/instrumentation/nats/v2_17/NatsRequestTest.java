@@ -24,10 +24,10 @@ class NatsRequestTest extends AbstractNatsRequestTest {
   }
 
   @BeforeAll
-  static void beforeAll() throws IOException, InterruptedException {
+  void wrapConnection() throws IOException, InterruptedException {
     NatsTelemetry telemetry = NatsTelemetry.create(testing.getOpenTelemetry());
     connection =
-        telemetry.newConnection(
+        telemetry.createConnection(
             Options.builder().server(connection.getConnectedUrl()).build(), Nats::connect);
   }
 }

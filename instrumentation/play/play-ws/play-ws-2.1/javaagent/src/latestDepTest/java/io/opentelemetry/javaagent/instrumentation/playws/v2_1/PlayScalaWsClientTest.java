@@ -5,12 +5,13 @@
 
 package io.opentelemetry.javaagent.instrumentation.playws.v2_1;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
+
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientResult;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import play.api.libs.ws.StandaloneWSClient;
@@ -20,7 +21,6 @@ import play.api.libs.ws.ahc.StandaloneAhcWSClient;
 import scala.Function1;
 import scala.concurrent.Await;
 import scala.concurrent.ExecutionContext;
-import scala.concurrent.Future;
 import scala.concurrent.duration.Duration;
 import scala.jdk.javaapi.CollectionConverters;
 import scala.util.Try;
@@ -31,7 +31,7 @@ class PlayScalaWsClientTest extends PlayWsClientBaseTest<StandaloneWSRequest> {
   private static StandaloneWSClient wsClientWithReadTimeout;
 
   @BeforeAll
-  void setup() {
+  static void setup() {
     wsClient = new StandaloneAhcWSClient(asyncHttpClient, materializer);
     wsClientWithReadTimeout =
         new StandaloneAhcWSClient(asyncHttpClientWithReadTimeout, materializer);
@@ -57,14 +57,7 @@ class PlayScalaWsClientTest extends PlayWsClientBaseTest<StandaloneWSRequest> {
   public int sendRequest(
       StandaloneWSRequest request, String method, URI uri, Map<String, String> headers)
       throws Exception {
-    Future<StandaloneWSResponse> futureResponse = request.execute();
-    Await.ready(futureResponse, Duration.apply(10, TimeUnit.SECONDS));
-    Try<StandaloneWSResponse> value = futureResponse.value().get();
-    if (value.isSuccess()) {
-      return value.get().status();
-    }
-    // Catch the Throwable and rethrow it
-    throw (Exception) value.failed().get();
+    return Await.result(request.execute(), Duration.apply(10, SECONDS)).status();
   }
 
   @Override
@@ -92,7 +85,7 @@ class PlayScalaWsClientTest extends PlayWsClientBaseTest<StandaloneWSRequest> {
   }
 
   private static StandaloneWSClient getClient(URI uri) {
-    if (uri.toString().contains("/read-timeout")) {
+    if (uri.getPath().endsWith("/read-timeout")) {
       return wsClientWithReadTimeout;
     }
     return wsClient;

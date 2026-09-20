@@ -19,7 +19,7 @@ muzzle {
 }
 
 dependencies {
-  implementation(project(":instrumentation:couchbase:couchbase-2-common:javaagent"))
+  implementation(project(":instrumentation:couchbase:couchbase-common-2.0:javaagent"))
 
   library("com.couchbase.client:java-client:2.6.0")
 
@@ -29,10 +29,9 @@ dependencies {
   testLibrary("com.couchbase.client:encryption:1.0.0")
 
   testInstrumentation(project(":instrumentation:couchbase:couchbase-2.0:javaagent"))
+  testInstrumentation(project(":instrumentation:couchbase:couchbase-3.0:javaagent"))
   testInstrumentation(project(":instrumentation:couchbase:couchbase-3.1:javaagent"))
-  testInstrumentation(project(":instrumentation:couchbase:couchbase-3.1.6:javaagent"))
   testInstrumentation(project(":instrumentation:couchbase:couchbase-3.2:javaagent"))
-  testInstrumentation(project(":instrumentation:couchbase:couchbase-3.4:javaagent"))
 
   latestDepTestLibrary("org.springframework.data:spring-data-couchbase:3.1.+") // see couchbase-3.1 module
   latestDepTestLibrary("com.couchbase.client:java-client:2.+") // see couchbase-3.1 module
@@ -44,10 +43,10 @@ tasks {
     jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
     jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
 
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
@@ -55,7 +54,7 @@ tasks {
     systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
   }
 
-  val testExperimental by registering(Test::class) {
+  val testExperimental = register<Test>("testExperimental") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
@@ -67,7 +66,7 @@ tasks {
     dependsOn(testStableSemconv, testExperimental)
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }

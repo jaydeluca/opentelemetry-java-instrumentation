@@ -7,6 +7,7 @@ package io.opentelemetry.instrumentation.spring.webmvc.v6_0;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.incubator.builder.internal.DefaultHttpServerInstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanNameExtractor;
@@ -18,12 +19,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.util.Collection;
 import java.util.function.UnaryOperator;
 
-/** A builder of {@link SpringWebMvcTelemetry}. */
+/** Builder for {@link SpringWebMvcTelemetry}. */
 public final class SpringWebMvcTelemetryBuilder {
 
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.spring-webmvc-6.0";
-  private final DefaultHttpServerInstrumenterBuilder<HttpServletRequest, HttpServletResponse>
-      builder;
 
   static {
     SpringMvcBuilderUtil.setBuilderExtractor(builder -> builder.builder);
@@ -31,18 +30,21 @@ public final class SpringWebMvcTelemetryBuilder {
         (builder, emit) -> builder.builder.setEmitExperimentalHttpServerTelemetry(emit));
   }
 
+  private final DefaultHttpServerInstrumenterBuilder<HttpServletRequest, HttpServletResponse>
+      builder;
+
   SpringWebMvcTelemetryBuilder(OpenTelemetry openTelemetry) {
     builder =
         DefaultHttpServerInstrumenterBuilder.create(
             INSTRUMENTATION_NAME,
             openTelemetry,
-            SpringWebMvcHttpAttributesGetter.INSTANCE,
-            JakartaHttpServletRequestGetter.INSTANCE);
+            new SpringWebMvcHttpAttributesGetter(),
+            new JakartaHttpServletRequestGetter());
   }
 
   /**
-   * Adds an additional {@link AttributesExtractor} to invoke to set attributes to instrumented
-   * items.
+   * Adds an {@link AttributesExtractor} to extract attributes from requests and responses. Executed
+   * after all default extractors.
    */
   @CanIgnoreReturnValue
   public SpringWebMvcTelemetryBuilder addAttributesExtractor(
@@ -52,10 +54,34 @@ public final class SpringWebMvcTelemetryBuilder {
   }
 
   /**
-   * Configures the HTTP request headers that will be captured as span attributes.
+   * Configures which HTTP request headers are captured as span attributes.
    *
-   * @param requestHeaders A list of HTTP header names.
+   * <p>Header values are captured under the {@code http.request.header.<key>} attribute key. The
+   * {@code <key>} part in the attribute key is the lowercase header name.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
    */
+  @CanIgnoreReturnValue
+  public SpringWebMvcTelemetryBuilder setRequestHeaders(IncludeExclude requestHeaders) {
+    builder.setRequestHeaders(requestHeaders);
+    return this;
+  }
+
+  /**
+   * Configures HTTP request headers to capture as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
+   *
+   * @param requestHeaders HTTP header names to capture.
+   * @deprecated Use {@link #setRequestHeaders(IncludeExclude)} instead, which matches glob patterns
+   *     rather than literal header names. May be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public SpringWebMvcTelemetryBuilder setCapturedRequestHeaders(Collection<String> requestHeaders) {
     builder.setCapturedRequestHeaders(requestHeaders);
@@ -63,10 +89,34 @@ public final class SpringWebMvcTelemetryBuilder {
   }
 
   /**
-   * Configures the HTTP response headers that will be captured as span attributes.
+   * Configures which HTTP response headers are captured as span attributes.
    *
-   * @param responseHeaders A list of HTTP header names.
+   * <p>Header values are captured under the {@code http.response.header.<key>} attribute key. The
+   * {@code <key>} part in the attribute key is the lowercase header name.
+   *
+   * <p>Selector patterns are matched case-insensitively, since HTTP header names are
+   * case-insensitive. {@code ?} matches one character and {@code *} matches any number of
+   * characters, including none. Excluded patterns take precedence over included patterns. A
+   * selector with no included patterns captures every header that is not excluded, and an
+   * {@linkplain IncludeExclude#isEmpty() empty} selector captures no headers.
    */
+  @CanIgnoreReturnValue
+  public SpringWebMvcTelemetryBuilder setResponseHeaders(IncludeExclude responseHeaders) {
+    builder.setResponseHeaders(responseHeaders);
+    return this;
+  }
+
+  /**
+   * Configures HTTP response headers to capture as span attributes.
+   *
+   * <p>The header names are matched literally, so {@code *} and {@code ?} are not treated as glob
+   * patterns.
+   *
+   * @param responseHeaders HTTP header names to capture.
+   * @deprecated Use {@link #setResponseHeaders(IncludeExclude)} instead, which matches glob
+   *     patterns rather than literal header names. May be removed in the next minor release.
+   */
+  @Deprecated // may be removed in the next minor release
   @CanIgnoreReturnValue
   public SpringWebMvcTelemetryBuilder setCapturedResponseHeaders(
       Collection<String> responseHeaders) {
@@ -74,22 +124,7 @@ public final class SpringWebMvcTelemetryBuilder {
     return this;
   }
 
-  /**
-   * Sets custom {@link SpanNameExtractor} via transform function.
-   *
-   * @deprecated Use {@link #setSpanNameExtractorCustomizer(UnaryOperator)} instead.
-   */
-  @Deprecated
-  @CanIgnoreReturnValue
-  public SpringWebMvcTelemetryBuilder setSpanNameExtractor(
-      UnaryOperator<SpanNameExtractor<HttpServletRequest>> spanNameExtractor) {
-    return setSpanNameExtractorCustomizer(spanNameExtractor);
-  }
-
-  /**
-   * Sets a customizer that receives the default {@link SpanNameExtractor} and returns a customized
-   * one.
-   */
+  /** Customizes the {@link SpanNameExtractor} by transforming the default instance. */
   @CanIgnoreReturnValue
   public SpringWebMvcTelemetryBuilder setSpanNameExtractorCustomizer(
       UnaryOperator<SpanNameExtractor<HttpServletRequest>> spanNameExtractorCustomizer) {
@@ -98,16 +133,15 @@ public final class SpringWebMvcTelemetryBuilder {
   }
 
   /**
-   * Configures the instrumentation to recognize an alternative set of HTTP request methods.
+   * Configures recognized HTTP request methods.
    *
-   * <p>By default, this instrumentation defines "known" methods as the ones listed in <a
-   * href="https://www.rfc-editor.org/rfc/rfc9110.html#name-methods">RFC9110</a> and the PATCH
-   * method defined in <a href="https://www.rfc-editor.org/rfc/rfc5789.html">RFC5789</a>.
+   * <p>By default, recognizes methods from <a
+   * href="https://www.rfc-editor.org/rfc/rfc9110.html#name-methods">RFC9110</a> and PATCH from <a
+   * href="https://www.rfc-editor.org/rfc/rfc5789.html">RFC5789</a>.
    *
-   * <p>Note: calling this method <b>overrides</b> the default known method sets completely; it does
-   * not supplement it.
+   * <p><b>Note:</b> This <b>overrides</b> defaults completely; it does not supplement them.
    *
-   * @param knownMethods A set of recognized HTTP request methods.
+   * @param knownMethods HTTP request methods to recognize.
    * @see HttpServerAttributesExtractorBuilder#setKnownMethods(Collection)
    */
   @CanIgnoreReturnValue
@@ -116,10 +150,7 @@ public final class SpringWebMvcTelemetryBuilder {
     return this;
   }
 
-  /**
-   * Returns a new {@link SpringWebMvcTelemetry} with the settings of this {@link
-   * SpringWebMvcTelemetryBuilder}.
-   */
+  /** Returns a new instance with the configured settings. */
   public SpringWebMvcTelemetry build() {
     return new SpringWebMvcTelemetry(builder.build());
   }

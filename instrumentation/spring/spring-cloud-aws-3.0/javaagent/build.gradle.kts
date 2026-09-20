@@ -22,17 +22,37 @@ dependencies {
 
   testLibrary("org.springframework.boot:spring-boot-starter-test:3.0.0")
   testLibrary("org.springframework.boot:spring-boot-starter-web:3.0.0")
-
-  // tests don't work with spring boot 4 yet
-  latestDepTestLibrary("org.springframework.boot:spring-boot-starter-test:3.+") // documented limitation
-  latestDepTestLibrary("org.springframework.boot:spring-boot-starter-web:3.+") // documented limitation
 }
 
 otelJava {
   minJavaVersionSupported.set(JavaVersion.VERSION_17)
 }
 
-if (findProperty("denyUnsafe") as Boolean) {
+tasks {
+  val testMessagingPreview = register<Test>("testMessagingPreview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      includeTestsMatching("io.opentelemetry.javaagent.instrumentation.spring.cloud.aws.v3_0.AwsSqsTest")
+    }
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+  }
+
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      includeTestsMatching("io.opentelemetry.javaagent.instrumentation.spring.cloud.aws.v3_0.AwsSqsTest")
+    }
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+  }
+
+  check {
+    dependsOn(testMessagingPreview, testBothSemconv)
+  }
+}
+
+if (otelProps.denyUnsafe) {
   // org.elasticmq:elasticmq-rest-sqs_2.13 uses unsafe. Future versions are likely to fix this.
   tasks.withType<Test>().configureEach {
     enabled = false

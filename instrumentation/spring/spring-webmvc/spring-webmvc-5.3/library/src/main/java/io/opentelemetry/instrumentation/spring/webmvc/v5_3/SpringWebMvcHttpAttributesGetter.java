@@ -5,6 +5,9 @@
 
 package io.opentelemetry.instrumentation.spring.webmvc.v5_3;
 
+import static java.util.Collections.emptyList;
+
+import io.opentelemetry.instrumentation.api.internal.EnumerationUtil;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpServerAttributesGetter;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -15,12 +18,10 @@ import javax.annotation.Nullable;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-enum SpringWebMvcHttpAttributesGetter
+class SpringWebMvcHttpAttributesGetter
     implements HttpServerAttributesGetter<HttpServletRequest, HttpServletResponse> {
-  INSTANCE;
 
   @Override
-  @Nullable
   public String getHttpRequestMethod(HttpServletRequest request) {
     return request.getMethod();
   }
@@ -28,7 +29,12 @@ enum SpringWebMvcHttpAttributesGetter
   @Override
   public List<String> getHttpRequestHeader(HttpServletRequest request, String name) {
     Enumeration<String> headers = request.getHeaders(name);
-    return headers == null ? Collections.emptyList() : Collections.list(headers);
+    return headers == null ? emptyList() : Collections.list(headers);
+  }
+
+  @Override
+  public Iterable<String> getHttpRequestHeaderNames(HttpServletRequest request) {
+    return () -> EnumerationUtil.asIterator(request.getHeaderNames());
   }
 
   @Override
@@ -55,7 +61,7 @@ enum SpringWebMvcHttpAttributesGetter
       HttpServletRequest request, HttpServletResponse response, String name) {
     Collection<String> headers = response.getHeaders(name);
     if (headers == null) {
-      return Collections.emptyList();
+      return emptyList();
     }
     if (headers instanceof List) {
       return (List<String>) headers;
@@ -64,12 +70,17 @@ enum SpringWebMvcHttpAttributesGetter
   }
 
   @Override
-  @Nullable
+  public Collection<String> getHttpResponseHeaderNames(
+      HttpServletRequest request, HttpServletResponse response) {
+    Collection<String> headerNames = response.getHeaderNames();
+    return headerNames == null ? emptyList() : headerNames;
+  }
+
+  @Override
   public String getUrlScheme(HttpServletRequest request) {
     return request.getScheme();
   }
 
-  @Nullable
   @Override
   public String getUrlPath(HttpServletRequest request) {
     return request.getRequestURI();
@@ -104,7 +115,6 @@ enum SpringWebMvcHttpAttributesGetter
   }
 
   @Override
-  @Nullable
   public String getNetworkPeerAddress(
       HttpServletRequest request, @Nullable HttpServletResponse response) {
     return request.getRemoteAddr();
@@ -125,7 +135,7 @@ enum SpringWebMvcHttpAttributesGetter
 
   @Override
   public Integer getNetworkLocalPort(
-      HttpServletRequest request, @Nullable HttpServletResponse respo) {
+      HttpServletRequest request, @Nullable HttpServletResponse response) {
     return request.getLocalPort();
   }
 }

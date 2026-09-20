@@ -1,0 +1,48 @@
+display_name: Pekko HTTP
+description: >
+  This instrumentation enables HTTP client spans and metrics for the Pekko HTTP client, and HTTP
+  server spans and metrics for the Pekko HTTP server.
+library_link: https://pekko.apache.org/docs/pekko-http/current/index.html
+semantic_conventions:
+  - HTTP_CLIENT_SPANS
+  - HTTP_CLIENT_METRICS
+  - HTTP_SERVER_SPANS
+  - HTTP_SERVER_METRICS
+features:
+  - HTTP_ROUTE
+  - CONTEXT_PROPAGATION
+configurations:
+  - ref: http.known-methods
+  - ref: http.client.capture-request-headers
+  - ref: http.client.capture-response-headers
+  - ref: common.peer-service-mapping
+  - ref: http.client.emit-experimental-telemetry
+  - declarative_name: java.common.http.client.url_template_rules
+    description: >
+      Rules for deriving low-cardinality URL templates (routes) from HTTP client request URLs. Only
+      applied when experimental HTTP client telemetry is enabled.
+    type: list
+    default: ""
+    declarative_type: structured_list
+    declarative_schema:
+      type: object
+      required:
+        - pattern
+        - template
+      properties:
+        pattern:
+          type: string
+          description: Regular expression matched against the request URL.
+          example: '/users/\d+'
+        template:
+          type: string
+          description: Template used to derive the low-cardinality route.
+          example: '/users/{id}'
+        override:
+          type: boolean
+          default: false
+          description: Whether this rule overrides an already-applied template.
+  - ref: http.server.capture-request-headers
+  - ref: http.server.capture-response-headers
+  - ref: http.server.emit-experimental-telemetry
+  - ref: sanitization.url.sensitive-query-parameters

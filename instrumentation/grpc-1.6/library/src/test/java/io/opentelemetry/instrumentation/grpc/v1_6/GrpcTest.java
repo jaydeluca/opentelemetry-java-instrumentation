@@ -5,6 +5,13 @@
 
 package io.opentelemetry.instrumentation.grpc.v1_6;
 
+import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitOldRpcSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableRpcSemconv;
+import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import example.GreeterGrpc;
@@ -22,22 +29,20 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.LibraryInstrumentationExtension;
-import java.util.Collections;
-import java.util.concurrent.TimeUnit;
-import javax.annotation.Nullable;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GrpcTest extends AbstractGrpcTest {
 
   @RegisterExtension
   static final InstrumentationExtension testing = LibraryInstrumentationExtension.create();
-
-  private static final AttributeKey<String> CUSTOM_KEY = AttributeKey.stringKey("customKey");
-  private static final AttributeKey<String> CUSTOM_KEY2 = AttributeKey.stringKey("customKey2");
 
   private static final Metadata.Key<String> CUSTOM_METADATA_KEY =
       Metadata.Key.of("customMetadataKey", Metadata.ASCII_STRING_MARSHALLER);
@@ -46,25 +51,141 @@ class GrpcTest extends AbstractGrpcTest {
   protected ServerBuilder<?> configureServer(ServerBuilder<?> server) {
     return server.intercept(
         GrpcTelemetry.builder(testing.getOpenTelemetry())
-            .setCapturedServerRequestMetadata(
-                Collections.singletonList(SERVER_REQUEST_METADATA_KEY))
+            .setServerRequestMetadata(
+                IncludeExclude.builder()
+                    .setIncluded(singletonList(SERVER_REQUEST_METADATA_KEY))
+                    .build())
             .build()
-            .newServerInterceptor());
+            .createServerInterceptor());
   }
 
   @Override
   protected ManagedChannelBuilder<?> configureClient(ManagedChannelBuilder<?> client) {
     return client.intercept(
         GrpcTelemetry.builder(testing.getOpenTelemetry())
-            .setCapturedClientRequestMetadata(
-                Collections.singletonList(CLIENT_REQUEST_METADATA_KEY))
+            .setClientRequestMetadata(
+                IncludeExclude.builder()
+                    .setIncluded(singletonList(CLIENT_REQUEST_METADATA_KEY))
+                    .build())
             .build()
-            .newClientInterceptor());
+            .createClientInterceptor());
   }
 
   @Override
   protected InstrumentationExtension testing() {
     return testing;
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  @SuppressWarnings("deprecation")
+  void deprecatedRequestMetadataSetters(boolean captureMetadata) throws Exception {
+    List<String> clientCapturedMetadata =
+        captureMetadata ? singletonList(CLIENT_REQUEST_METADATA_KEY) : emptyList();
+    List<String> serverCapturedMetadata =
+        captureMetadata ? singletonList(SERVER_REQUEST_METADATA_KEY) : emptyList();
+
+    BindableService greeter =
+        new GreeterGrpc.GreeterImplBase() {
+          @Override
+          public void sayHello(
+              Helloworld.Request req, StreamObserver<Helloworld.Response> responseObserver) {
+            responseObserver.onNext(
+                Helloworld.Response.newBuilder().setMessage("Hello " + req.getName()).build());
+            responseObserver.onCompleted();
+          }
+        };
+
+    Server server =
+        ServerBuilder.forPort(0)
+            .addService(greeter)
+            .intercept(
+                GrpcTelemetry.builder(testing.getOpenTelemetry())
+                    .setCapturedServerRequestMetadata(serverCapturedMetadata)
+                    .build()
+                    .createServerInterceptor())
+            .build()
+            .start();
+    ManagedChannel channel =
+        createChannel(
+            ManagedChannelBuilder.forAddress("localhost", server.getPort())
+                .intercept(
+                    GrpcTelemetry.builder(testing.getOpenTelemetry())
+                        .setCapturedClientRequestMetadata(clientCapturedMetadata)
+                        .build()
+                        .createClientInterceptor()));
+    closer.add(() -> channel.shutdownNow().awaitTermination(10, SECONDS));
+    closer.add(() -> server.shutdownNow().awaitTermination());
+
+    String clientMetadataValue = "client-value";
+    String serverMetadataValue = "server-value";
+    Metadata metadata = new Metadata();
+    metadata.put(
+        Metadata.Key.of(CLIENT_REQUEST_METADATA_KEY, Metadata.ASCII_STRING_MARSHALLER),
+        clientMetadataValue);
+    metadata.put(
+        Metadata.Key.of(SERVER_REQUEST_METADATA_KEY, Metadata.ASCII_STRING_MARSHALLER),
+        serverMetadataValue);
+
+    GreeterGrpc.GreeterBlockingStub client =
+        GreeterGrpc.newBlockingStub(channel)
+            .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
+    Helloworld.Response response =
+        testing()
+            .runWithSpan(
+                "parent",
+                () -> client.sayHello(Helloworld.Request.newBuilder().setName("test").build()));
+
+    assertThat(response.getMessage()).isEqualTo("Hello test");
+
+    AttributeKey<List<String>> oldClientAttributeKey =
+        AttributeKey.stringArrayKey("rpc.grpc.request.metadata." + CLIENT_REQUEST_METADATA_KEY);
+    AttributeKey<List<String>> stableClientAttributeKey =
+        AttributeKey.stringArrayKey("rpc.request.metadata." + CLIENT_REQUEST_METADATA_KEY);
+    AttributeKey<List<String>> oldServerAttributeKey =
+        AttributeKey.stringArrayKey("rpc.grpc.request.metadata." + SERVER_REQUEST_METADATA_KEY);
+    AttributeKey<List<String>> stableServerAttributeKey =
+        AttributeKey.stringArrayKey("rpc.request.metadata." + SERVER_REQUEST_METADATA_KEY);
+
+    testing()
+        .waitAndAssertTraces(
+            trace ->
+                trace.hasSpansSatisfyingExactly(
+                    span -> span.hasName("parent").hasKind(SpanKind.INTERNAL).hasNoParent(),
+                    span ->
+                        span.hasName("example.Greeter/SayHello")
+                            .hasKind(SpanKind.CLIENT)
+                            .hasParent(trace.getSpan(0))
+                            .hasAttributesSatisfying(
+                                equalTo(
+                                    oldClientAttributeKey,
+                                    emitOldRpcSemconv() && captureMetadata
+                                        ? singletonList(clientMetadataValue)
+                                        : null),
+                                equalTo(
+                                    stableClientAttributeKey,
+                                    emitStableRpcSemconv() && captureMetadata
+                                        ? singletonList(clientMetadataValue)
+                                        : null),
+                                equalTo(oldServerAttributeKey, null),
+                                equalTo(stableServerAttributeKey, null)),
+                    span ->
+                        span.hasName("example.Greeter/SayHello")
+                            .hasKind(SpanKind.SERVER)
+                            .hasParent(trace.getSpan(1))
+                            .hasAttributesSatisfying(
+                                equalTo(oldClientAttributeKey, null),
+                                equalTo(stableClientAttributeKey, null),
+                                equalTo(
+                                    oldServerAttributeKey,
+                                    emitOldRpcSemconv() && captureMetadata
+                                        ? singletonList(serverMetadataValue)
+                                        : null),
+                                equalTo(
+                                    stableServerAttributeKey,
+                                    emitStableRpcSemconv() && captureMetadata
+                                        ? singletonList(serverMetadataValue)
+                                        : null))));
   }
 
   /**
@@ -94,7 +215,7 @@ class GrpcTest extends AbstractGrpcTest {
                     .addAttributesExtractor(new CustomAttributesExtractor())
                     .addServerAttributeExtractor(new CustomAttributesExtractorV2("serverSideValue"))
                     .build()
-                    .newServerInterceptor())
+                    .createServerInterceptor())
             .build()
             .start();
 
@@ -107,9 +228,9 @@ class GrpcTest extends AbstractGrpcTest {
                         .addClientAttributeExtractor(
                             new CustomAttributesExtractorV2("clientSideValue"))
                         .build()
-                        .newClientInterceptor()));
+                        .createClientInterceptor()));
 
-    closer.add(() -> channel.shutdownNow().awaitTermination(10, TimeUnit.SECONDS));
+    closer.add(() -> channel.shutdownNow().awaitTermination(10, SECONDS));
     closer.add(() -> server.shutdownNow().awaitTermination());
 
     Metadata extraMetadata = new Metadata();
@@ -136,14 +257,14 @@ class GrpcTest extends AbstractGrpcTest {
                         span.hasName("example.Greeter/SayHello")
                             .hasKind(SpanKind.CLIENT)
                             .hasParent(trace.getSpan(0))
-                            .hasAttribute(CUSTOM_KEY2, "clientSideValue")
-                            .hasAttribute(CUSTOM_KEY, "customValue"),
+                            .hasAttribute(stringKey("customKey2"), "clientSideValue")
+                            .hasAttribute(stringKey("customKey"), "customValue"),
                     span ->
                         span.hasName("example.Greeter/SayHello")
                             .hasKind(SpanKind.SERVER)
                             .hasParent(trace.getSpan(1))
-                            .hasAttribute(CUSTOM_KEY2, "serverSideValue")
-                            .hasAttribute(CUSTOM_KEY, "customValue")));
+                            .hasAttribute(stringKey("customKey2"), "serverSideValue")
+                            .hasAttribute(stringKey("customKey"), "customValue")));
   }
 
   private static class CustomAttributesExtractor
@@ -158,15 +279,12 @@ class GrpcTest extends AbstractGrpcTest {
         AttributesBuilder attributes,
         Context context,
         GrpcRequest grpcRequest,
-        @Nullable Status status,
-        @Nullable Throwable error) {
+        Status status,
+        Throwable error) {
 
       Metadata metadata = grpcRequest.getMetadata();
-      if (metadata != null && metadata.containsKey(CUSTOM_METADATA_KEY)) {
-        String value = metadata.get(CUSTOM_METADATA_KEY);
-        if (value != null) {
-          attributes.put(CUSTOM_KEY, value);
-        }
+      if (metadata != null) {
+        attributes.put(stringKey("customKey"), metadata.get(CUSTOM_METADATA_KEY));
       }
     }
   }
@@ -184,7 +302,7 @@ class GrpcTest extends AbstractGrpcTest {
     public void onStart(
         AttributesBuilder attributes, Context parentContext, GrpcRequest grpcRequest) {
 
-      attributes.put(CUSTOM_KEY2, valueOfKey2);
+      attributes.put(stringKey("customKey2"), valueOfKey2);
     }
 
     @Override
@@ -192,7 +310,7 @@ class GrpcTest extends AbstractGrpcTest {
         AttributesBuilder attributes,
         Context context,
         GrpcRequest grpcRequest,
-        @Nullable Status status,
-        @Nullable Throwable error) {}
+        Status status,
+        Throwable error) {}
   }
 }

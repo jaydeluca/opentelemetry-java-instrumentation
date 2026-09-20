@@ -5,22 +5,19 @@
 
 package io.opentelemetry.instrumentation.oracleucp;
 
-import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.db.DbConnectionPoolMetricsAssertions;
 import java.sql.Connection;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
+import java.util.Locale;
 import oracle.ucp.admin.UniversalConnectionPoolManagerImpl;
 import oracle.ucp.jdbc.PoolDataSource;
 import oracle.ucp.jdbc.PoolDataSourceFactory;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -34,7 +31,10 @@ public abstract class AbstractOracleUcpInstrumentationTest {
       LoggerFactory.getLogger(AbstractOracleUcpInstrumentationTest.class);
 
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.oracle-ucp-11.2";
-  private static OracleContainer oracle;
+  private static final OracleContainer oracle =
+      new OracleContainer("gvenzl/oracle-free:23-slim-faststart")
+          .withLogConsumer(new Slf4jLogConsumer(logger))
+          .withStartupTimeout(Duration.ofMinutes(2));
 
   protected abstract InstrumentationExtension testing();
 
@@ -42,36 +42,22 @@ public abstract class AbstractOracleUcpInstrumentationTest {
 
   protected abstract void shutdown(PoolDataSource connectionPool) throws Exception;
 
+  protected abstract String expectedPoolName(
+      PoolDataSource connectionPool, boolean explicitPoolName);
+
   @BeforeAll
   static void setUp() {
-    // This docker image does not work on arm mac. To run this test on arm mac read
-    // https://blog.jdriven.com/2022/07/running-oracle-xe-with-testcontainers-on-apple-silicon/
-    // install colima with brew install colima
-    // colima start --arch x86_64 --memory 4
-    // export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
-    // export DOCKER_HOST="unix://${HOME}/.colima/docker.sock"
-    String dockerHost = System.getenv("DOCKER_HOST");
-    if (!"aarch64".equals(System.getProperty("os.arch"))
-        || (dockerHost != null && dockerHost.contains("colima"))) {
-      oracle =
-          new OracleContainer("gvenzl/oracle-free:23.4-slim-faststart")
-              .withLogConsumer(new Slf4jLogConsumer(logger))
-              .withStartupTimeout(Duration.ofMinutes(2));
-      oracle.start();
-    }
+    oracle.start();
   }
 
   @AfterAll
   static void cleanUp() {
-    if (oracle != null) {
-      oracle.stop();
-    }
+    oracle.stop();
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
   void shouldReportMetrics(boolean setExplicitPoolName) throws Exception {
-    Assumptions.assumeTrue(oracle != null);
 
     // given
     PoolDataSource connectionPool = PoolDataSourceFactory.getPoolDataSource();
@@ -84,14 +70,14 @@ public abstract class AbstractOracleUcpInstrumentationTest {
     }
 
     // when
-    Connection connection = connectionPool.getConnection();
-    configure(connectionPool);
-    TimeUnit.MILLISECONDS.sleep(100);
-    connection.close();
+    try (Connection connection = connectionPool.getConnection()) {
+      configure(connectionPool);
+      MILLISECONDS.sleep(100);
+    }
 
     // then
     DbConnectionPoolMetricsAssertions.create(
-            testing(), INSTRUMENTATION_NAME, connectionPool.getConnectionPoolName())
+            testing(), INSTRUMENTATION_NAME, expectedPoolName(connectionPool, setExplicitPoolName))
         .disableMinIdleConnections()
         .disableMaxIdleConnections()
         .disableConnectionTimeouts()
@@ -101,33 +87,42 @@ public abstract class AbstractOracleUcpInstrumentationTest {
         .assertConnectionPoolEmitsMetrics();
 
     // when
-    // this one too shouldn't cause any problems when called more than once
-    connectionPool.getConnection().close();
-    connectionPool.getConnection().close();
+    // verify that borrowing connections after instrumentation doesn't throw
+    try (Connection connection = connectionPool.getConnection()) {
+      // doesn't throw
+    }
+    try (Connection connection = connectionPool.getConnection()) {
+      // doesn't throw
+    }
 
     shutdown(connectionPool);
     UniversalConnectionPoolManagerImpl.getUniversalConnectionPoolManager()
         .destroyConnectionPool(connectionPool.getConnectionPoolName());
 
-    // sleep exporter interval
-    Thread.sleep(100);
-    testing().clearData();
-    Thread.sleep(100);
+    assertNoConnectionPoolMetrics();
+  }
 
-    // then
-    Set<String> metricNames =
-        new HashSet<>(
-            Arrays.asList(
-                emitStableDatabaseSemconv()
-                    ? "db.client.connection.count"
-                    : "db.client.connections.usage",
-                "db.client.connections.max",
-                "db.client.connections.pending_requests"));
-    assertThat(testing().metrics())
-        .filteredOn(
-            metricData ->
-                metricData.getInstrumentationScopeInfo().getName().equals(INSTRUMENTATION_NAME)
-                    && metricNames.contains(metricData.getName()))
-        .isEmpty();
+  protected static String expectedDefaultMetricPoolName() {
+    return oracle.getHost().toLowerCase(Locale.ROOT)
+        + ":"
+        + oracle.getOraclePort()
+        + "/"
+        + oracle.getDatabaseName().toLowerCase(Locale.ROOT);
+  }
+
+  private void assertNoConnectionPoolMetrics() {
+    testing().clearData();
+
+    await()
+        .untilAsserted(
+            () ->
+                assertThat(testing().metrics())
+                    .filteredOn(
+                        metricData ->
+                            metricData
+                                .getInstrumentationScopeInfo()
+                                .getName()
+                                .equals(INSTRUMENTATION_NAME))
+                    .isEmpty());
   }
 }

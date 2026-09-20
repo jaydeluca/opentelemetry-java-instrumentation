@@ -5,26 +5,37 @@
 
 package io.opentelemetry.instrumentation.spring.integration.v4_1;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
+
 import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingAttributesGetter;
-import java.util.Collections;
+import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nullable;
 
 // this class is needed mostly for correct CONSUMER span suppression
-enum SpringMessagingAttributesGetter
+final class SpringMessagingAttributesGetter
     implements MessagingAttributesGetter<MessageWithChannel, Void> {
-  INSTANCE;
 
-  @Override
-  @Nullable
-  public String getSystem(MessageWithChannel messageWithChannel) {
-    return null;
+  private final boolean spanNameGetter;
+
+  SpringMessagingAttributesGetter(boolean spanNameGetter) {
+    this.spanNameGetter = spanNameGetter;
   }
 
-  @Override
   @Nullable
+  @Override
+  public String getSystem(MessageWithChannel messageWithChannel) {
+    return emitStableMessagingSemconv() ? "spring_integration" : null;
+  }
+
+  @Nullable
+  @Override
   public String getDestination(MessageWithChannel messageWithChannel) {
-    return null;
+    return spanNameGetter || emitStableMessagingSemconv()
+        ? messageWithChannel.getChannelName()
+        : null;
   }
 
   @Nullable
@@ -83,8 +94,14 @@ enum SpringMessagingAttributesGetter
   public List<String> getMessageHeader(MessageWithChannel request, String name) {
     Object value = request.getMessage().getHeaders().get(name);
     if (value != null) {
-      return Collections.singletonList(value.toString());
+      return singletonList(value.toString());
     }
-    return Collections.emptyList();
+    return emptyList();
+  }
+
+  @Override
+  public Collection<String> getMessageHeaderNames(MessageWithChannel request) {
+    // MessageHeaders is immutable
+    return request.getMessage().getHeaders().keySet();
   }
 }

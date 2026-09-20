@@ -5,6 +5,8 @@
 
 package io.opentelemetry.javaagent.instrumentation.kafkaconnect.v2_6;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
 import static io.opentelemetry.javaagent.instrumentation.kafkaconnect.v2_6.KafkaConnectSingletons.instrumenter;
 import static net.bytebuddy.matcher.ElementMatchers.hasSuperType;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
@@ -22,7 +24,12 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 import org.apache.kafka.connect.sink.SinkRecord;
 
-public class SinkTaskInstrumentation implements TypeInstrumentation {
+class SinkTaskInstrumentation implements TypeInstrumentation {
+
+  @Override
+  public ElementMatcher<ClassLoader> classLoaderOptimization() {
+    return hasClassesNamed("org.apache.kafka.connect.sink.SinkTask");
+  }
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -33,7 +40,7 @@ public class SinkTaskInstrumentation implements TypeInstrumentation {
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
         named("put").and(takesArgument(0, Collection.class)).and(isPublic()),
-        SinkTaskInstrumentation.class.getName() + "$SinkTaskPutAdvice");
+        getClass().getName() + "$SinkTaskPutAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -52,6 +59,14 @@ public class SinkTaskInstrumentation implements TypeInstrumentation {
 
       @Nullable
       public static AdviceScope start(Collection<SinkRecord> records) {
+        // Kafka Connect calls put() on every worker iteration, including when the preceding poll
+        // returned nothing. An empty batch delivers no message, so under stable/v3 semconv it does
+        // not start a process operation at all, matching kafka-clients, which attaches no process
+        // context to an empty poll. Legacy behavior is preserved: it kept spanning empty batches.
+        if (records.isEmpty() && emitStableMessagingSemconv()) {
+          return null;
+        }
+
         Context parentContext = Context.current();
 
         KafkaConnectTask task = new KafkaConnectTask(records);
@@ -70,12 +85,12 @@ public class SinkTaskInstrumentation implements TypeInstrumentation {
     }
 
     @Nullable
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static AdviceScope onEnter(@Advice.Argument(0) Collection<SinkRecord> records) {
       return AdviceScope.start(records);
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void onExit(
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable AdviceScope adviceScope) {

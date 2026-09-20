@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
   id("org.jetbrains.kotlin.jvm")
   id("otel.javaagent-instrumentation")
+  id("otel.nullaway-conventions")
 }
 
 muzzle {
@@ -16,6 +17,7 @@ muzzle {
     group.set("org.jetbrains.kotlinx")
     module.set("kotlinx-coroutines-core-jvm")
     versions.set("[1.3.9,)")
+    assertInverse.set(true)
   }
 }
 

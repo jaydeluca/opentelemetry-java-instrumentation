@@ -5,11 +5,15 @@
 
 package io.opentelemetry.instrumentation.kafkaclients.v2_6.internal;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static java.util.Collections.emptyMap;
+
 import io.opentelemetry.context.Context;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.api.internal.InstrumenterUtil;
 import io.opentelemetry.instrumentation.api.internal.Timer;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaConsumerContext;
+import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaConsumerContextUtil;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaProcessRequest;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaReceiveRequest;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaUtil;
@@ -17,6 +21,7 @@ import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.Traci
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -29,7 +34,6 @@ import org.apache.kafka.common.TopicPartition;
  * at any time.
  */
 public class KafkaConsumerTelemetry {
-
   private final Instrumenter<KafkaReceiveRequest, Void> consumerReceiveInstrumenter;
   private final Instrumenter<KafkaProcessRequest, Void> consumerProcessInstrumenter;
 
@@ -57,36 +61,74 @@ public class KafkaConsumerTelemetry {
     return new ConsumerRecords<>(records);
   }
 
+  @Nullable
   public <K, V> Context buildAndFinishSpan(
       ConsumerRecords<K, V> records, Consumer<K, V> consumer, Timer timer) {
     return buildAndFinishSpan(
         records, KafkaUtil.getConsumerGroup(consumer), KafkaUtil.getClientId(consumer), timer);
   }
 
-  public <K, V> Context buildAndFinishSpan(
-      ConsumerRecords<K, V> records, String consumerGroup, String clientId, Timer timer) {
+  @Nullable
+  <K, V> Context buildAndFinishSpan(
+      ConsumerRecords<K, V> records, @Nullable String consumerGroup, @Nullable String clientId) {
+    return buildAndFinishSpan(records, consumerGroup, clientId, null);
+  }
+
+  @Nullable
+  private <K, V> Context buildAndFinishSpan(
+      ConsumerRecords<K, V> records,
+      @Nullable String consumerGroup,
+      @Nullable String clientId,
+      @Nullable Timer timer) {
     if (records.isEmpty()) {
       return null;
     }
-    Context parentContext = Context.current();
+    Context parentContext = KafkaConsumerContextUtil.withoutLeakedProcessSpan(Context.current());
     KafkaReceiveRequest request = KafkaReceiveRequest.create(records, consumerGroup, clientId);
-    Context context = null;
+    Context receiveContext = null;
+    boolean receiveOperationStarted = false;
     if (consumerReceiveInstrumenter.shouldStart(parentContext, request)) {
-      context =
-          InstrumenterUtil.startAndEnd(
-              consumerReceiveInstrumenter,
-              parentContext,
-              request,
-              null,
-              null,
-              timer.startTime(),
-              timer.now());
+      if (timer == null) {
+        // The interceptor runs after poll, so let the SDK time an immediate span, not poll
+        // duration.
+        receiveContext = consumerReceiveInstrumenter.start(parentContext, request);
+        consumerReceiveInstrumenter.end(receiveContext, request, null, null);
+      } else {
+        receiveContext =
+            InstrumenterUtil.startAndEnd(
+                consumerReceiveInstrumenter,
+                parentContext,
+                request,
+                null,
+                null,
+                timer.startTime(),
+                timer.now());
+      }
+      receiveOperationStarted = true;
     }
 
-    // we're returning the context of the receive span so that process spans can use it as
-    // parent context even though the span has ended
-    // this is the suggested behavior according to the spec batch receive scenario:
-    // https://github.com/open-telemetry/semantic-conventions/blob/main/docs/messaging/messaging-spans.md#batch-receiving
-    return context;
+    if (!emitStableMessagingSemconv()) {
+      return receiveContext;
+    }
+    return KafkaConsumerContextUtil.withReceiveOperation(parentContext, receiveOperationStarted);
+  }
+
+  public <K, V> void buildAndFinishErrorSpan(
+      Consumer<K, V> consumer, Timer timer, Throwable error) {
+    Context parentContext = KafkaConsumerContextUtil.withoutLeakedProcessSpan(Context.current());
+    ConsumerRecords<K, V> records = new ConsumerRecords<>(emptyMap());
+    KafkaReceiveRequest request =
+        KafkaReceiveRequest.create(
+            records, KafkaUtil.getConsumerGroup(consumer), KafkaUtil.getClientId(consumer));
+    if (consumerReceiveInstrumenter.shouldStart(parentContext, request)) {
+      InstrumenterUtil.startAndEnd(
+          consumerReceiveInstrumenter,
+          parentContext,
+          request,
+          null,
+          error,
+          timer.startTime(),
+          timer.now());
+    }
   }
 }

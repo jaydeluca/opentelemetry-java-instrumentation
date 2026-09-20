@@ -8,6 +8,7 @@ package io.opentelemetry.instrumentation.okhttp.v3_0.internal;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesGetter;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nullable;
 import okhttp3.Connection;
@@ -18,9 +19,9 @@ import okhttp3.Response;
  * This class is internal and is hence not for public use. Its APIs are unstable and can change at
  * any time.
  */
-public enum OkHttpAttributesGetter
+@SuppressWarnings("deprecation") // SPDY_3 is deprecated but still used in okhttp 3.x
+public final class OkHttpAttributesGetter
     implements HttpClientAttributesGetter<Interceptor.Chain, Response> {
-  INSTANCE;
 
   @Override
   public String getHttpRequestMethod(Interceptor.Chain chain) {
@@ -38,6 +39,11 @@ public enum OkHttpAttributesGetter
   }
 
   @Override
+  public Collection<String> getHttpRequestHeaderNames(Interceptor.Chain chain) {
+    return chain.request().headers().names();
+  }
+
+  @Override
   public Integer getHttpResponseStatusCode(
       Interceptor.Chain chain, Response response, @Nullable Throwable error) {
     return response.code();
@@ -47,6 +53,11 @@ public enum OkHttpAttributesGetter
   public List<String> getHttpResponseHeader(
       Interceptor.Chain chain, Response response, String name) {
     return response.headers(name);
+  }
+
+  @Override
+  public Collection<String> getHttpResponseHeaderNames(Interceptor.Chain chain, Response response) {
+    return response.headers().names();
   }
 
   @Nullable
@@ -62,10 +73,11 @@ public enum OkHttpAttributesGetter
         return "http";
       case SPDY_3:
         return "spdy";
-    }
-    // added in 3.11.0
-    if ("H2_PRIOR_KNOWLEDGE".equals(response.protocol().name())) {
-      return "http";
+      default:
+        // added in 3.11.0
+        if ("H2_PRIOR_KNOWLEDGE".equals(response.protocol().name())) {
+          return "http";
+        }
     }
     return null;
   }
@@ -85,10 +97,11 @@ public enum OkHttpAttributesGetter
         return "2";
       case SPDY_3:
         return "3.1";
-    }
-    // added in 3.11.0
-    if ("H2_PRIOR_KNOWLEDGE".equals(response.protocol().name())) {
-      return "2";
+      default:
+        // added in 3.11.0
+        if ("H2_PRIOR_KNOWLEDGE".equals(response.protocol().name())) {
+          return "2";
+        }
     }
     return null;
   }

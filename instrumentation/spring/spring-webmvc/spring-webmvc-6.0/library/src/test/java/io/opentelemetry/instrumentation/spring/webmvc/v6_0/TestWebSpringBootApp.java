@@ -14,7 +14,6 @@ import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.QUERY_PARAM;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.REDIRECT;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.SUCCESS;
-import static java.util.Collections.singletonList;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.context.Context;
@@ -56,8 +55,8 @@ class TestWebSpringBootApp {
   @Bean
   Filter telemetryFilter() {
     return SpringWebMvcTelemetry.builder(GlobalOpenTelemetry.get())
-        .setCapturedRequestHeaders(singletonList(AbstractHttpServerTest.TEST_REQUEST_HEADER))
-        .setCapturedResponseHeaders(singletonList(AbstractHttpServerTest.TEST_RESPONSE_HEADER))
+        .setRequestHeaders(AbstractHttpServerTest.TEST_HEADERS)
+        .setResponseHeaders(AbstractHttpServerTest.TEST_HEADERS)
         .build()
         .createServletFilter();
   }
@@ -73,7 +72,7 @@ class TestWebSpringBootApp {
 
     @RequestMapping("/query")
     @ResponseBody
-    String query_param(@RequestParam("some") String param) {
+    String queryParam(@RequestParam("some") String param) {
       return controller(QUERY_PARAM, () -> "some=" + param);
     }
 
@@ -100,7 +99,7 @@ class TestWebSpringBootApp {
     }
 
     @RequestMapping("/captureHeaders")
-    ResponseEntity<String> capture_headers(
+    ResponseEntity<String> captureHeaders(
         @RequestHeader("X-Test-Request") String testRequestHeader) {
       return controller(
           CAPTURE_HEADERS,
@@ -112,13 +111,13 @@ class TestWebSpringBootApp {
 
     @RequestMapping("/path/{id}/param")
     @ResponseBody
-    String path_param(@PathVariable("id") int id) {
+    String pathParam(@PathVariable("id") int id) {
       return controller(PATH_PARAM, () -> String.valueOf(id));
     }
 
     @RequestMapping("/child")
     @ResponseBody
-    String indexed_child(@RequestParam("id") String id) {
+    String indexedChild(@RequestParam("id") String id) {
       return controller(
           INDEXED_CHILD,
           () -> {

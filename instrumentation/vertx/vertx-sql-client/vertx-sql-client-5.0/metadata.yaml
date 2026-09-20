@@ -1,0 +1,10 @@
+display_name: Vert.x SQL Client
+description: >
+  This instrumentation enables database client spans and database client metrics for Vert.x SQL
+  Client operations.
+semantic_conventions:
+  - DATABASE_CLIENT_SPANS
+  - DATABASE_CLIENT_METRICS
+library_link: https://github.com/eclipse-vertx/vertx-sql-client
+configurations:
+  - ref: common.db.query-sanitization.enabled

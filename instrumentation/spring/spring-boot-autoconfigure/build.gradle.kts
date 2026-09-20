@@ -6,7 +6,8 @@ plugins {
 base.archivesName.set("opentelemetry-spring-boot-autoconfigure")
 group = "io.opentelemetry.instrumentation"
 
-val springBootVersion = "2.7.18" // AutoConfiguration is added in 2.7.0, but can be used with older versions
+val springBootVersion =
+  "2.7.18" // AutoConfiguration is added in 2.7.0, but can be used with older versions
 
 // r2dbc-proxy is shadowed to prevent org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration
 // from being loaded by Spring Boot (by the presence of META-INF/services/io.r2dbc.spi.ConnectionFactoryProvider) - even if the user doesn't want to use R2DBC.
@@ -31,11 +32,13 @@ sourceSets {
 }
 
 configurations {
+  // the javaSpring3 and javaSpring4 source sets are bundled into the main jar, so they need to see
+  // the same dependencies as the main source set
   named("javaSpring3CompileOnly") {
-    extendsFrom(configurations["compileOnly"])
+    extendsFrom(configurations["compileOnly"], configurations["implementation"])
   }
   named("javaSpring4CompileOnly") {
-    extendsFrom(configurations["compileOnly"])
+    extendsFrom(configurations["compileOnly"], configurations["implementation"])
   }
 }
 
@@ -49,7 +52,12 @@ dependencies {
   implementation(project(":instrumentation-annotations-support"))
   implementation(project(":instrumentation:kafka:kafka-clients:kafka-clients-2.6:library"))
   implementation(project(":instrumentation:mongo:mongo-3.1:library"))
-  compileOnly(project(path = ":instrumentation:r2dbc-1.0:library-instrumentation-shaded", configuration = "shadow"))
+  compileOnly(
+    project(
+      path = ":instrumentation:r2dbc-1.0:library-instrumentation-shaded",
+      configuration = "shadow"
+    )
+  )
   implementation(project(":instrumentation:spring:spring-kafka-2.7:library"))
   implementation(project(":instrumentation:spring:spring-web:spring-web-3.1:library"))
   implementation(project(":instrumentation:spring:spring-webmvc:spring-webmvc-5.3:library"))
@@ -62,8 +70,7 @@ dependencies {
   implementation(project(":instrumentation:logback:logback-mdc-1.0:library"))
   compileOnly("ch.qos.logback:logback-classic:1.0.0")
   implementation(project(":instrumentation:jdbc:library"))
-  implementation(project(":instrumentation:runtime-telemetry:runtime-telemetry-java8:library"))
-  implementation(project(":instrumentation:runtime-telemetry:runtime-telemetry-java17:library"))
+  implementation(project(":instrumentation:runtime-telemetry:library"))
 
   library("org.springframework.boot:spring-boot-starter-actuator:$springBootVersion")
   library("org.springframework.boot:spring-boot-starter-aop:$springBootVersion")
@@ -73,8 +80,10 @@ dependencies {
   library("org.springframework.boot:spring-boot-starter-data-r2dbc:$springBootVersion")
   library("org.springframework.boot:spring-boot-starter-data-jdbc:$springBootVersion")
 
+  // TODO: Remove in 3.0.0; retained for compatibility with the 2.x Spring artifacts.
+  api("io.opentelemetry.semconv:opentelemetry-semconv")
   implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
-  implementation("io.opentelemetry:opentelemetry-sdk-extension-incubator")
+  implementation("io.opentelemetry:opentelemetry-sdk-extension-declarative-config")
   implementation(project(":sdk-autoconfigure-support"))
   implementation(project(":declarative-config-bridge"))
   compileOnly("io.opentelemetry:opentelemetry-extension-trace-propagators")
@@ -99,6 +108,7 @@ dependencies {
 
   testImplementation("io.opentelemetry:opentelemetry-sdk")
   testImplementation("io.opentelemetry:opentelemetry-sdk-testing")
+  testImplementation("io.opentelemetry:opentelemetry-api-incubator")
   testImplementation(project(":instrumentation:resources:library"))
   testImplementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure-spi")
   testImplementation("io.opentelemetry:opentelemetry-extension-trace-propagators")
@@ -114,12 +124,18 @@ dependencies {
   // needed for the Spring Boot 3 support
   implementation(project(":instrumentation:spring:spring-webmvc:spring-webmvc-6.0:library"))
 
-  // give access to common classes, e.g. InstrumentationConfigUtil
+  // give access to common classes
   add("javaSpring3CompileOnly", files(sourceSets.main.get().output.classesDirs))
   add("javaSpring3CompileOnly", "org.springframework.boot:spring-boot-starter-web:3.2.4")
   add("javaSpring3CompileOnly", "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
-  add("javaSpring3CompileOnly", project(":instrumentation:spring:spring-web:spring-web-3.1:library"))
-  add("javaSpring3CompileOnly", project(":instrumentation:spring:spring-webmvc:spring-webmvc-6.0:library"))
+  add(
+    "javaSpring3CompileOnly",
+    project(":instrumentation:spring:spring-web:spring-web-3.1:library")
+  )
+  add(
+    "javaSpring3CompileOnly",
+    project(":instrumentation:spring:spring-webmvc:spring-webmvc-6.0:library")
+  )
 
   // Spring Boot 4
   add("javaSpring4CompileOnly", files(sourceSets.main.get().output.classesDirs))
@@ -128,34 +144,44 @@ dependencies {
   add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-jdbc:4.0.0")
   add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-starter-jdbc:4.0.0")
   add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-restclient:4.0.0")
+  add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-webclient:4.0.0")
   add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-starter-data-mongodb:4.0.0")
-  add("javaSpring4CompileOnly", "org.springframework.boot:spring-boot-starter-micrometer-metrics:4.0.0")
-  add("javaSpring4CompileOnly", project(":instrumentation:kafka:kafka-clients:kafka-clients-2.6:library"))
+  add(
+    "javaSpring4CompileOnly",
+    "org.springframework.boot:spring-boot-starter-micrometer-metrics:4.0.0"
+  )
+  add(
+    "javaSpring4CompileOnly",
+    project(":instrumentation:kafka:kafka-clients:kafka-clients-2.6:library")
+  )
   add("javaSpring4CompileOnly", project(":instrumentation:spring:spring-kafka-2.7:library"))
   add("javaSpring4CompileOnly", project(":instrumentation:mongo:mongo-3.1:library"))
   add("javaSpring4CompileOnly", project(":instrumentation:micrometer:micrometer-1.5:library"))
+  add(
+    "javaSpring4CompileOnly",
+    project(":instrumentation:spring:spring-web:spring-web-3.1:library")
+  )
+  add("javaSpring4CompileOnly", project(":instrumentation:spring:spring-webflux:spring-webflux-5.3:library"))
 }
 
-val latestDepTest = findProperty("testLatestDeps") as Boolean
-
 // spring 6 (spring boot 3) requires java 17
-if (latestDepTest) {
+if (otelProps.testLatestDeps) {
   otelJava {
     minJavaVersionSupported.set(JavaVersion.VERSION_17)
   }
 }
 
-val testJavaVersion = gradle.startParameter.projectProperties["testJavaVersion"]?.let(JavaVersion::toVersion)
-val testSpring3 = (testJavaVersion == null || testJavaVersion.compareTo(JavaVersion.VERSION_17) >= 0)
+val testJavaVersion = otelProps.testJavaVersion
+val testSpring3 =
+  (testJavaVersion == null || testJavaVersion.compareTo(JavaVersion.VERSION_17) >= 0)
 
 testing {
   suites {
-    val testLogbackAppender by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testLogbackAppender") {
       dependencies {
         implementation(project())
         implementation("io.opentelemetry:opentelemetry-sdk")
         implementation("io.opentelemetry:opentelemetry-sdk-testing")
-        implementation("org.mockito:mockito-inline")
         implementation("org.springframework.boot:spring-boot-autoconfigure:$springBootVersion")
 
         implementation(project(":instrumentation:logback:logback-appender-1.0:library"))
@@ -174,7 +200,7 @@ testing {
       }
     }
 
-    val testLogbackMissing by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testLogbackMissing") {
       dependencies {
         implementation(project())
         implementation("org.springframework.boot:spring-boot-autoconfigure:$springBootVersion")
@@ -187,7 +213,7 @@ testing {
       }
     }
 
-    val testSpring2 by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testSpring2") {
       dependencies {
         implementation(project())
         implementation("io.opentelemetry:opentelemetry-sdk")
@@ -197,13 +223,14 @@ testing {
         implementation(project(":instrumentation:micrometer:micrometer-1.5:library"))
         implementation(project(":instrumentation:spring:spring-boot-autoconfigure:testing"))
         // configure Spring Boot 3.x dependencies for latest dep testing
-        val version = if (latestDepTest) "3.+" else springBootVersion
+        val version = baseVersion(springBootVersion).orLatest("3.+")
         implementation("org.springframework.boot:spring-boot-starter-test:$version")
         implementation("org.springframework.boot:spring-boot-starter-actuator:$version")
         implementation("org.springframework.boot:spring-boot-starter-web:$version")
+        implementation("org.springframework.boot:spring-boot-starter-webflux:$version")
         implementation("org.springframework.boot:spring-boot-starter-jdbc:$version")
         implementation("org.springframework.boot:spring-boot-starter-data-r2dbc:$version")
-        val springKafkaVersion = if (latestDepTest) "3.+" else "2.9.0"
+        val springKafkaVersion = baseVersion("2.9.0").orLatest("3.+")
         implementation("org.springframework.kafka:spring-kafka:$springKafkaVersion")
         implementation("javax.servlet:javax.servlet-api:3.1.0")
         runtimeOnly("com.h2database:h2:1.4.197")
@@ -211,26 +238,28 @@ testing {
       }
     }
 
-    val testSpring3 by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testSpring3") {
       dependencies {
         implementation(project())
-        val version = if (latestDepTest) "3.+" else "3.2.4"
+        val version = baseVersion("3.2.4").orLatest("3.+")
         implementation("org.springframework.boot:spring-boot-starter-web:$version")
         implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
         implementation(project(":instrumentation:spring:spring-web:spring-web-3.1:library"))
         implementation(project(":instrumentation:spring:spring-webmvc:spring-webmvc-6.0:library"))
         implementation("jakarta.servlet:jakarta.servlet-api:5.0.0")
         implementation("org.springframework.boot:spring-boot-starter-test:$version")
+        implementation(project(":instrumentation:spring:spring-boot-autoconfigure:testing"))
       }
     }
 
-    val testSpring4 by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testSpring4") {
       dependencies {
         implementation(project())
         implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure")
-        val version = if (latestDepTest) "latest.release" else "4.0.0"
+        val version = baseVersion("4.0.0").orLatest()
         implementation("org.springframework.boot:spring-boot-starter-jdbc:$version")
         implementation("org.springframework.boot:spring-boot-restclient:$version")
+        implementation("org.springframework.boot:spring-boot-webclient:$version")
         implementation("org.springframework.boot:spring-boot-starter-kafka:$version")
         implementation("org.springframework.boot:spring-boot-starter-actuator:$version")
         implementation("org.springframework.boot:spring-boot-starter-data-r2dbc:$version")
@@ -246,11 +275,13 @@ testing {
       }
     }
 
-    val testDeclarativeConfig by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testDeclarativeConfig") {
       dependencies {
         implementation(project())
         implementation("io.opentelemetry:opentelemetry-sdk")
         implementation("io.opentelemetry:opentelemetry-exporter-otlp")
+        implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure-spi")
+        implementation("io.opentelemetry:opentelemetry-sdk-extension-declarative-config")
         implementation("org.springframework.boot:spring-boot-starter-test:$springBootVersion") {
           exclude("org.junit.vintage", "junit-vintage-engine")
         }
@@ -272,10 +303,12 @@ tasks {
   }
 
   withType<Test>().configureEach {
-    systemProperty("testLatestDeps", latestDepTest)
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
 
     // required on jdk17
     jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+    // for @SetEnvironmentVariable
+    jvmArgs("--add-opens=java.base/java.util=ALL-UNNAMED")
     jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
   }
 
@@ -331,13 +364,19 @@ tasks {
     from(sourceSets["javaSpring4"].java)
   }
 
-  val testStableSemconv by registering(Test::class) {
-    testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
-    jvmArgs("-Dotel.semconv-stability.opt-in=database")
-  }
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .matching { it.name == "test" || it.name == "testSpring2" || it.name == "testSpring4" }
+    .map { suite ->
+      register<Test>("${suite.name}StableSemconv") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        jvmArgs("-Dotel.semconv-stability.opt-in=database")
+        isEnabled = project.tasks.named(suite.name).get().enabled
+      }
+    }
 
   check {
-    dependsOn(testing.suites, testStableSemconv)
+    dependsOn(testing.suites, stableSemconvSuites)
   }
 }

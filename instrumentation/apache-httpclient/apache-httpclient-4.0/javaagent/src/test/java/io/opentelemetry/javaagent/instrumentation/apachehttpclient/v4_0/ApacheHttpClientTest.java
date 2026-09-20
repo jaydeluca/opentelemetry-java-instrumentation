@@ -59,7 +59,7 @@ class ApacheHttpClientTest {
   }
 
   private DefaultHttpClient getClient(URI uri) {
-    if (uri.toString().contains("/read-timeout")) {
+    if (uri.getPath().endsWith("/read-timeout")) {
       return clientWithReadTimeout;
     }
     return client;
@@ -76,13 +76,13 @@ class ApacheHttpClientTest {
   @Nested
   class ApacheClientHostRequestTest extends AbstractTest<BasicHttpRequest> {
     @Override
-    public BasicHttpRequest createRequest(String method, URI uri) {
+    BasicHttpRequest createRequest(String method, URI uri) {
       // also testing with an absolute path below
       return new BasicHttpRequest(method, fullPathFromUri(uri));
     }
 
     @Override
-    public HttpResponse doExecuteRequest(BasicHttpRequest request, URI uri) throws Exception {
+    HttpResponse doExecuteRequest(BasicHttpRequest request, URI uri) throws Exception {
       return getClient(uri).execute(getHost(uri), request);
     }
 
@@ -192,7 +192,7 @@ class ApacheHttpClientTest {
   abstract static class AbstractTest<T extends HttpRequest>
       extends AbstractApacheHttpClientTest<T> {
     @Override
-    final HttpResponse executeRequest(T request, URI uri) throws Exception {
+    HttpResponse executeRequest(T request, URI uri) throws Exception {
       HttpResponse httpResponse = doExecuteRequest(request, uri);
       httpResponse.getEntity().getContent().close();
       return httpResponse;

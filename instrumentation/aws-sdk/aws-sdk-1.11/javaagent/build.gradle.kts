@@ -31,6 +31,7 @@ muzzle {
     group.set("com.amazonaws")
     module.set("aws-java-sdk-sqs")
     versions.set("[1.10.33,)")
+    assertInverse.set(true)
   }
 }
 
@@ -54,6 +55,7 @@ dependencies {
 
   // Include httpclient instrumentation for testing because it is a dependency for aws-sdk.
   testInstrumentation(project(":instrumentation:apache-httpclient:apache-httpclient-4.0:javaagent"))
+  testInstrumentation(project(":instrumentation:aws-sdk:aws-sdk-2.2:javaagent"))
 
   // needed for kinesis:
   testImplementation("com.fasterxml.jackson.dataformat:jackson-dataformat-cbor")
@@ -63,9 +65,6 @@ dependencies {
 
   // needed by S3
   testImplementation("javax.xml.bind:jaxb-api:2.3.1")
-
-  // last version that does not use json protocol
-  latestDepTestLibrary("com.amazonaws:aws-java-sdk-sqs:1.12.583") // documented limitation
 }
 
 testing {
@@ -76,7 +75,7 @@ testing {
     // in 1.11.106 than 1.11.84.
     // We test older version in separate test set to test newer version and latest deps in the 'default'
     // test dir. Otherwise we get strange warnings in Idea.
-    val test_before_1_11_106 by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("test_before_1_11_106") {
       dependencies {
         implementation(project(":instrumentation:aws-sdk:aws-sdk-1.11:testing"))
 
@@ -95,16 +94,10 @@ testing {
     // We test SQS separately since we have special logic for it and want to make sure the presence of
     // SQS on the classpath doesn't conflict with tests for usage of the core SDK. This only affects
     // the agent.
-    val testSqs by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testSqs") {
       dependencies {
         implementation(project(":instrumentation:aws-sdk:aws-sdk-1.11:testing"))
-
-        if (findProperty("testLatestDeps") as Boolean) {
-          // last version that does not use json protocol
-          implementation("com.amazonaws:aws-java-sdk-sqs:1.12.583")
-        } else {
-          implementation("com.amazonaws:aws-java-sdk-sqs:1.11.106")
-        }
+        implementation("com.amazonaws:aws-java-sdk-sqs:${baseVersion("1.11.106").orLatest()}")
       }
 
       targets {
@@ -116,25 +109,17 @@ testing {
       }
     }
 
-    val testSqsNoReceiveTelemetry by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testSqsNoReceiveTelemetry") {
       dependencies {
         implementation(project(":instrumentation:aws-sdk:aws-sdk-1.11:testing"))
-
-        if (findProperty("testLatestDeps") as Boolean) {
-          // last version that does not use json protocol
-          implementation("com.amazonaws:aws-java-sdk-sqs:1.12.583")
-        } else {
-          implementation("com.amazonaws:aws-java-sdk-sqs:1.11.106")
-        }
+        implementation("com.amazonaws:aws-java-sdk-sqs:${baseVersion("1.11.106").orLatest()}")
       }
     }
   }
 }
 
-val collectMetadata = findProperty("collectMetadata")?.toString() ?: "false"
-
 tasks {
-  if (!(findProperty("testLatestDeps") as Boolean)) {
+  if (!otelProps.testLatestDeps) {
     check {
       dependsOn(testing.suites)
     }
@@ -144,31 +129,59 @@ tasks {
     }
   }
 
-  test {
-    usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
-    systemProperty("collectMetadata", collectMetadata)
-  }
-
   withType<Test>().configureEach {
+    usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
     // TODO run tests both with and without experimental span attributes
     jvmArgs("-Dotel.instrumentation.aws-sdk.experimental-span-attributes=true")
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  val testStableSemconv by registering(Test::class) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
     jvmArgs("-Dotel.semconv-stability.opt-in=database")
-    systemProperty("collectMetadata", collectMetadata)
     systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
   }
 
-  check {
-    dependsOn(testStableSemconv)
+  val testMessagingPreview = register<Test>("testMessagingPreview") {
+    testClassesDirs = sourceSets["testSqs"].output.classesDirs
+    classpath = sourceSets["testSqs"].runtimeClasspath
+
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  val testMessagingPreviewNoReceiveTelemetry = register<Test>("testMessagingPreviewNoReceiveTelemetry") {
+    testClassesDirs = sourceSets["testSqsNoReceiveTelemetry"].output.classesDirs
+    classpath = sourceSets["testSqsNoReceiveTelemetry"].runtimeClasspath
+
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
+  }
+
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets["testSqs"].output.classesDirs
+    classpath = sourceSets["testSqs"].runtimeClasspath
+
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    // with the v3 preview off, the legacy opt-in flag selects the new messaging semconv too
+    jvmArgs("-Dotel.semconv-stability.opt-in=messaging/dup")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=messaging/dup")
+  }
+
+  check {
+    dependsOn(
+      testStableSemconv,
+      testMessagingPreview,
+      testMessagingPreviewNoReceiveTelemetry,
+      testBothSemconv
+    )
+  }
+
+  if (otelProps.denyUnsafe) {
     // org.elasticmq:elasticmq-rest-sqs_2.13 uses unsafe. Future versions are likely to fix this.
     withType<Test>().configureEach {
       enabled = false
@@ -176,7 +189,7 @@ tasks {
   }
 }
 
-if (!(findProperty("testLatestDeps") as Boolean)) {
+if (!otelProps.testLatestDeps) {
   configurations.testRuntimeClasspath {
     resolutionStrategy {
       eachDependency {

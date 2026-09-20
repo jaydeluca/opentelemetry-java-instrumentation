@@ -5,8 +5,10 @@
 
 package io.opentelemetry.instrumentation.awssdk.v2_2.internal;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import io.opentelemetry.api.GlobalOpenTelemetry;
-import java.nio.charset.StandardCharsets;
+import io.opentelemetry.context.Context;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -26,7 +28,11 @@ import software.amazon.awssdk.services.lambda.model.InvokeRequest;
 // manipulate it abstracts that away. The client context field is documented in
 // https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html#API_Invoke_RequestParameters
 
-final class LambdaImpl {
+/**
+ * This class is internal and is hence not for public use. Its APIs are unstable and can change at
+ * any time.
+ */
+public final class LambdaImpl {
   static {
     // Force loading of InvokeRequest; this ensures that an exception is thrown at this point when
     // the Lambda library is not present, which will cause DirectLambdaAccess to have
@@ -44,8 +50,7 @@ final class LambdaImpl {
   private LambdaImpl() {}
 
   @Nullable
-  static SdkRequest modifyRequest(
-      SdkRequest request, io.opentelemetry.context.Context otelContext) {
+  static SdkRequest modifyRequest(SdkRequest request, Context otelContext) {
     if (isDirectLambdaInvocation(request)) {
       return modifyOrAddCustomContextHeader((InvokeRequest) request, otelContext);
     }
@@ -56,16 +61,14 @@ final class LambdaImpl {
     return request instanceof InvokeRequest;
   }
 
-  static SdkRequest modifyOrAddCustomContextHeader(
-      InvokeRequest request, io.opentelemetry.context.Context otelContext) {
+  static SdkRequest modifyOrAddCustomContextHeader(InvokeRequest request, Context otelContext) {
     InvokeRequest.Builder builder = request.toBuilder();
     // Unfortunately the value of this thing is a base64-encoded json with a character limit; also
     // therefore not comma-composable like many http headers
     String clientContextString = request.clientContext();
     String clientContextJsonString = "{}";
     if (clientContextString != null && !clientContextString.isEmpty()) {
-      clientContextJsonString =
-          new String(Base64.getDecoder().decode(clientContextString), StandardCharsets.UTF_8);
+      clientContextJsonString = new String(Base64.getDecoder().decode(clientContextString), UTF_8);
     }
     JsonNode jsonNode = JsonNode.parser().parse(clientContextJsonString);
     if (!jsonNode.isObject()) {
@@ -91,7 +94,7 @@ final class LambdaImpl {
     String newJson = jsonNode.toString();
 
     // turn it back into a base64 string
-    String newJson64 = Base64.getEncoder().encodeToString(newJson.getBytes(StandardCharsets.UTF_8));
+    String newJson64 = Base64.getEncoder().encodeToString(newJson.getBytes(UTF_8));
     // check it for length (err on the safe side with >=)
     if (newJson64.length() >= MAX_CLIENT_CONTEXT_LENGTH) {
       return null;

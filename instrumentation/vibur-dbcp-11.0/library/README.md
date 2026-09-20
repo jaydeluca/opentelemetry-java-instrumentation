@@ -7,7 +7,7 @@ Provides OpenTelemetry instrumentation for [Vibur DBCP](https://www.vibur.org/).
 ### Add these dependencies to your project
 
 Replace `OPENTELEMETRY_VERSION` with the [latest
-release]( https://central.sonatype.com/artifact/io.opentelemetry.instrumentation/opentelemetry-vibur-dbcp-11.0).
+release](https://central.sonatype.com/artifact/io.opentelemetry.instrumentation/opentelemetry-vibur-dbcp-11.0).
 
 For Maven, add to your `pom.xml` dependencies:
 
@@ -42,5 +42,16 @@ void configure(OpenTelemetry openTelemetry, ViburDBCPDataSource viburDataSource)
 
 void destroy(ViburDBCPDataSource viburDataSource) {
   viburTelemetry.unregisterMetrics(viburDataSource);
+}
+```
+
+The single-argument `registerMetrics` method uses the data source name provided by Vibur DBCP. To
+use an explicit pool name instead:
+
+```java
+void configureWithExplicitName(
+    OpenTelemetry openTelemetry, ViburDBCPDataSource viburDataSource) {
+  ViburTelemetry telemetry = ViburTelemetry.create(openTelemetry);
+  telemetry.registerMetrics(viburDataSource, "orders-pool");
 }
 ```

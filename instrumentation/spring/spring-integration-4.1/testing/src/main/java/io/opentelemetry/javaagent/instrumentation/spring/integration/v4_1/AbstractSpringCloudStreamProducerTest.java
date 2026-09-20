@@ -5,6 +5,11 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1.SpringIntegrationTestHelper.assertNoMetrics;
+import static io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1.SpringIntegrationTestHelper.assertSendMetrics;
+import static io.opentelemetry.javaagent.instrumentation.spring.integration.v4_1.SpringIntegrationTestHelper.messagingAttributes;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.opentelemetry.api.trace.SpanKind;
@@ -12,16 +17,16 @@ import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-public abstract class AbstractSpringCloudStreamProducerTest {
-
-  @RegisterExtension RabbitExtension rabbit;
-
-  protected final InstrumentationExtension testing;
+abstract class AbstractSpringCloudStreamProducerTest {
 
   private static final boolean HAS_PRODUCER_SPAN =
       Boolean.getBoolean("otel.instrumentation.spring-integration.producer.enabled");
 
-  public AbstractSpringCloudStreamProducerTest(
+  @RegisterExtension private final RabbitExtension rabbit;
+
+  private final InstrumentationExtension testing;
+
+  AbstractSpringCloudStreamProducerTest(
       InstrumentationExtension testing, Class<?> additionalContextClass) {
     this.testing = testing;
     rabbit = new RabbitExtension(additionalContextClass);
@@ -38,16 +43,45 @@ public abstract class AbstractSpringCloudStreamProducerTest {
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("producer").hasKind(SpanKind.INTERNAL),
                 span ->
-                    span.hasName("testProducer.output publish")
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? "send testProducer.output"
+                                : "testProducer.output publish")
                         .hasKind(SpanKind.PRODUCER)
-                        .hasParent(trace.getSpan(0)),
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            messagingAttributes("send", "testProducer.output")),
                 span ->
-                    span.hasName("testConsumer.input process")
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? "process testConsumer.input"
+                                : "testConsumer.input process")
                         .hasKind(SpanKind.CONSUMER)
-                        .hasParent(trace.getSpan(1)),
+                        .hasParent(trace.getSpan(1))
+                        .hasLinksSatisfying(
+                            links -> {
+                              if (emitStableMessagingSemconv()) {
+                                assertThat(links)
+                                    .singleElement()
+                                    .satisfies(
+                                        link ->
+                                            assertThat(link.getSpanContext().getSpanId())
+                                                .isEqualTo(trace.getSpan(1).getSpanId()));
+                              } else {
+                                assertThat(links).isEmpty();
+                              }
+                            })
+                        .hasAttributesSatisfyingExactly(
+                            messagingAttributes("process", "testConsumer.input")),
                 span ->
                     span.hasName("consumer")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(trace.getSpan(2))));
+
+    if (emitStableMessagingSemconv()) {
+      assertSendMetrics(testing, "testProducer.output");
+    } else {
+      assertNoMetrics(testing);
+    }
   }
 }

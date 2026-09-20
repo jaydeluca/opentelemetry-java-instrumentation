@@ -5,7 +5,8 @@
 
 package spring.jpa;
 
-import java.util.Collections;
+import static java.util.Collections.singletonMap;
+
 import javax.sql.DataSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -20,14 +21,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 public class JpaPersistenceConfig {
 
   @Bean
-  public PlatformTransactionManager transactionManager() {
+  PlatformTransactionManager transactionManager() {
     JpaTransactionManager transactionManager = new JpaTransactionManager();
     transactionManager.setEntityManagerFactory(entityManagerFactory().getObject());
     return transactionManager;
   }
 
   @Bean
-  public LocalContainerEntityManagerFactoryBean entityManagerFactory() {
+  LocalContainerEntityManagerFactoryBean entityManagerFactory() {
     HibernateJpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
     vendorAdapter.setDatabase(Database.HSQL);
     vendorAdapter.setGenerateDdl(true);
@@ -37,12 +38,12 @@ public class JpaPersistenceConfig {
     em.setDataSource(dataSource());
     em.setPackagesToScan("spring.jpa");
     em.setJpaVendorAdapter(vendorAdapter);
-    em.setJpaPropertyMap(Collections.singletonMap("hibernate.hbm2ddl.auto", "create"));
+    em.setJpaPropertyMap(singletonMap("hibernate.hbm2ddl.auto", "create"));
     return em;
   }
 
   @Bean
-  public DataSource dataSource() {
+  DataSource dataSource() {
     DriverManagerDataSource dataSource = new DriverManagerDataSource();
     dataSource.setDriverClassName("org.hsqldb.jdbcDriver");
     dataSource.setUrl("jdbc:hsqldb:mem:test");

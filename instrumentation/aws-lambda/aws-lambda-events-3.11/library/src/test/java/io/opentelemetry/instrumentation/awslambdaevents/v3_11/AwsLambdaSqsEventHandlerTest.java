@@ -30,7 +30,12 @@ class AwsLambdaSqsEventHandlerTest extends AbstractAwsLambdaSqsEventHandlerTest 
     return testing;
   }
 
-  private static final class TestHandler extends TracingSqsEventHandler {
+  @Override
+  protected String instrumentationName() {
+    return TracingSqsEventHandler.INSTRUMENTATION_NAME;
+  }
+
+  private static class TestHandler extends TracingSqsEventHandler {
 
     TestHandler(OpenTelemetrySdk openTelemetrySdk) {
       super(openTelemetrySdk);

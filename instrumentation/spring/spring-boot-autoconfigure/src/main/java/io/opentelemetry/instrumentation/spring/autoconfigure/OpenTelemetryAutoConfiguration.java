@@ -5,21 +5,24 @@
 
 package io.opentelemetry.instrumentation.spring.autoconfigure;
 
+import static java.util.Collections.emptyMap;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.toList;
 
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.incubator.ExtendedOpenTelemetry;
 import io.opentelemetry.api.incubator.config.ConfigProvider;
 import io.opentelemetry.api.trace.TracerProvider;
 import io.opentelemetry.common.ComponentLoader;
-import io.opentelemetry.instrumentation.api.incubator.config.internal.InstrumentationConfig;
 import io.opentelemetry.instrumentation.api.internal.EmbeddedInstrumentationProperties;
+import io.opentelemetry.instrumentation.config.bridge.DeclarativeConfigBridge;
 import io.opentelemetry.instrumentation.config.bridge.DeclarativeConfigPropertiesBridgeBuilder;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.DeclarativeConfigDisabled;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.DeclarativeConfigEnabled;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.OtelDisabled;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.OtelEnabled;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.OtelMapConverter;
-import io.opentelemetry.instrumentation.spring.autoconfigure.internal.properties.ConfigPropertiesBridge;
+import io.opentelemetry.instrumentation.spring.autoconfigure.internal.instrumentation.thread.ThreadDetailsCustomizerProvider;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.properties.OtelResourceProperties;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.properties.OtelSpringProperties;
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.properties.OtlpExporterProperties;
@@ -30,21 +33,20 @@ import io.opentelemetry.instrumentation.spring.autoconfigure.internal.resources.
 import io.opentelemetry.instrumentation.spring.autoconfigure.internal.resources.SpringResourceProvider;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.DeclarativeConfiguration;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.DeclarativeConfigurationCustomizerProvider;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.model.OpenTelemetryConfigurationModel;
 import io.opentelemetry.sdk.autoconfigure.internal.AutoConfigureUtil;
 import io.opentelemetry.sdk.autoconfigure.internal.SpiHelper;
 import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import io.opentelemetry.sdk.autoconfigure.spi.ResourceProvider;
 import io.opentelemetry.sdk.autoconfigure.spi.internal.ComponentProvider;
 import io.opentelemetry.sdk.autoconfigure.spi.internal.DefaultConfigProperties;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.DeclarativeConfiguration;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.DeclarativeConfigurationCustomizerProvider;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.internal.model.OpenTelemetryConfigurationModel;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -90,13 +92,12 @@ public class OpenTelemetryAutoConfiguration {
     static class PropertiesConfig {
 
       @Bean
-      public ResourceProvider otelSpringResourceProvider(
-          Optional<BuildProperties> buildProperties) {
+      ResourceProvider otelSpringResourceProvider(Optional<BuildProperties> buildProperties) {
         return new SpringResourceProvider(buildProperties);
       }
 
       @Bean
-      public ResourceProvider otelDistroVersionResourceProvider() {
+      ResourceProvider otelDistroVersionResourceProvider() {
         return new DistroVersionResourceProvider();
       }
 
@@ -106,8 +107,12 @@ public class OpenTelemetryAutoConfiguration {
         return new OtelMapConverter();
       }
 
+      /**
+       * Backs the {@link ConfigProvider} and {@link OpenTelemetry} beans below; not meant to be
+       * injected directly.
+       */
       @Bean
-      public AutoConfiguredOpenTelemetrySdk autoConfiguredOpenTelemetrySdk(
+      AutoConfiguredOpenTelemetrySdk autoConfiguredOpenTelemetrySdk(
           Environment env,
           OtlpExporterProperties otlpExporterProperties,
           OtelResourceProperties resourceProperties,
@@ -123,16 +128,23 @@ public class OpenTelemetryAutoConfiguration {
             .build();
       }
 
+      /**
+       * Bridges the legacy {@link ConfigProperties}-based configuration into a {@link
+       * ConfigProvider}, since instrumentation only reads config through {@link ConfigProvider}.
+       */
       @Bean
-      public OpenTelemetry openTelemetry(
-          AutoConfiguredOpenTelemetrySdk autoConfiguredOpenTelemetrySdk) {
-        logStart();
-        return autoConfiguredOpenTelemetrySdk.getOpenTelemetrySdk();
+      ConfigProvider configProvider(AutoConfiguredOpenTelemetrySdk autoConfiguredOpenTelemetrySdk) {
+        return DeclarativeConfigBridge.createInstrumentationConfig(
+            requireNonNull(AutoConfigureUtil.getConfig(autoConfiguredOpenTelemetrySdk)));
       }
 
       @Bean
-      public InstrumentationConfig instrumentationConfig(ConfigProperties properties) {
-        return new ConfigPropertiesBridge(properties);
+      OpenTelemetry openTelemetry(
+          AutoConfiguredOpenTelemetrySdk autoConfiguredOpenTelemetrySdk,
+          ConfigProvider configProvider) {
+        logStart();
+        OpenTelemetrySdk openTelemetry = autoConfiguredOpenTelemetrySdk.getOpenTelemetrySdk();
+        return new SpringOpenTelemetrySdk(openTelemetry, configProvider);
       }
 
       /**
@@ -142,9 +154,12 @@ public class OpenTelemetryAutoConfiguration {
        * io.opentelemetry.sdk.autoconfigure.spi.AutoConfigurationCustomizer#addPropertiesCustomizer(Function)}
        * and {@link
        * io.opentelemetry.sdk.autoconfigure.spi.AutoConfigurationCustomizer#addPropertiesSupplier(Supplier)}.
+       *
+       * <p>This bean remains supported for non-declarative configuration. The {@link
+       * ConfigProvider} API is incubating and is not a stable replacement for this bean.
        */
       @Bean
-      public ConfigProperties otelProperties(
+      ConfigProperties otelProperties(
           AutoConfiguredOpenTelemetrySdk autoConfiguredOpenTelemetrySdk) {
         return requireNonNull(AutoConfigureUtil.getConfig(autoConfiguredOpenTelemetrySdk));
       }
@@ -154,26 +169,42 @@ public class OpenTelemetryAutoConfiguration {
     @Conditional(DeclarativeConfigEnabled.class)
     static class EmbeddedConfigFileConfig {
 
+      /** Backs the {@link ConfigProvider} bean below; not meant to be injected directly. */
       @Bean
-      public OpenTelemetryConfigurationModel openTelemetryConfigurationModel(
+      OpenTelemetryConfigurationModel openTelemetryConfigurationModel(
           ConfigurableEnvironment environment) {
         return EmbeddedConfigFile.extractModel(environment);
       }
 
+      /**
+       * Unlike {@link
+       * OpenTelemetrySdkConfig.PropertiesConfig#configProvider(AutoConfiguredOpenTelemetrySdk)},
+       * this derives the provider from the constructed {@link OpenTelemetry} so that it reflects
+       * declarative model customizers applied during SDK creation.
+       *
+       * <p>This mirrors how the SDK itself builds its {@code ConfigProvider}: <a
+       * href="https://github.com/open-telemetry/opentelemetry-java/blob/83f947f97fb0961178072b413c07a3689488ef34/sdk-extensions/declarative-config/src/main/java/io/opentelemetry/sdk/autoconfigure/declarativeconfig/OpenTelemetryConfigurationFactory.java#L45">OpenTelemetryConfigurationFactory#create</a>
+       * converts the (already-customized) model to properties and hands the resulting {@code
+       * ConfigProvider} to the SDK builder, so the built {@link OpenTelemetry} is the only place
+       * where the post-customization config is available.
+       */
       @Bean
-      public OpenTelemetry openTelemetry(
-          OpenTelemetryConfigurationModel model, ApplicationContext applicationContext) {
-        OpenTelemetrySdk sdk =
-            DeclarativeConfiguration.create(
-                model, new OpenTelemetrySdkComponentLoader(applicationContext));
-        Runtime.getRuntime().addShutdownHook(new Thread(sdk::close));
-        logStart();
-        return sdk;
+      ConfigProvider configProvider(OpenTelemetry openTelemetry) {
+        return configProviderFrom(openTelemetry);
       }
 
       @Bean
-      public ConfigProvider configProvider(OpenTelemetryConfigurationModel model) {
-        return SpringConfigProvider.create(model);
+      OpenTelemetry openTelemetry(
+          OpenTelemetryConfigurationModel model, ApplicationContext applicationContext) {
+        OpenTelemetrySdkComponentLoader componentLoader =
+            new OpenTelemetrySdkComponentLoader(applicationContext);
+
+        OpenTelemetrySdk sdk = DeclarativeConfiguration.create(model, componentLoader).getSdk();
+        SpringConfigProvider configProvider =
+            SpringConfigProvider.create(configProviderFrom(sdk).getInstrumentationConfig());
+        Runtime.getRuntime().addShutdownHook(new Thread(sdk::close));
+        logStart();
+        return new SpringOpenTelemetrySdk(sdk, configProvider);
       }
 
       /**
@@ -181,26 +212,38 @@ public class OpenTelemetryAutoConfiguration {
        *
        * <p>Not using spring boot properties directly, because declarative configuration does not
        * integrate with spring boot properties.
+       *
+       * @deprecated This {@link ConfigProperties} compatibility bean will be removed in 3.0.
+       *     Auto-configurations that support the experimental Declarative Configuration should use
+       *     the Declarative Config API directly.
        */
+      @Deprecated // will be removed in 3.0
       @Bean
-      public ConfigProperties otelProperties(ConfigProvider configProvider) {
+      ConfigProperties otelProperties(OpenTelemetry openTelemetry) {
         return new DeclarativeConfigPropertiesBridgeBuilder()
-            .buildFromInstrumentationConfig(configProvider.getInstrumentationConfig());
+            .buildFromInstrumentationConfig(
+                configProviderFrom(openTelemetry).getInstrumentationConfig());
+      }
+
+      private static ConfigProvider configProviderFrom(OpenTelemetry openTelemetry) {
+        if (openTelemetry instanceof ExtendedOpenTelemetry) {
+          return ((ExtendedOpenTelemetry) openTelemetry).getConfigProvider();
+        }
+        return ConfigProvider.noop();
       }
 
       @Bean
-      public InstrumentationConfig instrumentationConfig(
-          ConfigProperties properties, ConfigProvider configProvider) {
-        return new ConfigPropertiesBridge(properties, configProvider);
-      }
-
-      @Bean
-      public DeclarativeConfigurationCustomizerProvider distroConfigurationCustomizerProvider() {
+      DeclarativeConfigurationCustomizerProvider distroConfigurationCustomizerProvider() {
         return new ResourceCustomizerProvider();
       }
 
       @Bean
-      public ComponentProvider distroComponentProvider() {
+      DeclarativeConfigurationCustomizerProvider threadDetailsCustomizerProvider() {
+        return new ThreadDetailsCustomizerProvider();
+      }
+
+      @Bean
+      ComponentProvider distroComponentProvider() {
         return new DistroComponentProvider();
       }
     }
@@ -219,20 +262,20 @@ public class OpenTelemetryAutoConfiguration {
   static class DisabledOpenTelemetrySdkConfig {
 
     @Bean
-    public OpenTelemetry openTelemetry() {
+    OpenTelemetry openTelemetry() {
       logger.info("OpenTelemetry Spring Boot starter has been disabled");
 
       return OpenTelemetry.noop();
     }
 
     @Bean
-    public ConfigProperties otelProperties() {
-      return DefaultConfigProperties.createFromMap(Collections.emptyMap());
+    ConfigProperties otelProperties() {
+      return DefaultConfigProperties.createFromMap(emptyMap());
     }
 
     @Bean
-    public InstrumentationConfig instrumentationConfig(ConfigProperties properties) {
-      return new ConfigPropertiesBridge(properties, null);
+    ConfigProvider configProvider() {
+      return ConfigProvider.noop();
     }
 
     @Configuration
@@ -256,19 +299,27 @@ public class OpenTelemetryAutoConfiguration {
   @ConditionalOnMissingBean({ConfigProperties.class})
   static class FallbackConfigProperties {
     @Bean
-    public ConfigProperties otelProperties(ApplicationContext applicationContext) {
+    ConfigProperties otelProperties(ApplicationContext applicationContext) {
       return DefaultConfigProperties.create(
-          Collections.emptyMap(), new OpenTelemetrySdkComponentLoader(applicationContext));
+          emptyMap(), new OpenTelemetrySdkComponentLoader(applicationContext));
     }
   }
 
+  /**
+   * Backstops setups where a custom {@link OpenTelemetry} bean is supplied (so {@link
+   * OpenTelemetrySdkConfig} doesn't apply) and no {@link ConfigProvider} bean is otherwise defined,
+   * so that instrumentation can always rely on a {@link ConfigProvider} bean being present.
+   */
   @Configuration
   @ConditionalOnBean(OpenTelemetry.class)
-  @ConditionalOnMissingBean({InstrumentationConfig.class})
-  static class FallbackInstrumentationConfig {
+  @ConditionalOnMissingBean({ConfigProvider.class})
+  static class FallbackConfigProvider {
     @Bean
-    public InstrumentationConfig instrumentationConfig(ConfigProperties properties) {
-      return new ConfigPropertiesBridge(properties, null);
+    ConfigProvider configProvider(OpenTelemetry openTelemetry) {
+      if (openTelemetry instanceof ExtendedOpenTelemetry) {
+        return ((ExtendedOpenTelemetry) openTelemetry).getConfigProvider();
+      }
+      return ConfigProvider.noop();
     }
   }
 
@@ -289,9 +340,9 @@ public class OpenTelemetryAutoConfiguration {
 
     @Override
     public <T> Iterable<T> load(Class<T> spiClass) {
-      List<T> spi = spiHelper.load(spiClass);
+      List<T> spi = new ArrayList<>(spiHelper.load(spiClass));
       List<T> beans =
-          applicationContext.getBeanProvider(spiClass).orderedStream().collect(Collectors.toList());
+          applicationContext.getBeanProvider(spiClass).orderedStream().collect(toList());
       spi.addAll(beans);
       return spi;
     }

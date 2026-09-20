@@ -5,11 +5,12 @@
 
 package io.opentelemetry.javaagent.instrumentation.playws.v2_1;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
+
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientResult;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import play.api.libs.ws.StandaloneWSClient;
@@ -30,7 +31,7 @@ class PlayScalaStreamedWsClientTest extends PlayWsClientBaseTest<StandaloneWSReq
   private static StandaloneWSClient wsClientWithReadTimeout;
 
   @BeforeAll
-  void setup() {
+  static void setup() {
     wsClient = new StandaloneAhcWSClient(asyncHttpClient, materializer);
     wsClientWithReadTimeout =
         new StandaloneAhcWSClient(asyncHttpClientWithReadTimeout, materializer);
@@ -56,8 +57,7 @@ class PlayScalaStreamedWsClientTest extends PlayWsClientBaseTest<StandaloneWSReq
   public int sendRequest(
       StandaloneWSRequest request, String method, URI uri, Map<String, String> headers)
       throws Exception {
-    return Await.result(internalSendRequest(request), Duration.apply(10, TimeUnit.SECONDS))
-        .status();
+    return Await.result(internalSendRequest(request), Duration.apply(10, SECONDS)).status();
   }
 
   @Override
@@ -106,7 +106,7 @@ class PlayScalaStreamedWsClientTest extends PlayWsClientBaseTest<StandaloneWSReq
   }
 
   private static StandaloneWSClient getClient(URI uri) {
-    if (uri.toString().contains("/read-timeout")) {
+    if (uri.getPath().endsWith("/read-timeout")) {
       return wsClientWithReadTimeout;
     }
     return wsClient;

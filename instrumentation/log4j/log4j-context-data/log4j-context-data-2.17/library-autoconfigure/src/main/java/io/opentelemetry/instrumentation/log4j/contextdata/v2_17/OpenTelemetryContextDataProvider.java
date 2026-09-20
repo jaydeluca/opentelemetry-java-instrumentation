@@ -5,15 +5,18 @@
 
 package io.opentelemetry.instrumentation.log4j.contextdata.v2_17;
 
+import static java.util.Collections.emptyMap;
+
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.baggage.Baggage;
 import io.opentelemetry.api.baggage.BaggageEntry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.context.Context;
-import io.opentelemetry.instrumentation.api.internal.ConfigPropertiesUtil;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
+import io.opentelemetry.instrumentation.api.internal.SystemProperty;
 import io.opentelemetry.instrumentation.log4j.contextdata.v2_17.internal.ContextDataKeys;
 import io.opentelemetry.javaagent.bootstrap.internal.ConfiguredResourceAttributesHolder;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.logging.log4j.ThreadContext;
@@ -23,9 +26,8 @@ import org.apache.logging.log4j.core.util.ContextDataProvider;
  * Implementation of Log4j 2's {@link ContextDataProvider} which is loaded via SPI. {@link
  * #supplyContextData()} is called when a log entry is created.
  */
-public class OpenTelemetryContextDataProvider implements ContextDataProvider {
-  private static final boolean BAGGAGE_ENABLED =
-      ConfigPropertiesUtil.getBoolean("otel.instrumentation.log4j-context-data.add-baggage", false);
+public final class OpenTelemetryContextDataProvider implements ContextDataProvider {
+
   private static final boolean configuredResourceAttributeAccessible =
       isConfiguredResourceAttributeAccessible();
   private static final Map<String, String> staticContextData = getStaticContextData();
@@ -34,7 +36,7 @@ public class OpenTelemetryContextDataProvider implements ContextDataProvider {
     if (configuredResourceAttributeAccessible) {
       return ConfiguredResourceAttributesHolder.getResourceAttributes();
     }
-    return Collections.emptyMap();
+    return emptyMap();
   }
 
   /**
@@ -49,38 +51,42 @@ public class OpenTelemetryContextDataProvider implements ContextDataProvider {
           "io.opentelemetry.javaagent.bootstrap.internal.ConfiguredResourceAttributesHolder");
       return true;
 
-    } catch (ClassNotFoundException ok) {
+    } catch (ClassNotFoundException ignored) {
       return false;
     }
   }
 
   /**
-   * Returns context from the current span when available.
+   * Returns context from the current span and baggage when available.
    *
-   * @return A map containing string versions of the traceId, spanId, and traceFlags, which can then
-   *     be accessed from layout components
+   * @return A map containing string versions of the traceId, spanId, traceFlags and baggage
+   *     entries, which can then be accessed from layout components
    */
   @Override
   public Map<String, String> supplyContextData() {
     Context context = Context.current();
-    Span currentSpan = Span.fromContext(context);
-    if (!currentSpan.getSpanContext().isValid()) {
+    SpanContext spanContext = Span.fromContext(context).getSpanContext();
+    Baggage baggage = Baggage.fromContext(context);
+    // checking baggage.isEmpty() first to avoid initializing Configuration when possible
+    boolean addBaggage = !baggage.isEmpty() && Configuration.baggageEnabled;
+    if (!spanContext.isValid() && !addBaggage) {
       return staticContextData;
     }
 
-    if (ThreadContext.containsKey(ContextDataKeys.TRACE_ID_KEY)) {
+    ContextDataKeys contextDataKeys = Configuration.contextDataKeys;
+    if (ThreadContext.containsKey(contextDataKeys.getTraceIdKey())) {
       // Assume already instrumented event if traceId is present.
       return staticContextData;
     }
 
     Map<String, String> contextData = new HashMap<>(staticContextData);
-    SpanContext spanContext = currentSpan.getSpanContext();
-    contextData.put(ContextDataKeys.TRACE_ID_KEY, spanContext.getTraceId());
-    contextData.put(ContextDataKeys.SPAN_ID_KEY, spanContext.getSpanId());
-    contextData.put(ContextDataKeys.TRACE_FLAGS_KEY, spanContext.getTraceFlags().asHex());
+    if (spanContext.isValid()) {
+      contextData.put(contextDataKeys.getTraceIdKey(), spanContext.getTraceId());
+      contextData.put(contextDataKeys.getSpanIdKey(), spanContext.getSpanId());
+      contextData.put(contextDataKeys.getTraceFlagsKey(), spanContext.getTraceFlags().asHex());
+    }
 
-    if (BAGGAGE_ENABLED) {
-      Baggage baggage = Baggage.fromContext(context);
+    if (addBaggage) {
       for (Map.Entry<String, BaggageEntry> entry : baggage.asMap().entrySet()) {
         // prefix all baggage values to avoid clashes with existing context
         contextData.put("baggage." + entry.getKey(), entry.getValue().getValue());
@@ -88,5 +94,21 @@ public class OpenTelemetryContextDataProvider implements ContextDataProvider {
     }
 
     return contextData;
+  }
+
+  private static class Configuration {
+    private static final boolean baggageEnabled =
+        DeclarativeConfigUtil.getInstrumentationConfig(
+                GlobalOpenTelemetry.getOrNoop(), "log4j_context_data")
+            .getBoolean(
+                "add_baggage",
+                // OpenTelemetryContextDataProvider is a log4j ContextDataProvider SPI with no
+                // programmatic API, and declarative instrumentation configuration is not stable
+                // yet, so a system-property fallback is still needed.
+                SystemProperty.getBoolean(
+                    "otel.instrumentation.log4j-context-data.add-baggage", false));
+
+    private static final ContextDataKeys contextDataKeys =
+        ContextDataKeys.create(GlobalOpenTelemetry.getOrNoop());
   }
 }

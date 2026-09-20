@@ -5,9 +5,12 @@
 
 package io.opentelemetry.instrumentation.r2dbc.v1_0.internal;
 
+import static io.opentelemetry.instrumentation.api.incubator.semconv.db.internal.SqlDialectUtil.fromDbSystemName;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 import static java.util.Collections.singleton;
 
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlClientAttributesGetter;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlDialect;
 import io.r2dbc.spi.R2dbcException;
 import java.util.Collection;
 import javax.annotation.Nullable;
@@ -16,15 +19,26 @@ import javax.annotation.Nullable;
  * This class is internal and is hence not for public use. Its APIs are unstable and can change at
  * any time.
  */
-public enum R2dbcSqlAttributesGetter implements SqlClientAttributesGetter<DbExecution, Void> {
-  INSTANCE;
+public final class R2dbcSqlAttributesGetter
+    implements SqlClientAttributesGetter<DbExecution, Void> {
 
+  @Override
+  public String getDbSystemName(DbExecution request) {
+    return request.getSystemName();
+  }
+
+  @Deprecated // to be removed in 3.0
   @Override
   public String getDbSystem(DbExecution request) {
     return request.getSystem();
   }
 
-  @Deprecated
+  @Override
+  public SqlDialect getSqlDialect(DbExecution request) {
+    return fromDbSystemName(request.getSystemName());
+  }
+
+  @Deprecated // to be removed in 3.0
   @Override
   @Nullable
   public String getUser(DbExecution request) {
@@ -34,24 +48,48 @@ public enum R2dbcSqlAttributesGetter implements SqlClientAttributesGetter<DbExec
   @Override
   @Nullable
   public String getDbNamespace(DbExecution request) {
-    return request.getName();
+    return request.getNamespace();
   }
 
-  @Deprecated
+  @Deprecated // to be removed in 3.0
   @Override
-  @Nullable
   public String getConnectionString(DbExecution request) {
     return request.getConnectionString();
   }
 
   @Override
   public Collection<String> getRawQueryTexts(DbExecution request) {
-    return singleton(request.getRawQueryText());
+    return request.getRawQueryTexts();
+  }
+
+  @Deprecated // to be removed in 3.0
+  @Override
+  public Collection<String> getRawQueryTextsForOldSemconv(DbExecution request) {
+    Collection<String> rawQueryTexts = request.getRawQueryTexts();
+    return rawQueryTexts.size() == 1 ? rawQueryTexts : singleton(join(";\n", rawQueryTexts));
+  }
+
+  private static String join(String delimiter, Collection<String> collection) {
+    StringBuilder builder = new StringBuilder();
+    for (String string : collection) {
+      if (builder.length() != 0) {
+        builder.append(delimiter);
+      }
+      builder.append(string);
+    }
+    return builder.toString();
+  }
+
+  @Override
+  @Nullable
+  public Long getDbOperationBatchSize(DbExecution request) {
+    return request.getBatchSize();
   }
 
   @Nullable
   @Override
-  public String getResponseStatus(@Nullable Void response, @Nullable Throwable error) {
+  public String getErrorType(
+      DbExecution request, @Nullable Void response, @Nullable Throwable error) {
     if (error instanceof R2dbcException) {
       return ((R2dbcException) error).getSqlState();
     }
@@ -61,12 +99,22 @@ public enum R2dbcSqlAttributesGetter implements SqlClientAttributesGetter<DbExec
   @Nullable
   @Override
   public String getServerAddress(DbExecution request) {
-    return request.getHost();
+    return emitStableDatabaseSemconv()
+        ? request.getConfiguredServerAddress()
+        : request.getServerAddress();
   }
 
   @Nullable
   @Override
   public Integer getServerPort(DbExecution request) {
-    return request.getPort();
+    return emitStableDatabaseSemconv()
+        ? request.getConfiguredServerPort()
+        : request.getServerPort();
+  }
+
+  @Override
+  public boolean isParameterizedQuery(DbExecution request, int queryIndex) {
+    // R2DBC does not support mixed parameterization within a single request.
+    return request.isParameterizedQuery();
   }
 }

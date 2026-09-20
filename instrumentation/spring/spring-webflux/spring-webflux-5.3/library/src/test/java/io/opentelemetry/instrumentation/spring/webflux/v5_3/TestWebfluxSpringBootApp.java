@@ -14,7 +14,6 @@ import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.QUERY_PARAM;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.REDIRECT;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.SUCCESS;
-import static java.util.Collections.singletonList;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpServerTest;
@@ -28,6 +27,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -53,8 +53,8 @@ class TestWebfluxSpringBootApp {
   @Bean
   WebFilter telemetryFilter() {
     return SpringWebfluxServerTelemetry.builder(GlobalOpenTelemetry.get())
-        .setCapturedRequestHeaders(singletonList(AbstractHttpServerTest.TEST_REQUEST_HEADER))
-        .setCapturedResponseHeaders(singletonList(AbstractHttpServerTest.TEST_RESPONSE_HEADER))
+        .setRequestHeaders(AbstractHttpServerTest.TEST_HEADERS)
+        .setResponseHeaders(AbstractHttpServerTest.TEST_HEADERS)
         .build()
         .createWebFilterAndRegisterReactorHook();
   }
@@ -76,7 +76,7 @@ class TestWebfluxSpringBootApp {
 
     @RequestMapping("/query")
     @ResponseBody
-    Mono<String> query_param(@RequestParam("some") String param) {
+    Mono<String> queryParam(@RequestParam("some") String param) {
       return Mono.just(controller(QUERY_PARAM, () -> "some=" + param));
     }
 
@@ -107,7 +107,7 @@ class TestWebfluxSpringBootApp {
     }
 
     @RequestMapping("/captureHeaders")
-    Mono<ResponseEntity<String>> capture_headers(
+    Mono<ResponseEntity<String>> captureHeaders(
         @RequestHeader("X-Test-Request") String testRequestHeader) {
       return Mono.just(
           controller(
@@ -120,13 +120,13 @@ class TestWebfluxSpringBootApp {
 
     @RequestMapping("/path/{id}/param")
     @ResponseBody
-    Mono<String> path_param(@PathVariable("id") int id) {
+    Mono<String> pathParam(@PathVariable("id") int id) {
       return Mono.just(controller(PATH_PARAM, () -> String.valueOf(id)));
     }
 
     @RequestMapping("/child")
     @ResponseBody
-    Mono<String> indexed_child(@RequestParam("id") String id) {
+    Mono<String> indexedChild(@RequestParam("id") String id) {
       return Mono.just(
           controller(
               INDEXED_CHILD,
@@ -134,6 +134,11 @@ class TestWebfluxSpringBootApp {
                 INDEXED_CHILD.collectSpanAttributes(name -> name.equals("id") ? id : null);
                 return INDEXED_CHILD.getBody();
               }));
+    }
+
+    @GetMapping("/cancel")
+    Mono<String> cancel() {
+      return controller(SUCCESS, () -> Mono.never());
     }
   }
 }

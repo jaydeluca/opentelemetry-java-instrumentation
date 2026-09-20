@@ -5,20 +5,23 @@
 
 package io.opentelemetry.instrumentation.graphql.v20_0;
 
+import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_MESSAGE;
+import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_TYPE;
+import static io.opentelemetry.semconv.incubating.GraphqlIncubatingAttributes.GRAPHQL_DOCUMENT;
+import static io.opentelemetry.semconv.incubating.GraphqlIncubatingAttributes.GRAPHQL_OPERATION_NAME;
+import static io.opentelemetry.semconv.incubating.GraphqlIncubatingAttributes.GRAPHQL_OPERATION_TYPE;
 
 import graphql.ExecutionResult;
 import graphql.GraphQL;
-import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.SpanKind;
-import io.opentelemetry.instrumentation.graphql.AbstractGraphqlTest;
+import io.opentelemetry.instrumentation.graphql.common.v12_0.AbstractGraphqlTest;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.LibraryInstrumentationExtension;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.data.StatusData;
-import io.opentelemetry.semconv.ExceptionAttributes;
-import io.opentelemetry.semconv.incubating.GraphqlIncubatingAttributes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -26,12 +29,6 @@ class GraphqlTest extends AbstractGraphqlTest {
 
   @RegisterExtension
   private static final InstrumentationExtension testing = LibraryInstrumentationExtension.create();
-
-  private static final AttributeKey<String> GRAPHQL_FIELD_NAME =
-      AttributeKey.stringKey("graphql.field.name");
-
-  private static final AttributeKey<String> GRAPHQL_FIELD_PATH =
-      AttributeKey.stringKey("graphql.field.path");
 
   @Override
   protected InstrumentationExtension getTesting() {
@@ -43,9 +40,9 @@ class GraphqlTest extends AbstractGraphqlTest {
     GraphQLTelemetry telemetry =
         GraphQLTelemetry.builder(testing.getOpenTelemetry())
             .setDataFetcherInstrumentationEnabled(true)
-            .setAddOperationNameToSpanName(true)
+            .setOperationNameInSpanNameEnabled(true)
             .build();
-    builder.instrumentation(telemetry.newInstrumentation());
+    builder.instrumentation(telemetry.createInstrumentation());
   }
 
   @Override
@@ -59,11 +56,13 @@ class GraphqlTest extends AbstractGraphqlTest {
     GraphQLTelemetry telemetry =
         GraphQLTelemetry.builder(testing.getOpenTelemetry())
             .setDataFetcherInstrumentationEnabled(true)
-            .setAddOperationNameToSpanName(true)
+            .setOperationNameInSpanNameEnabled(true)
             .build();
 
     GraphQL graphql =
-        GraphQL.newGraphQL(graphqlSchema).instrumentation(telemetry.newInstrumentation()).build();
+        GraphQL.newGraphQL(graphqlSchema)
+            .instrumentation(telemetry.createInstrumentation())
+            .build();
 
     // Act
     ExecutionResult result =
@@ -89,30 +88,30 @@ class GraphqlTest extends AbstractGraphqlTest {
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_OPERATION_NAME, "findBookById"),
-                            equalTo(GraphqlIncubatingAttributes.GRAPHQL_OPERATION_TYPE, "query"),
+                            equalTo(GRAPHQL_OPERATION_NAME, "findBookById"),
+                            equalTo(GRAPHQL_OPERATION_TYPE, "query"),
                             normalizedQueryEqualsTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_DOCUMENT,
+                                GRAPHQL_DOCUMENT,
                                 "query findBookById { bookById(id: ?) { name author { name } } }")),
                 span ->
                     span.hasName("bookById")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("query findBookById"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(GRAPHQL_FIELD_NAME, "bookById"),
-                            equalTo(GRAPHQL_FIELD_PATH, "/bookById")),
+                            equalTo(stringKey("graphql.field.name"), "bookById"),
+                            equalTo(stringKey("graphql.field.path"), "/bookById")),
                 span ->
                     span.hasName("fetchBookById")
                         .hasKind(SpanKind.INTERNAL)
-                        .hasParent(spanWithName("bookById")),
+                        .hasParent(spanWithName("bookById"))
+                        .hasTotalAttributeCount(0),
                 span ->
                     span.hasName("author")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("bookById"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(GRAPHQL_FIELD_NAME, "author"),
-                            equalTo(GRAPHQL_FIELD_PATH, "/bookById/author"))));
+                            equalTo(stringKey("graphql.field.name"), "author"),
+                            equalTo(stringKey("graphql.field.path"), "/bookById/author"))));
   }
 
   @Test
@@ -122,11 +121,13 @@ class GraphqlTest extends AbstractGraphqlTest {
         GraphQLTelemetry.builder(testing.getOpenTelemetry())
             .setDataFetcherInstrumentationEnabled(true)
             .setTrivialDataFetcherInstrumentationEnabled(true)
-            .setAddOperationNameToSpanName(true)
+            .setOperationNameInSpanNameEnabled(true)
             .build();
 
     GraphQL graphql =
-        GraphQL.newGraphQL(graphqlSchema).instrumentation(telemetry.newInstrumentation()).build();
+        GraphQL.newGraphQL(graphqlSchema)
+            .instrumentation(telemetry.createInstrumentation())
+            .build();
 
     // Act
     ExecutionResult result =
@@ -152,44 +153,44 @@ class GraphqlTest extends AbstractGraphqlTest {
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_OPERATION_NAME, "findBookById"),
-                            equalTo(GraphqlIncubatingAttributes.GRAPHQL_OPERATION_TYPE, "query"),
+                            equalTo(GRAPHQL_OPERATION_NAME, "findBookById"),
+                            equalTo(GRAPHQL_OPERATION_TYPE, "query"),
                             normalizedQueryEqualsTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_DOCUMENT,
+                                GRAPHQL_DOCUMENT,
                                 "query findBookById { bookById(id: ?) { name author { name } } }")),
                 span ->
                     span.hasName("bookById")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("query findBookById"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(GRAPHQL_FIELD_NAME, "bookById"),
-                            equalTo(GRAPHQL_FIELD_PATH, "/bookById")),
+                            equalTo(stringKey("graphql.field.name"), "bookById"),
+                            equalTo(stringKey("graphql.field.path"), "/bookById")),
                 span ->
                     span.hasName("fetchBookById")
                         .hasKind(SpanKind.INTERNAL)
-                        .hasParent(spanWithName("bookById")),
+                        .hasParent(spanWithName("bookById"))
+                        .hasTotalAttributeCount(0),
                 span ->
                     span.hasName("name")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("bookById"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(GRAPHQL_FIELD_NAME, "name"),
-                            equalTo(GRAPHQL_FIELD_PATH, "/bookById/name")),
+                            equalTo(stringKey("graphql.field.name"), "name"),
+                            equalTo(stringKey("graphql.field.path"), "/bookById/name")),
                 span ->
                     span.hasName("author")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("bookById"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(GRAPHQL_FIELD_NAME, "author"),
-                            equalTo(GRAPHQL_FIELD_PATH, "/bookById/author")),
+                            equalTo(stringKey("graphql.field.name"), "author"),
+                            equalTo(stringKey("graphql.field.path"), "/bookById/author")),
                 span ->
                     span.hasName("name")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("author"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(GRAPHQL_FIELD_NAME, "name"),
-                            equalTo(GRAPHQL_FIELD_PATH, "/bookById/author/name"))));
+                            equalTo(stringKey("graphql.field.name"), "name"),
+                            equalTo(stringKey("graphql.field.path"), "/bookById/author/name"))));
   }
 
   @Test
@@ -199,11 +200,13 @@ class GraphqlTest extends AbstractGraphqlTest {
         GraphQLTelemetry.builder(testing.getOpenTelemetry())
             .setDataFetcherInstrumentationEnabled(false)
             .setTrivialDataFetcherInstrumentationEnabled(true)
-            .setAddOperationNameToSpanName(true)
+            .setOperationNameInSpanNameEnabled(true)
             .build();
 
     GraphQL graphql =
-        GraphQL.newGraphQL(graphqlSchema).instrumentation(telemetry.newInstrumentation()).build();
+        GraphQL.newGraphQL(graphqlSchema)
+            .instrumentation(telemetry.createInstrumentation())
+            .build();
 
     // Act
     ExecutionResult result =
@@ -229,16 +232,16 @@ class GraphqlTest extends AbstractGraphqlTest {
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_OPERATION_NAME, "findBookById"),
-                            equalTo(GraphqlIncubatingAttributes.GRAPHQL_OPERATION_TYPE, "query"),
+                            equalTo(GRAPHQL_OPERATION_NAME, "findBookById"),
+                            equalTo(GRAPHQL_OPERATION_TYPE, "query"),
                             normalizedQueryEqualsTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_DOCUMENT,
+                                GRAPHQL_DOCUMENT,
                                 "query findBookById { bookById(id: ?) { name author { name } } }")),
                 span ->
                     span.hasName("fetchBookById")
                         .hasKind(SpanKind.INTERNAL)
-                        .hasParent(spanWithName("query findBookById"))));
+                        .hasParent(spanWithName("query findBookById"))
+                        .hasTotalAttributeCount(0)));
   }
 
   // test data fetcher throwing an exception
@@ -248,11 +251,13 @@ class GraphqlTest extends AbstractGraphqlTest {
     GraphQLTelemetry telemetry =
         GraphQLTelemetry.builder(testing.getOpenTelemetry())
             .setDataFetcherInstrumentationEnabled(true)
-            .setAddOperationNameToSpanName(true)
+            .setOperationNameInSpanNameEnabled(true)
             .build();
 
     GraphQL graphql =
-        GraphQL.newGraphQL(graphqlSchema).instrumentation(telemetry.newInstrumentation()).build();
+        GraphQL.newGraphQL(graphqlSchema)
+            .instrumentation(telemetry.createInstrumentation())
+            .build();
 
     // Act
     // book-exception triggers exception in data fetcher
@@ -279,11 +284,10 @@ class GraphqlTest extends AbstractGraphqlTest {
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_OPERATION_NAME, "findBookById"),
-                            equalTo(GraphqlIncubatingAttributes.GRAPHQL_OPERATION_TYPE, "query"),
+                            equalTo(GRAPHQL_OPERATION_NAME, "findBookById"),
+                            equalTo(GRAPHQL_OPERATION_TYPE, "query"),
                             normalizedQueryEqualsTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_DOCUMENT,
+                                GRAPHQL_DOCUMENT,
                                 "query findBookById { bookById(id: ?) { name author { name } } }"))
                         .hasStatus(StatusData.error())
                         .hasEventsSatisfyingExactly(
@@ -291,25 +295,24 @@ class GraphqlTest extends AbstractGraphqlTest {
                                 event
                                     .hasName("exception")
                                     .hasAttributesSatisfyingExactly(
+                                        equalTo(EXCEPTION_TYPE, "DataFetchingException"),
                                         equalTo(
-                                            ExceptionAttributes.EXCEPTION_TYPE,
-                                            "DataFetchingException"),
-                                        equalTo(
-                                            ExceptionAttributes.EXCEPTION_MESSAGE,
+                                            EXCEPTION_MESSAGE,
                                             "Exception while fetching data (/bookById) : fetching book failed"))),
                 span ->
                     span.hasName("bookById")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("query findBookById"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(GRAPHQL_FIELD_NAME, "bookById"),
-                            equalTo(GRAPHQL_FIELD_PATH, "/bookById"))
+                            equalTo(stringKey("graphql.field.name"), "bookById"),
+                            equalTo(stringKey("graphql.field.path"), "/bookById"))
                         .hasStatus(StatusData.error())
                         .hasException(new IllegalStateException("fetching book failed")),
                 span ->
                     span.hasName("fetchBookById")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("bookById"))
+                        .hasTotalAttributeCount(0)
                         .hasStatus(StatusData.error())
                         .hasException(new IllegalStateException("fetching book failed"))));
   }
@@ -321,11 +324,13 @@ class GraphqlTest extends AbstractGraphqlTest {
     GraphQLTelemetry telemetry =
         GraphQLTelemetry.builder(testing.getOpenTelemetry())
             .setDataFetcherInstrumentationEnabled(true)
-            .setAddOperationNameToSpanName(true)
+            .setOperationNameInSpanNameEnabled(true)
             .build();
 
     GraphQL graphql =
-        GraphQL.newGraphQL(graphqlSchema).instrumentation(telemetry.newInstrumentation()).build();
+        GraphQL.newGraphQL(graphqlSchema)
+            .instrumentation(telemetry.createInstrumentation())
+            .build();
 
     // Act
     // book-graphql-error triggers returning an error from data fetcher
@@ -352,11 +357,10 @@ class GraphqlTest extends AbstractGraphqlTest {
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(
-                            equalTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_OPERATION_NAME, "findBookById"),
-                            equalTo(GraphqlIncubatingAttributes.GRAPHQL_OPERATION_TYPE, "query"),
+                            equalTo(GRAPHQL_OPERATION_NAME, "findBookById"),
+                            equalTo(GRAPHQL_OPERATION_TYPE, "query"),
                             normalizedQueryEqualsTo(
-                                GraphqlIncubatingAttributes.GRAPHQL_DOCUMENT,
+                                GRAPHQL_DOCUMENT,
                                 "query findBookById { bookById(id: ?) { name author { name } } }"))
                         .hasStatus(StatusData.error())
                         .hasEventsSatisfyingExactly(
@@ -364,35 +368,28 @@ class GraphqlTest extends AbstractGraphqlTest {
                                 event
                                     .hasName("exception")
                                     .hasAttributesSatisfyingExactly(
-                                        equalTo(
-                                            ExceptionAttributes.EXCEPTION_TYPE,
-                                            "DataFetchingException"),
-                                        equalTo(
-                                            ExceptionAttributes.EXCEPTION_MESSAGE,
-                                            "failed to fetch book"))),
+                                        equalTo(EXCEPTION_TYPE, "DataFetchingException"),
+                                        equalTo(EXCEPTION_MESSAGE, "failed to fetch book"))),
                 span ->
                     span.hasName("bookById")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(spanWithName("query findBookById"))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(GRAPHQL_FIELD_NAME, "bookById"),
-                            equalTo(GRAPHQL_FIELD_PATH, "/bookById"))
+                            equalTo(stringKey("graphql.field.name"), "bookById"),
+                            equalTo(stringKey("graphql.field.path"), "/bookById"))
                         .hasStatus(StatusData.error())
                         .hasEventsSatisfyingExactly(
                             event ->
                                 event
                                     .hasName("exception")
                                     .hasAttributesSatisfyingExactly(
-                                        equalTo(
-                                            ExceptionAttributes.EXCEPTION_TYPE,
-                                            "DataFetchingException"),
-                                        equalTo(
-                                            ExceptionAttributes.EXCEPTION_MESSAGE,
-                                            "failed to fetch book"))),
+                                        equalTo(EXCEPTION_TYPE, "DataFetchingException"),
+                                        equalTo(EXCEPTION_MESSAGE, "failed to fetch book"))),
                 span ->
                     span.hasName("fetchBookById")
                         .hasKind(SpanKind.INTERNAL)
-                        .hasParent(spanWithName("bookById"))));
+                        .hasParent(spanWithName("bookById"))
+                        .hasTotalAttributeCount(0)));
   }
 
   private static SpanData spanWithName(String name) {

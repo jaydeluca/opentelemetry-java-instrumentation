@@ -6,6 +6,7 @@
 package io.opentelemetry.javaagent.instrumentation.mongo.v3_7;
 
 import static io.opentelemetry.instrumentation.test.utils.PortUtils.UNUSABLE_PORT;
+import static io.opentelemetry.instrumentation.testing.util.TestLatestDeps.testLatestDeps;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,20 +22,23 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import io.opentelemetry.instrumentation.mongo.testing.AbstractMongoClientTest;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import java.util.ArrayList;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.Document;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+@SuppressWarnings("deprecation")
 class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>> {
   @RegisterExtension
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
+
+  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
   private MongoClient client;
 
@@ -49,18 +53,17 @@ class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>>
                             .hosts(singletonList(new ServerAddress(host, port)))
                             .description("some-description"))
                 .build());
-  }
-
-  @AfterAll
-  void cleanup() {
-    if (client != null) {
-      client.close();
-    }
+    cleanup.deferAfterAll(() -> client.close());
   }
 
   @Override
   protected InstrumentationExtension testing() {
     return testing;
+  }
+
+  @Override
+  protected boolean supportsNetworkPeer() {
+    return testLatestDeps();
   }
 
   @Override
@@ -71,7 +74,9 @@ class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>>
 
   @Override
   protected void createCollectionNoDescription(String dbName, String collectionName) {
-    MongoDatabase db = MongoClients.create("mongodb://" + host + ":" + port).getDatabase(dbName);
+    MongoClient mongoClient = MongoClients.create("mongodb://" + host + ":" + port);
+    cleanup.deferCleanup(() -> mongoClient.close());
+    MongoDatabase db = mongoClient.getDatabase(dbName);
     db.createCollection(collectionName);
   }
 
@@ -87,7 +92,9 @@ class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>>
                         .description("some-description"))
             .build();
     MongoClientSettings newClientSettings = MongoClientSettings.builder(clientSettings).build();
-    MongoDatabase db = MongoClients.create(newClientSettings).getDatabase(dbName);
+    MongoClient mongoClient = MongoClients.create(newClientSettings);
+    cleanup.deferCleanup(() -> mongoClient.close());
+    MongoDatabase db = mongoClient.getDatabase(dbName);
     db.createCollection(collectionName);
   }
 
@@ -101,14 +108,16 @@ class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>>
                         .hosts(singletonList(new ServerAddress(host, port)))
                         .description("some-description"));
     clientSettings.build();
-    MongoDatabase db = MongoClients.create(clientSettings.build()).getDatabase(dbName);
+    MongoClient mongoClient = MongoClients.create(clientSettings.build());
+    cleanup.deferCleanup(() -> mongoClient.close());
+    MongoDatabase db = mongoClient.getDatabase(dbName);
     db.createCollection(collectionName);
   }
 
   @Override
   protected long getCollection(String dbName, String collectionName) {
     MongoDatabase db = client.getDatabase(dbName);
-    return db.getCollection(collectionName).estimatedDocumentCount();
+    return db.getCollection(collectionName).count();
   }
 
   @Override
@@ -129,7 +138,7 @@ class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>>
   @Override
   protected long insert(MongoCollection<Document> collection) {
     collection.insertOne(new Document("password", "SECRET"));
-    return collection.estimatedDocumentCount();
+    return collection.count();
   }
 
   @Override
@@ -155,7 +164,7 @@ class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>>
         collection.updateOne(
             new BsonDocument("password", new BsonString("OLDPW")),
             new BsonDocument("$set", new BsonDocument("password", new BsonString("NEWPW"))));
-    collection.estimatedDocumentCount();
+    collection.count();
     return result.getModifiedCount();
   }
 
@@ -180,7 +189,7 @@ class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>>
   protected long delete(MongoCollection<Document> collection) {
     DeleteResult result =
         collection.deleteOne(new BsonDocument("password", new BsonString("SECRET")));
-    collection.estimatedDocumentCount();
+    collection.count();
     return result.getDeletedCount();
   }
 
@@ -230,6 +239,7 @@ class MongoClientTest extends AbstractMongoClientTest<MongoCollection<Document>>
   void testClientFailure() {
     MongoClient client =
         MongoClients.create("mongodb://" + host + ":" + UNUSABLE_PORT + "/?connectTimeoutMS=10");
+    cleanup.deferCleanup(() -> client.close());
 
     assertThatThrownBy(
             () -> {

@@ -13,29 +13,23 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /** Entrypoint for instrumenting Spring Web MVC apps. */
 public final class SpringWebMvcTelemetry {
+  private final Instrumenter<HttpServletRequest, HttpServletResponse> instrumenter;
 
-  /**
-   * Returns a new {@link SpringWebMvcTelemetry} configured with the given {@link OpenTelemetry}.
-   */
+  /** Returns a new instance configured with the given {@link OpenTelemetry} instance. */
   public static SpringWebMvcTelemetry create(OpenTelemetry openTelemetry) {
     return builder(openTelemetry).build();
   }
 
-  /**
-   * Returns a new {@link SpringWebMvcTelemetryBuilder} configured with the given {@link
-   * OpenTelemetry}.
-   */
+  /** Returns a builder configured with the given {@link OpenTelemetry} instance. */
   public static SpringWebMvcTelemetryBuilder builder(OpenTelemetry openTelemetry) {
     return new SpringWebMvcTelemetryBuilder(openTelemetry);
   }
-
-  private final Instrumenter<HttpServletRequest, HttpServletResponse> instrumenter;
 
   SpringWebMvcTelemetry(Instrumenter<HttpServletRequest, HttpServletResponse> instrumenter) {
     this.instrumenter = instrumenter;
   }
 
-  /** Returns a new {@link Filter} that generates telemetry for received HTTP requests. */
+  /** Returns a {@link Filter} that instruments HTTP requests. */
   public Filter createServletFilter() {
     return new WebMvcTelemetryProducingFilter(instrumenter);
   }

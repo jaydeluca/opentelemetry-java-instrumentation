@@ -5,21 +5,17 @@
 
 package io.opentelemetry.instrumentation.okhttp.v3_0;
 
-import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PROTOCOL_VERSION;
+import static java.util.Collections.emptyMap;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientResult;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientTestOptions;
 import java.io.IOException;
 import java.net.URI;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.Headers;
@@ -35,20 +31,19 @@ import org.junit.jupiter.api.Test;
 
 public abstract class AbstractOkHttp3Test extends AbstractHttpClientTest<Request> {
 
-  protected abstract Call.Factory createCallFactory(OkHttpClient.Builder clientBuilder);
-
   protected final Call.Factory client = createCallFactory(getClientBuilder(false));
   private final Call.Factory clientWithReadTimeout = createCallFactory(getClientBuilder(true));
 
-  protected OkHttpClient.Builder getClientBuilder(boolean withReadTimeout) {
+  protected abstract Call.Factory createCallFactory(OkHttpClient.Builder clientBuilder);
+
+  private static OkHttpClient.Builder getClientBuilder(boolean withReadTimeout) {
     OkHttpClient.Builder builder =
-        new OkHttpClient.Builder()
-            .connectTimeout(CONNECTION_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        new OkHttpClient.Builder().connectTimeout(CONNECTION_TIMEOUT.toMillis(), MILLISECONDS);
     if (withReadTimeout) {
       builder
           // don't want retries on time outs
           .retryOnConnectionFailure(false)
-          .readTimeout(READ_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+          .readTimeout(READ_TIMEOUT.toMillis(), MILLISECONDS);
     }
     return builder;
   }
@@ -102,7 +97,7 @@ public abstract class AbstractOkHttp3Test extends AbstractHttpClientTest<Request
   }
 
   private Call.Factory getClient(URI uri) {
-    if (uri.toString().contains("/read-timeout")) {
+    if (uri.getPath().endsWith("/read-timeout")) {
       return clientWithReadTimeout;
     }
     return client;
@@ -112,34 +107,6 @@ public abstract class AbstractOkHttp3Test extends AbstractHttpClientTest<Request
   protected void configure(HttpClientTestOptions.Builder optionsBuilder) {
     optionsBuilder.markAsLowLevelInstrumentation();
     optionsBuilder.setMaxRedirects(21); // 1st send + 20 retries
-
-    optionsBuilder.setHttpAttributes(
-        uri -> {
-          Set<AttributeKey<?>> attributes =
-              new HashSet<>(HttpClientTestOptions.DEFAULT_HTTP_ATTRIBUTES);
-
-          // protocol is extracted from the response, and those URLs cause exceptions (= null
-          // response)
-          if ("http://localhost:61/".equals(uri.toString())
-              || "https://192.0.2.1/".equals(uri.toString())
-              || "http://192.0.2.1/".equals(uri.toString())
-              || resolveAddress("/read-timeout").toString().equals(uri.toString())) {
-            attributes.remove(NETWORK_PROTOCOL_VERSION);
-          }
-
-          return attributes;
-        });
-  }
-
-  private static class TestInterceptor implements Interceptor {
-
-    @Override
-    public Response intercept(Chain chain) throws IOException {
-      // make copy of the request
-      Request request = chain.request().newBuilder().build();
-
-      return chain.proceed(request);
-    }
   }
 
   @Test
@@ -155,7 +122,7 @@ public abstract class AbstractOkHttp3Test extends AbstractHttpClientTest<Request
     testing.runWithSpan(
         "parent",
         () -> {
-          Request request = buildRequest(method, uri, Collections.emptyMap());
+          Request request = buildRequest(method, uri, emptyMap());
           testClient
               .newCall(request)
               .enqueue(
@@ -187,5 +154,16 @@ public abstract class AbstractOkHttp3Test extends AbstractHttpClientTest<Request
                       .hasParent(trace.getSpan(1)),
               span -> span.hasName("child").hasKind(SpanKind.INTERNAL).hasParent(trace.getSpan(0)));
         });
+  }
+
+  private static class TestInterceptor implements Interceptor {
+
+    @Override
+    public Response intercept(Chain chain) throws IOException {
+      // make copy of the request
+      Request request = chain.request().newBuilder().build();
+
+      return chain.proceed(request);
+    }
   }
 }

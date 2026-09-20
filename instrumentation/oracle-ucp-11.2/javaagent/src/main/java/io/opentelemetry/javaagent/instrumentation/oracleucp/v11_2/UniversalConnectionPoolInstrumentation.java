@@ -10,6 +10,7 @@ import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.
 import static io.opentelemetry.javaagent.instrumentation.oracleucp.v11_2.OracleUcpSingletons.telemetry;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
+import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
 import io.opentelemetry.javaagent.bootstrap.CallDepth;
@@ -20,7 +21,7 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 import oracle.ucp.UniversalConnectionPool;
 
-public class UniversalConnectionPoolInstrumentation implements TypeInstrumentation {
+class UniversalConnectionPoolInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<ClassLoader> classLoaderOptimization() {
@@ -35,31 +36,43 @@ public class UniversalConnectionPoolInstrumentation implements TypeInstrumentati
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        named("start").and(isPublic()), this.getClass().getName() + "$StartAdvice");
+        named("start").and(isPublic()), getClass().getName() + "$StartAdvice");
     transformer.applyAdviceToMethod(
-        named("stop").and(takesArguments(0)), this.getClass().getName() + "$StopAdvice");
+        named("setName").and(takesArguments(1)).and(takesArgument(0, String.class)),
+        getClass().getName() + "$SetNameAdvice");
+    transformer.applyAdviceToMethod(
+        named("stop").and(takesArguments(0)), getClass().getName() + "$StopAdvice");
   }
 
   @SuppressWarnings("unused")
   public static class StartAdvice {
 
-    @Advice.OnMethodExit(suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
     public static void onExit(@Advice.This UniversalConnectionPool connectionPool) {
-      telemetry().registerMetrics(connectionPool);
+      OracleUcpSingletons.registerMetrics(connectionPool);
+    }
+  }
+
+  @SuppressWarnings("unused")
+  public static class SetNameAdvice {
+
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
+    public static void onExit(@Advice.This UniversalConnectionPool connectionPool) {
+      OracleUcpSingletons.clearPoolName(connectionPool);
     }
   }
 
   @SuppressWarnings("unused")
   public static class StopAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static CallDepth onEnter() {
       CallDepth callDepth = CallDepth.forClass(UniversalConnectionPool.class);
       callDepth.getAndIncrement();
       return callDepth;
     }
 
-    @Advice.OnMethodExit(suppress = Throwable.class, onThrowable = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, onThrowable = Throwable.class, inline = false)
     public static void onExit(
         @Advice.This UniversalConnectionPool connectionPool, @Advice.Enter CallDepth callDepth) {
       if (callDepth.decrementAndGet() > 0) {

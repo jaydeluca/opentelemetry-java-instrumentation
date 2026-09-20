@@ -1,6 +1,9 @@
+import io.opentelemetry.instrumentation.gradle.CheckMavenPublicationCoordinatesTask
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.asRequestBody
+import org.gradle.api.publish.PublishingExtension
+import org.gradle.api.publish.maven.MavenPublication
 import java.time.Duration
 import java.util.Base64
 
@@ -10,6 +13,7 @@ plugins {
   id("io.github.gradle-nexus.publish-plugin")
   id("otel.spotless-conventions")
   id("otel.weaver-docs")
+  id("otel.resolve-latest-dep-versions")
   /* workaround for
   What went wrong:
   Could not determine the dependencies of task ':smoke-tests-otel-starter:spring-boot-3.2:bootJar'.
@@ -17,13 +21,17 @@ plugins {
   > Cannot set the value of task ':smoke-tests-otel-starter:spring-boot-3.2:collectReachabilityMetadata' property 'metadataService' of type org.graalvm.buildtools.gradle.internal.GraalVMReachabilityMetadataService using a provider of type org.graalvm.buildtools.gradle.internal.GraalVMReachabilityMetadataService.
 
   See https://github.com/gradle/gradle/issues/17559#issuecomment-1327991512
+
+  The plugin is conditionally applied in smoke-tests-otel-starter subprojects only when
+  nativeTest is in the requested task names (see reusable-native-tests.yml).
    */
   id("org.graalvm.buildtools.native") apply false
 }
 
 buildscript {
   dependencies {
-    classpath("com.squareup.okhttp3:okhttp:5.3.2")
+    classpath("com.squareup.okhttp3:okhttp:5.5.0")
+    classpath("org.apache.commons:commons-lang3:3.20.0")
   }
 }
 
@@ -63,9 +71,25 @@ if (project.findProperty("skipTests") as String? == "true") {
   }
 }
 
+val mavenPublicationCoordinates = objects.listProperty<String>()
+
+subprojects {
+  val projectPath = path
+  pluginManager.withPlugin("maven-publish") {
+    extensions.getByType<PublishingExtension>().publications
+      .withType<MavenPublication>()
+      .configureEach {
+        val publication = this
+        mavenPublicationCoordinates.add(provider {
+          "${publication.groupId}:${publication.artifactId}:${publication.version}=$projectPath:${publication.name}"
+        })
+      }
+  }
+}
+
 if (gradle.startParameter.taskNames.contains("listTestsInPartition")) {
   tasks {
-    val listTestsInPartition by registering {
+    register<DefaultTask>("listTestsInPartition") {
       group = "Help"
       description = "List test tasks in given partition"
 
@@ -125,7 +149,22 @@ if (gradle.startParameter.taskNames.contains("listTestsInPartition")) {
 tasks {
   val stableVersion = version.toString().replace("-alpha", "")
 
-  val generateFossaConfiguration by registering {
+  val checkMavenPublicationCoordinates = register<CheckMavenPublicationCoordinatesTask>("checkMavenPublicationCoordinates") {
+    group = "Verification"
+    description = "Checks that Maven publications have unique coordinates"
+    publicationCoordinates.set(mavenPublicationCoordinates)
+  }
+
+  subprojects {
+    tasks.matching { it.name == "check" }.configureEach {
+      dependsOn(checkMavenPublicationCoordinates)
+    }
+    tasks.withType<PublishToMavenRepository>().configureEach {
+      dependsOn(checkMavenPublicationCoordinates)
+    }
+  }
+
+  register<DefaultTask>("generateFossaConfiguration") {
     group = "Help"
     description = "Generate .fossa.yml configuration file"
 
@@ -162,7 +201,7 @@ tasks {
     }
   }
 
-  val generateReleaseBundle by registering(Zip::class) {
+  val generateReleaseBundle = register<Zip>("generateReleaseBundle") {
     dependsOn(project.tasks.withType<PublishToMavenRepository>())
     from("releaseRepo")
 
@@ -172,8 +211,9 @@ tasks {
     archiveFileName.set("release-bundle-$stableVersion.zip")
   }
 
-  val uploadReleaseBundle by registering {
+  register<DefaultTask>("uploadReleaseBundle") {
     dependsOn(generateReleaseBundle)
+    val bundleFile = generateReleaseBundle.flatMap { it.archiveFile }
     doFirst {
       val username = System.getenv("SONATYPE_USER") ?: throw GradleException("Sonatype user not set")
       val password = System.getenv("SONATYPE_KEY") ?: throw GradleException("Sonatype key not set")
@@ -182,7 +222,7 @@ tasks {
       var query = "?name=opentelemetry-java-instrumentation-$stableVersion"
       query += "&publishingType=AUTOMATIC"
 
-      val bundle = generateReleaseBundle.get().outputs.files.singleFile
+      val bundle = bundleFile.get().asFile
       val httpClient = OkHttpClient()
 
       val request = okhttp3.Request.Builder()

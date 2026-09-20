@@ -1,0 +1,283 @@
+/*
+ * Copyright The OpenTelemetry Authors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package io.opentelemetry.instrumentation.jmx.internal.engine;
+
+import static java.util.Objects.requireNonNull;
+import static java.util.logging.Level.FINE;
+import static java.util.logging.Level.WARNING;
+
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.common.AttributesBuilder;
+import io.opentelemetry.api.metrics.DoubleGaugeBuilder;
+import io.opentelemetry.api.metrics.LongCounterBuilder;
+import io.opentelemetry.api.metrics.LongUpDownCounterBuilder;
+import io.opentelemetry.api.metrics.Meter;
+import io.opentelemetry.api.metrics.MeterBuilder;
+import io.opentelemetry.api.metrics.ObservableDoubleMeasurement;
+import io.opentelemetry.api.metrics.ObservableLongMeasurement;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
+import io.opentelemetry.instrumentation.api.internal.EmbeddedInstrumentationProperties;
+import io.opentelemetry.instrumentation.jmx.internal.ExperimentalJmxMetricHandler;
+import java.util.Collection;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+import java.util.logging.Logger;
+import javax.annotation.Nullable;
+import javax.management.MBeanServerConnection;
+import javax.management.ObjectName;
+
+/** A class responsible for maintaining the set of metrics to collect and report. */
+class MetricRegistrar implements AutoCloseable {
+
+  private static final Logger logger = Logger.getLogger(MetricRegistrar.class.getName());
+
+  private final Meter meter;
+  private final Collection<AutoCloseable> instruments = ConcurrentHashMap.newKeySet();
+  private final IncludeExclude metrics;
+
+  MetricRegistrar(
+      OpenTelemetry openTelemetry,
+      String instrumentationScope,
+      String versionLookupName,
+      IncludeExclude metrics) {
+    this.metrics = metrics;
+    MeterBuilder meterBuilder = openTelemetry.getMeterProvider().meterBuilder(instrumentationScope);
+    String version = EmbeddedInstrumentationProperties.findVersion(versionLookupName);
+    if (version != null) {
+      meterBuilder.setInstrumentationVersion(version);
+    }
+    meter = new FilteringMeter(meterBuilder.build(), metrics);
+  }
+
+  /**
+   * Accepts a MetricExtractor for registration and activation.
+   *
+   * @param connection the {@link MBeanServerConnection} to use to query for metric values
+   * @param objectNames the {@link ObjectName} that are known to the server and that know the
+   *     attribute that is required to get the metric values
+   * @param extractor the {@link MetricExtractor} responsible for getting the metric values
+   * @param attributeInfo the {@link AttributeInfo}
+   */
+  void enrollExtractor(
+      MBeanServerConnection connection,
+      Collection<ObjectName> objectNames,
+      MetricExtractor extractor,
+      AttributeInfo attributeInfo) {
+    // For the first enrollment of the extractor we have to build the corresponding Instrument
+    DetectionStatus status = new DetectionStatus(connection, objectNames);
+    boolean firstEnrollment = extractor.setStatus(status);
+    if (!firstEnrollment) {
+      // For successive enrollments, it is sufficient to refresh the status
+      return;
+    }
+
+    MetricInfo metricInfo = extractor.getInfo();
+    String metricName = metricInfo.getMetricName();
+
+    if (!metrics.matches(metricName)) {
+      logger.log(FINE, "Metric {0} is excluded by configuration", metricName);
+      return;
+    }
+
+    boolean recordDoubleValue = attributeInfo.usesDoubleValues();
+    MetricInfo.Type instrumentType = metricInfo.getType();
+    String description =
+        metricInfo.getDescription() != null
+            ? metricInfo.getDescription()
+            : attributeInfo.getDescription();
+    String unit = metricInfo.getUnit();
+    String sourceUnit = metricInfo.getSourceUnit();
+
+    UnitConverter unitConverter = UnitConverter.getInstance(sourceUnit, unit);
+    if (unitConverter != null) {
+      recordDoubleValue = true;
+    }
+
+    switch (instrumentType) {
+      // CHECKSTYLE:OFF
+      case COUNTER:
+        {
+          // CHECKSTYLE:ON
+          LongCounterBuilder builder = meter.counterBuilder(metricName);
+          Optional.ofNullable(description).ifPresent(builder::setDescription);
+          builder.setUnit(unit);
+
+          if (recordDoubleValue) {
+            register(
+                builder
+                    .ofDoubles()
+                    .buildWithCallback(doubleTypeCallback(extractor, unitConverter)));
+          } else {
+            register(builder.buildWithCallback(longTypeCallback(extractor)));
+          }
+          logger.log(FINE, "Created Counter for {0}", metricName);
+        }
+        break;
+
+      // CHECKSTYLE:OFF
+      case UPDOWNCOUNTER:
+        {
+          // CHECKSTYLE:ON
+          LongUpDownCounterBuilder builder = meter.upDownCounterBuilder(metricName);
+          Optional.ofNullable(description).ifPresent(builder::setDescription);
+          builder.setUnit(unit);
+
+          if (recordDoubleValue) {
+            register(
+                builder
+                    .ofDoubles()
+                    .buildWithCallback(doubleTypeCallback(extractor, unitConverter)));
+          } else {
+            register(builder.buildWithCallback(longTypeCallback(extractor)));
+          }
+          logger.log(FINE, "Created UpDownCounter for {0}", metricName);
+        }
+        break;
+
+      // CHECKSTYLE:OFF
+      case GAUGE:
+        {
+          // CHECKSTYLE:ON
+          DoubleGaugeBuilder builder = meter.gaugeBuilder(metricName);
+          Optional.ofNullable(description).ifPresent(builder::setDescription);
+          builder.setUnit(unit);
+
+          if (recordDoubleValue) {
+            register(builder.buildWithCallback(doubleTypeCallback(extractor, unitConverter)));
+          } else {
+            register(builder.ofLongs().buildWithCallback(longTypeCallback(extractor)));
+          }
+          logger.log(FINE, "Created Gauge for {0}", metricName);
+        }
+        break;
+      // CHECKSTYLE:OFF
+      case STATE:
+        {
+          // CHECKSTYLE:ON
+          throw new IllegalStateException("state metrics should not be registered");
+        }
+    }
+  }
+
+  /*
+   * A method generating metric collection callback for asynchronous Measurement
+   * of Double type.
+   * If unit converter is provided then conversion is applied before metric is recorded.
+   */
+  static Consumer<ObservableDoubleMeasurement> doubleTypeCallback(
+      MetricExtractor extractor, @Nullable UnitConverter unitConverter) {
+    return measurement -> {
+      DetectionStatus status = extractor.getStatus();
+      if (status != null) {
+        MBeanServerConnection connection = status.getConnection();
+        for (ObjectName objectName : status.getObjectNames()) {
+          Number metricValue =
+              extractor.getMetricValueExtractor().extractNumericalAttribute(connection, objectName);
+          if (metricValue != null) {
+            // get the metric attributes
+            Attributes attr = createMetricAttributes(connection, objectName, extractor);
+
+            if (unitConverter != null) {
+              metricValue = unitConverter.convert(metricValue);
+            }
+            measurement.record(metricValue.doubleValue(), attr);
+          }
+        }
+      }
+    };
+  }
+
+  /*
+   * A method generating metric collection callback for asynchronous Measurement
+   * of Long type.
+   */
+  static Consumer<ObservableLongMeasurement> longTypeCallback(MetricExtractor extractor) {
+    return measurement -> {
+      DetectionStatus status = extractor.getStatus();
+      if (status != null) {
+        MBeanServerConnection connection = status.getConnection();
+        for (ObjectName objectName : status.getObjectNames()) {
+          Number metricValue =
+              extractor.getMetricValueExtractor().extractNumericalAttribute(connection, objectName);
+          if (metricValue != null) {
+            // get the metric attributes
+            Attributes attr = createMetricAttributes(connection, objectName, extractor);
+            measurement.record(metricValue.longValue(), attr);
+          }
+        }
+      }
+    };
+  }
+
+  /*
+   * An auxiliary method for collecting measurement attributes to go along
+   * the metric values
+   */
+  static Attributes createMetricAttributes(
+      MBeanServerConnection connection, ObjectName objectName, MetricExtractor extractor) {
+    AttributesBuilder attrBuilder = Attributes.builder();
+    for (MetricAttribute metricAttribute : extractor.getAttributes()) {
+      String attributeValue = metricAttribute.acquireAttributeValue(connection, objectName);
+      attrBuilder = attrBuilder.put(metricAttribute.getAttributeName(), attributeValue);
+    }
+    return attrBuilder.build();
+  }
+
+  void enrollHandler(
+      MBeanServerConnection connection,
+      Collection<ObjectName> objectNames,
+      MetricHandlerHolder holder) {
+    ExperimentalJmxMetricHandler handler = holder.getHandler();
+    // we print a warning for missing handlers in the constructor of BeanFinder
+    if (handler == null) {
+      return;
+    }
+
+    DetectionStatus status = new DetectionStatus(connection, objectNames);
+    boolean firstEnrollment = holder.setStatus(status);
+    if (!firstEnrollment) {
+      // For successive enrollments, it is sufficient to refresh the status
+      return;
+    }
+
+    register(
+        handler.create(
+            meter,
+            () -> {
+              DetectionStatus detectionStatus = holder.getStatus();
+              return new ExperimentalJmxMetricHandler.Detector() {
+                @Override
+                public MBeanServerConnection getConnection() {
+                  return detectionStatus.getConnection();
+                }
+
+                @Override
+                public Collection<ObjectName> getObjectNames() {
+                  return detectionStatus.getObjectNames();
+                }
+              };
+            }));
+  }
+
+  private void register(AutoCloseable instrument) {
+    requireNonNull(instrument);
+    instruments.add(instrument);
+  }
+
+  @Override
+  public void close() {
+    for (AutoCloseable instrument : instruments) {
+      try {
+        instrument.close();
+      } catch (Exception e) {
+        logger.log(WARNING, "Failed to close metric instrument", e);
+      }
+    }
+    instruments.clear();
+  }
+}

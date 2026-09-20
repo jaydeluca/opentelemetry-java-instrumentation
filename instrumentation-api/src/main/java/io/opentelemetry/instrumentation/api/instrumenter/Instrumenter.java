@@ -5,7 +5,14 @@
 
 package io.opentelemetry.instrumentation.api.instrumenter;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvExceptionSignal.emitExceptionAsLogs;
+import static io.opentelemetry.instrumentation.api.internal.SemconvExceptionSignal.emitExceptionAsSpanEvents;
+import static java.util.concurrent.TimeUnit.SECONDS;
+
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.logs.LogRecordBuilder;
+import io.opentelemetry.api.logs.Logger;
+import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanBuilder;
 import io.opentelemetry.api.trace.SpanKind;
@@ -16,9 +23,9 @@ import io.opentelemetry.instrumentation.api.internal.HttpRouteState;
 import io.opentelemetry.instrumentation.api.internal.InstrumenterAccess;
 import io.opentelemetry.instrumentation.api.internal.InstrumenterContext;
 import io.opentelemetry.instrumentation.api.internal.InstrumenterUtil;
+import io.opentelemetry.instrumentation.api.internal.InternalExceptionEventExtractor;
 import io.opentelemetry.instrumentation.api.internal.SupportabilityMetrics;
 import java.time.Instant;
-import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 
 /**
@@ -71,6 +78,7 @@ public class Instrumenter<REQUEST, RESPONSE> {
 
   private final String instrumentationName;
   private final Tracer tracer;
+  @Nullable private final Logger logger;
   private final SpanNameExtractor<? super REQUEST> spanNameExtractor;
   private final SpanKindExtractor<? super REQUEST> spanKindExtractor;
   private final SpanStatusExtractor<? super REQUEST, ? super RESPONSE> spanStatusExtractor;
@@ -81,6 +89,7 @@ public class Instrumenter<REQUEST, RESPONSE> {
   private final AttributesExtractor<? super REQUEST, ? super RESPONSE>[]
       operationListenerAttributesExtractors;
   private final ErrorCauseExtractor errorCauseExtractor;
+  @Nullable private final InternalExceptionEventExtractor<? super REQUEST> exceptionEventExtractor;
   private final boolean propagateOperationListenersToOnEnd;
   private final boolean enabled;
   private final SpanSuppressor spanSuppressor;
@@ -103,6 +112,17 @@ public class Instrumenter<REQUEST, RESPONSE> {
     this.propagateOperationListenersToOnEnd = builder.propagateOperationListenersToOnEnd;
     this.enabled = builder.enabled;
     this.spanSuppressor = builder.buildSpanSuppressor();
+
+    if (emitExceptionAsLogs()) {
+      this.logger = builder.buildLogger();
+      this.exceptionEventExtractor =
+          builder.exceptionEventExtractor != null
+              ? builder.exceptionEventExtractor
+              : defaultExceptionEventExtractor(this.spanKindExtractor);
+    } else {
+      this.logger = null;
+      this.exceptionEventExtractor = null;
+    }
   }
 
   /**
@@ -259,7 +279,13 @@ public class Instrumenter<REQUEST, RESPONSE> {
 
     if (error != null) {
       error = errorCauseExtractor.extract(error);
-      span.recordException(error);
+      if (emitExceptionAsSpanEvents()) {
+        span.recordException(error);
+      }
+      // Exception logs are intentionally emitted even when the span is not recording.
+      if (emitExceptionAsLogs() && exceptionEventExtractor != null) {
+        emitExceptionLog(context, error, request, endTime);
+      }
     }
 
     UnsafeAttributes attributes = new UnsafeAttributes();
@@ -272,6 +298,10 @@ public class Instrumenter<REQUEST, RESPONSE> {
     if (operationListeners == null) {
       operationListeners = this.operationListeners;
     }
+
+    SpanStatusBuilder spanStatusBuilder = new SpanStatusBuilderImpl(span);
+    spanStatusExtractor.extract(spanStatusBuilder, request, response, error);
+
     if (operationListeners.length != 0) {
       if (operationListenerAttributesExtractors.length != 0) {
         UnsafeAttributes operationAttributes = new UnsafeAttributes();
@@ -289,9 +319,6 @@ public class Instrumenter<REQUEST, RESPONSE> {
       }
     }
 
-    SpanStatusBuilder spanStatusBuilder = new SpanStatusBuilderImpl(span);
-    spanStatusExtractor.extract(spanStatusBuilder, request, response, error);
-
     if (endTime != null) {
       span.end(endTime);
     } else {
@@ -299,11 +326,45 @@ public class Instrumenter<REQUEST, RESPONSE> {
     }
   }
 
+  private void emitExceptionLog(
+      Context context, Throwable throwable, REQUEST request, @Nullable Instant endTime) {
+    if (logger == null || exceptionEventExtractor == null) {
+      // this condition is to keep nullaway happy
+      // doEnd already guards on exceptionEventExtractor != null, so this is unreachable
+      return;
+    }
+    LogRecordBuilder logRecordBuilder = logger.logRecordBuilder();
+    logRecordBuilder.setContext(context);
+    if (endTime != null) {
+      logRecordBuilder.setTimestamp(endTime);
+    }
+    exceptionEventExtractor.extract(logRecordBuilder, context, request);
+    logRecordBuilder.setException(throwable);
+    logRecordBuilder.emit();
+  }
+
+  // Per semconv
+  // (https://opentelemetry.io/docs/specs/semconv/general/recording-errors/#errors-in-logs),
+  // SERVER and CONSUMER spans should record exceptions with ERROR severity, while CLIENT and
+  // PRODUCER spans should use WARN.
+  private static <REQUEST> InternalExceptionEventExtractor<REQUEST> defaultExceptionEventExtractor(
+      SpanKindExtractor<? super REQUEST> spanKindExtractor) {
+    return (logRecordBuilder, context, request) -> {
+      logRecordBuilder.setEventName("exception");
+      SpanKind spanKind = spanKindExtractor.extract(request);
+      Severity severity =
+          (spanKind == SpanKind.SERVER || spanKind == SpanKind.CONSUMER)
+              ? Severity.ERROR
+              : Severity.WARN;
+      logRecordBuilder.setSeverity(severity);
+    };
+  }
+
   private static long getNanos(@Nullable Instant time) {
     if (time == null) {
       return System.nanoTime();
     }
-    return TimeUnit.SECONDS.toNanos(time.getEpochSecond()) + time.getNano();
+    return SECONDS.toNanos(time.getEpochSecond()) + time.getNano();
   }
 
   static {

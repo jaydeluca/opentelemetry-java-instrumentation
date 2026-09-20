@@ -61,18 +61,33 @@ dependencies {
 }
 
 tasks {
-  test {
+  withType<Test>().configureEach {
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
+
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  val testStableSemconv = register<Test>("testStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
+    jvmArgs("-Dotel.semconv-stability.opt-in=database")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+  }
+
+  check {
+    dependsOn(testStableSemconv)
+  }
+
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }
   }
 }
 
-if (findProperty("testLatestDeps") as Boolean) {
+if (otelProps.testLatestDeps) {
   configurations {
     // rediscala artifact name is different for regular and latest tests
     testImplementation {

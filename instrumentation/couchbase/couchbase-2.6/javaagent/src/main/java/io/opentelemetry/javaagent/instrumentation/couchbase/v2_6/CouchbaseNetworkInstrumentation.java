@@ -6,22 +6,22 @@
 package io.opentelemetry.javaagent.instrumentation.couchbase.v2_6;
 
 import static io.opentelemetry.javaagent.instrumentation.couchbase.v2_6.VirtualFieldHelper.COUCHBASE_REQUEST_INFO;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
+import com.couchbase.client.core.endpoint.AbstractEndpoint;
 import com.couchbase.client.core.message.CouchbaseRequest;
 import com.couchbase.client.deps.io.netty.channel.ChannelHandlerContext;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
-import io.opentelemetry.javaagent.instrumentation.couchbase.v2_0.CouchbaseRequestInfo;
+import io.opentelemetry.javaagent.instrumentation.couchbase.common.v2_0.CouchbaseRequestInfo;
 import java.util.List;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
-public class CouchbaseNetworkInstrumentation implements TypeInstrumentation {
+class CouchbaseNetworkInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -32,28 +32,31 @@ public class CouchbaseNetworkInstrumentation implements TypeInstrumentation {
   public void transform(TypeTransformer transformer) {
     // encode(ChannelHandlerContext ctx, REQUEST msg, List<Object> out)
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("encode"))
+        named("encode")
             .and(takesArguments(3))
             .and(
                 takesArgument(
                     0, named("com.couchbase.client.deps.io.netty.channel.ChannelHandlerContext")))
             .and(takesArgument(2, List.class)),
-        CouchbaseNetworkInstrumentation.class.getName() + "$CouchbaseNetworkAdvice");
+        getClass().getName() + "$CouchbaseNetworkAdvice");
   }
 
   @SuppressWarnings("unused")
   public static class CouchbaseNetworkAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
     public static void addNetworkTagsToSpan(
+        @Advice.FieldValue("endpoint") AbstractEndpoint endpoint,
         @Advice.FieldValue("localSocket") String localSocket,
         @Advice.Argument(0) ChannelHandlerContext channelHandlerContext,
         @Advice.Argument(1) CouchbaseRequest request) {
 
       CouchbaseRequestInfo requestInfo = COUCHBASE_REQUEST_INFO.get(request);
       if (requestInfo != null) {
-        requestInfo.setPeerAddress(channelHandlerContext.channel().remoteAddress());
+        // The socket and the address the driver opened this endpoint to describe the same node, and
+        // only stay consistent with each other when they are recorded together
+        requestInfo.setNode(
+            channelHandlerContext.channel().remoteAddress(), endpoint.remoteAddress());
         requestInfo.setLocalAddress(localSocket);
       }
     }

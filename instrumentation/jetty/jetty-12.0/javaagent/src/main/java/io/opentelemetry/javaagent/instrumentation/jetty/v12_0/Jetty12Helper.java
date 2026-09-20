@@ -14,18 +14,18 @@ import org.eclipse.jetty.server.HttpStream;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
 
-public class Jetty12Helper {
+class Jetty12Helper {
   private final Instrumenter<Request, Response> instrumenter;
 
   Jetty12Helper(Instrumenter<Request, Response> instrumenter) {
     this.instrumenter = instrumenter;
   }
 
-  public boolean shouldStart(Context parentContext, Request request) {
+  boolean shouldStart(Context parentContext, Request request) {
     return instrumenter.shouldStart(parentContext, request);
   }
 
-  public Context start(Context parentContext, Request request, Response response) {
+  Context start(Context parentContext, Request request, Response response) {
     Context context = instrumenter.start(parentContext, request);
     request.addFailureListener(throwable -> end(context, request, response, throwable));
     // detect request completion
@@ -49,13 +49,9 @@ public class Jetty12Helper {
     return context;
   }
 
-  public void end(Context context, Request request, Response response, @Nullable Throwable error) {
-    if (error == null) {
-      error = AppServerBridge.getException(context);
-    }
-    if (error == null) {
-      error = ServletAsyncContext.getAsyncException(context);
-    }
+  void end(Context context, Request request, Response response, @Nullable Throwable error) {
+    error = AppServerBridge.getException(context, error);
+    error = ServletAsyncContext.getAsyncException(context, error);
 
     instrumenter.end(context, request, response, error);
   }

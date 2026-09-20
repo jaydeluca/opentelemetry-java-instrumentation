@@ -8,6 +8,8 @@ package io.opentelemetry.instrumentation.rxjava.v1_0;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import rx.Observable;
 import rx.OpenTelemetryTracingUtil;
 import rx.Subscriber;
@@ -15,15 +17,31 @@ import rx.Subscriber;
 public final class TracedOnSubscribe<T, REQUEST> implements Observable.OnSubscribe<T> {
   private final Observable.OnSubscribe<T> delegate;
   private final Instrumenter<REQUEST, ?> instrumenter;
-  private final REQUEST request;
+  private final Supplier<REQUEST> requestFactory;
   private final Context parentContext;
+
+  public static <T, REQUEST> TracedOnSubscribe<T, REQUEST> perSubscription(
+      Observable<T> originalObservable,
+      Instrumenter<REQUEST, ?> instrumenter,
+      Supplier<REQUEST> requestFactory) {
+    return new TracedOnSubscribe<>(originalObservable, instrumenter, requestFactory);
+  }
 
   public TracedOnSubscribe(
       Observable<T> originalObservable, Instrumenter<REQUEST, ?> instrumenter, REQUEST request) {
     delegate = OpenTelemetryTracingUtil.extractOnSubscribe(originalObservable);
     this.instrumenter = instrumenter;
-    this.request = request;
+    this.requestFactory = () -> request;
+    parentContext = Context.current();
+  }
 
+  private TracedOnSubscribe(
+      Observable<T> originalObservable,
+      Instrumenter<REQUEST, ?> instrumenter,
+      Supplier<REQUEST> requestFactory) {
+    delegate = OpenTelemetryTracingUtil.extractOnSubscribe(originalObservable);
+    this.instrumenter = instrumenter;
+    this.requestFactory = requestFactory;
     parentContext = Context.current();
   }
 
@@ -40,9 +58,17 @@ public final class TracedOnSubscribe<T, REQUEST> implements Observable.OnSubscri
     }
      */
 
+    REQUEST request = requestFactory.get();
     Context context = instrumenter.start(parentContext, request);
+    AtomicReference<Context> contextRef = new AtomicReference<>(context);
     try (Scope ignored = context.makeCurrent()) {
-      delegate.call(new TracedSubscriber<>(subscriber, instrumenter, context, request));
+      delegate.call(new TracedSubscriber<>(subscriber, instrumenter, contextRef, request));
+    } catch (Throwable t) {
+      Context spanContext = contextRef.getAndSet(null);
+      if (spanContext != null) {
+        instrumenter.end(spanContext, request, null, t);
+      }
+      throw t;
     }
   }
 }

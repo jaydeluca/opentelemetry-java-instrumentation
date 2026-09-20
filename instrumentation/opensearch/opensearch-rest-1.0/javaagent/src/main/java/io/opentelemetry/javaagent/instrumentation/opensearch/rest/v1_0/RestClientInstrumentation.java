@@ -5,10 +5,7 @@
 
 package io.opentelemetry.javaagent.instrumentation.opensearch.rest.v1_0;
 
-import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
-import static io.opentelemetry.javaagent.instrumentation.opensearch.rest.v1_0.OpenSearchRestSingletons.convertResponse;
 import static io.opentelemetry.javaagent.instrumentation.opensearch.rest.v1_0.OpenSearchRestSingletons.instrumenter;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
@@ -17,8 +14,9 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
-import io.opentelemetry.javaagent.instrumentation.opensearch.rest.OpenSearchRestRequest;
-import io.opentelemetry.javaagent.instrumentation.opensearch.rest.RestResponseListener;
+import io.opentelemetry.javaagent.instrumentation.opensearch.rest.common.v1_0.OpenSearchRestRequest;
+import io.opentelemetry.javaagent.instrumentation.opensearch.rest.common.v1_0.OpenSearchServerTargets;
+import io.opentelemetry.javaagent.instrumentation.opensearch.rest.common.v1_0.RestResponseListener;
 import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.Advice.AssignReturned;
@@ -28,8 +26,9 @@ import net.bytebuddy.matcher.ElementMatcher;
 import org.opensearch.client.Request;
 import org.opensearch.client.Response;
 import org.opensearch.client.ResponseListener;
+import org.opensearch.client.RestClient;
 
-public class RestClientInstrumentation implements TypeInstrumentation {
+class RestClientInstrumentation implements TypeInstrumentation {
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
     return named("org.opensearch.client.RestClient");
@@ -38,18 +37,16 @@ public class RestClientInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("performRequest"))
+        named("performRequest")
             .and(takesArguments(1))
             .and(takesArgument(0, named("org.opensearch.client.Request"))),
-        this.getClass().getName() + "$PerformRequestAdvice");
+        getClass().getName() + "$PerformRequestAdvice");
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("performRequestAsync"))
+        named("performRequestAsync")
             .and(takesArguments(2))
             .and(takesArgument(0, named("org.opensearch.client.Request")))
             .and(takesArgument(1, named("org.opensearch.client.ResponseListener"))),
-        this.getClass().getName() + "$PerformRequestAsyncAdvice");
+        getClass().getName() + "$PerformRequestAsyncAdvice");
   }
 
   public static class AdviceScope {
@@ -67,10 +64,11 @@ public class RestClientInstrumentation implements TypeInstrumentation {
     }
 
     @Nullable
-    public static AdviceScope start(Request request) {
-      Context parentContext = currentContext();
+    public static AdviceScope start(RestClient restClient, Request request) {
+      Context parentContext = Context.current();
       OpenSearchRestRequest otelRequest =
-          OpenSearchRestRequest.create(request.getMethod(), request.getEndpoint());
+          OpenSearchRestRequest.create(
+              request.getMethod(), request.getEndpoint(), OpenSearchServerTargets.get(restClient));
       if (!instrumenter().shouldStart(parentContext, otelRequest)) {
         return null;
       }
@@ -90,7 +88,8 @@ public class RestClientInstrumentation implements TypeInstrumentation {
 
     public void endWithResponse(@Nullable Response response, @Nullable Throwable throwable) {
       scope.close();
-      instrumenter().end(context, otelRequest, convertResponse(response), throwable);
+      instrumenter()
+          .end(context, otelRequest, OpenSearchRestSingletons.convertResponse(response), throwable);
     }
 
     public void endWithListener(@Nullable Throwable throwable) {
@@ -105,12 +104,14 @@ public class RestClientInstrumentation implements TypeInstrumentation {
   @SuppressWarnings("unused")
   public static class PerformRequestAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static AdviceScope onEnter(@Advice.Argument(0) Request request) {
-      return AdviceScope.start(request);
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    @Nullable
+    public static AdviceScope onEnter(
+        @Advice.This RestClient restClient, @Advice.Argument(0) Request request) {
+      return AdviceScope.start(restClient, request);
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Return @Nullable Response response,
         @Advice.Thrown @Nullable Throwable throwable,
@@ -125,18 +126,19 @@ public class RestClientInstrumentation implements TypeInstrumentation {
   public static class PerformRequestAsyncAdvice {
 
     @AssignReturned.ToArguments(@ToArgument(value = 1, index = 1))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static Object[] onEnter(
+        @Advice.This RestClient restClient,
         @Advice.Argument(0) Request request,
         @Advice.Argument(1) ResponseListener originalResponseListener) {
-      AdviceScope adviceScope = AdviceScope.start(request);
+      AdviceScope adviceScope = AdviceScope.start(restClient, request);
       if (adviceScope == null) {
         return new Object[] {null, originalResponseListener};
       }
       return new Object[] {adviceScope, adviceScope.wrapListener(originalResponseListener)};
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable, @Advice.Enter Object[] enterResult) {
       AdviceScope adviceScope = (AdviceScope) enterResult[0];

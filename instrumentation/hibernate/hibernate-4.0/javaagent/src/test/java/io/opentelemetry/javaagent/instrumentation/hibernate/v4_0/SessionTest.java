@@ -15,6 +15,7 @@ import static io.opentelemetry.javaagent.instrumentation.hibernate.ExperimentalT
 import static io.opentelemetry.javaagent.instrumentation.hibernate.ExperimentalTestHelper.experimentalSatisfies;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
+import static io.opentelemetry.semconv.DbAttributes.DB_QUERY_SUMMARY;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_CONNECTION_STRING;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_NAME;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_OPERATION;
@@ -22,6 +23,7 @@ import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SQL_
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_STATEMENT;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_SYSTEM;
 import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DB_USER;
+import static io.opentelemetry.semconv.incubating.DbIncubatingAttributes.DbSystemIncubatingValues.H2;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.ThrowableAssert.catchThrowable;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -77,7 +79,7 @@ class SessionTest extends AbstractHibernateTest {
                     span.hasKind(CLIENT)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
@@ -86,8 +88,26 @@ class SessionTest extends AbstractHibernateTest {
                             satisfies(
                                 maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
                             satisfies(
-                                maybeStable(DB_OPERATION), val -> val.isInstanceOf(String.class)),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value")),
+                                DB_QUERY_SUMMARY,
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isInstanceOf(String.class);
+                                  } else {
+                                    val.isNull();
+                                  }
+                                }),
+                            satisfies(
+                                maybeStable(DB_OPERATION),
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isNull();
+                                  } else {
+                                    val.isInstanceOf(String.class);
+                                  }
+                                }),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value")),
                 span ->
                     span.hasName("Transaction.commit")
                         .hasKind(INTERNAL)
@@ -186,7 +206,7 @@ class SessionTest extends AbstractHibernateTest {
                     span.hasKind(CLIENT)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
@@ -195,8 +215,26 @@ class SessionTest extends AbstractHibernateTest {
                             satisfies(
                                 maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
                             satisfies(
-                                maybeStable(DB_OPERATION), val -> val.isInstanceOf(String.class)),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value")),
+                                DB_QUERY_SUMMARY,
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isInstanceOf(String.class);
+                                  } else {
+                                    val.isNull();
+                                  }
+                                }),
+                            satisfies(
+                                maybeStable(DB_OPERATION),
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isNull();
+                                  } else {
+                                    val.isInstanceOf(String.class);
+                                  }
+                                }),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value")),
                 span ->
                     span.hasName("Transaction.commit")
                         .hasKind(INTERNAL)
@@ -208,7 +246,7 @@ class SessionTest extends AbstractHibernateTest {
                                     trace.getSpan(1).getAttributes().get(HIBERNATE_SESSION_ID))))));
   }
 
-  private static Stream<Arguments> provideArgumentsHibernateActionStateless() {
+  private Stream<Arguments> provideArgumentsHibernateActionStateless() {
     return Stream.of(
         Arguments.of(named("refresh", new Parameter("refresh", null, StatelessSession::refresh))),
         Arguments.of(
@@ -331,7 +369,7 @@ class SessionTest extends AbstractHibernateTest {
                     span.hasKind(CLIENT)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
@@ -340,8 +378,26 @@ class SessionTest extends AbstractHibernateTest {
                             satisfies(
                                 maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
                             satisfies(
-                                maybeStable(DB_OPERATION), val -> val.isInstanceOf(String.class)),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value")),
+                                DB_QUERY_SUMMARY,
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isInstanceOf(String.class);
+                                  } else {
+                                    val.isNull();
+                                  }
+                                }),
+                            satisfies(
+                                maybeStable(DB_OPERATION),
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isNull();
+                                  } else {
+                                    val.isInstanceOf(String.class);
+                                  }
+                                }),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value")),
                 span ->
                     span.hasName("Transaction.commit")
                         .hasKind(INTERNAL)
@@ -355,7 +411,7 @@ class SessionTest extends AbstractHibernateTest {
                     span.hasKind(CLIENT)
                         .hasParent(trace.getSpan(3))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
@@ -364,8 +420,26 @@ class SessionTest extends AbstractHibernateTest {
                             satisfies(
                                 maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
                             satisfies(
-                                maybeStable(DB_OPERATION), val -> val.isInstanceOf(String.class)),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value"))));
+                                DB_QUERY_SUMMARY,
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isInstanceOf(String.class);
+                                  } else {
+                                    val.isNull();
+                                  }
+                                }),
+                            satisfies(
+                                maybeStable(DB_OPERATION),
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isNull();
+                                  } else {
+                                    val.isInstanceOf(String.class);
+                                  }
+                                }),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value"))));
   }
 
   private static Stream<Arguments> provideArgumentsHibernateReplicate() {
@@ -415,7 +489,7 @@ class SessionTest extends AbstractHibernateTest {
               return exception;
             });
 
-    assertThat(mappingException.getClass()).isEqualTo(MappingException.class);
+    assertThat(mappingException).isInstanceOf(MappingException.class);
 
     testing.waitAndAssertTraces(
         trace ->
@@ -481,7 +555,7 @@ class SessionTest extends AbstractHibernateTest {
                     span.hasKind(CLIENT)
                         .hasParent(trace.getSpan(2))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
@@ -490,11 +564,29 @@ class SessionTest extends AbstractHibernateTest {
                             satisfies(
                                 maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
                             satisfies(
-                                maybeStable(DB_OPERATION), val -> val.isInstanceOf(String.class)),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value"))));
+                                DB_QUERY_SUMMARY,
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isInstanceOf(String.class);
+                                  } else {
+                                    val.isNull();
+                                  }
+                                }),
+                            satisfies(
+                                maybeStable(DB_OPERATION),
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isNull();
+                                  } else {
+                                    val.isInstanceOf(String.class);
+                                  }
+                                }),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value"))));
   }
 
-  private static Stream<Arguments> provideArgumentsHibernateCommitAction() {
+  private Stream<Arguments> provideArgumentsHibernateCommitAction() {
     return Stream.of(
         Arguments.of(
             named(
@@ -632,7 +724,7 @@ class SessionTest extends AbstractHibernateTest {
   @SuppressWarnings("deprecation") // TODO DB_CONNECTION_STRING deprecation
   @ParameterizedTest
   @MethodSource("provideArgumentsStateQuery")
-  void testAttachesStateToQueryCreated(Consumer<Session> queryBuilder) {
+  void testAttachesStateToQueryCreated(String sessionSpanName, Consumer<Session> queryBuilder) {
 
     testing.runWithSpan(
         "parent",
@@ -649,7 +741,7 @@ class SessionTest extends AbstractHibernateTest {
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("parent").hasKind(INTERNAL).hasNoParent(),
                 span ->
-                    span.hasName("SELECT Value")
+                    span.hasName(sessionSpanName)
                         .hasKind(INTERNAL)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
@@ -660,7 +752,7 @@ class SessionTest extends AbstractHibernateTest {
                     span.hasKind(CLIENT)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
@@ -669,8 +761,26 @@ class SessionTest extends AbstractHibernateTest {
                             satisfies(
                                 maybeStable(DB_STATEMENT), val -> val.isInstanceOf(String.class)),
                             satisfies(
-                                maybeStable(DB_OPERATION), val -> val.isInstanceOf(String.class)),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value")),
+                                DB_QUERY_SUMMARY,
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isInstanceOf(String.class);
+                                  } else {
+                                    val.isNull();
+                                  }
+                                }),
+                            satisfies(
+                                maybeStable(DB_OPERATION),
+                                val -> {
+                                  if (emitStableDatabaseSemconv()) {
+                                    val.isNull();
+                                  } else {
+                                    val.isInstanceOf(String.class);
+                                  }
+                                }),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value")),
                 span ->
                     span.hasName("Transaction.commit")
                         .hasKind(INTERNAL)
@@ -685,25 +795,20 @@ class SessionTest extends AbstractHibernateTest {
   private static Stream<Arguments> provideArgumentsStateQuery() {
     return Stream.of(
         Arguments.of(
-            named(
-                "createQuery",
-                ((Consumer<Session>) session -> session.createQuery("from Value").list())),
-            Arguments.of(
-                named(
-                    "getNamedQuery",
-                    ((Consumer<Session>)
-                        session -> session.getNamedQuery("TestNamedQuery").list())),
-                Arguments.of(
-                    named(
-                        "createSQLQuery",
-                        (Consumer<Session>)
-                            session -> session.createSQLQuery("SELECT * FROM Value").list())))));
+            named("createQuery", emitStableDatabaseSemconv() ? "select Value" : "SELECT Value"),
+            ((Consumer<Session>) session -> session.createQuery("from Value").list())),
+        Arguments.of(
+            named("getNamedQuery", emitStableDatabaseSemconv() ? "select Value" : "SELECT Value"),
+            ((Consumer<Session>) session -> session.getNamedQuery("TestNamedQuery").list())),
+        Arguments.of(
+            named("createSQLQuery", "SELECT Value"),
+            (Consumer<Session>) session -> session.createSQLQuery("SELECT * FROM Value").list()));
   }
 
   @SuppressWarnings("deprecation") // TODO DB_CONNECTION_STRING deprecation
   @Test
   void testHibernateOverlappingSessions() {
-    assumeTrue(ExperimentalTestHelper.isEnabled); // needs experimental session id
+    assumeTrue(ExperimentalTestHelper.EXPERIMENTAL_ATTRIBUTES); // needs experimental session id
 
     testing.runWithSpan(
         "overlapping Sessions",
@@ -751,21 +856,26 @@ class SessionTest extends AbstractHibernateTest {
                   sessionId2.set(trace.getSpan(2).getAttributes().get(HIBERNATE_SESSION_ID));
                 },
                 span ->
-                    span.hasName("INSERT db1.Value")
+                    span.hasName(emitStableDatabaseSemconv() ? "insert Value" : "INSERT db1.Value")
                         .hasKind(CLIENT)
                         .hasParent(trace.getSpan(2))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
                                 DB_CONNECTION_STRING,
                                 emitStableDatabaseSemconv() ? null : "h2:mem:"),
-                            satisfies(
-                                maybeStable(DB_STATEMENT),
-                                stringAssert -> stringAssert.startsWith("insert")),
-                            equalTo(maybeStable(DB_OPERATION), "INSERT"),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value")),
+                            satisfies(maybeStable(DB_STATEMENT), val -> val.startsWith("insert")),
+                            equalTo(
+                                DB_QUERY_SUMMARY,
+                                emitStableDatabaseSemconv() ? "insert Value" : null),
+                            equalTo(
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv() ? null : "INSERT"),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value")),
                 span -> {
                   span.hasName("Session.save " + Value.class.getName())
                       .hasKind(INTERNAL)
@@ -789,38 +899,47 @@ class SessionTest extends AbstractHibernateTest {
                                 HIBERNATE_SESSION_ID,
                                 trace.getSpan(1).getAttributes().get(HIBERNATE_SESSION_ID))),
                 span ->
-                    span.hasName("INSERT db1.Value")
+                    span.hasName(emitStableDatabaseSemconv() ? "insert Value" : "INSERT db1.Value")
                         .hasKind(CLIENT)
                         .hasParent(trace.getSpan(6))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
                                 DB_CONNECTION_STRING,
                                 emitStableDatabaseSemconv() ? null : "h2:mem:"),
-                            satisfies(
-                                maybeStable(DB_STATEMENT),
-                                stringAssert -> stringAssert.startsWith("insert")),
-                            equalTo(maybeStable(DB_OPERATION), "INSERT"),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value")),
+                            satisfies(maybeStable(DB_STATEMENT), val -> val.startsWith("insert")),
+                            equalTo(
+                                DB_QUERY_SUMMARY,
+                                emitStableDatabaseSemconv() ? "insert Value" : null),
+                            equalTo(
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv() ? null : "INSERT"),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value")),
                 span ->
-                    span.hasName("DELETE db1.Value")
+                    span.hasName(emitStableDatabaseSemconv() ? "delete Value" : "DELETE db1.Value")
                         .hasKind(CLIENT)
                         .hasParent(trace.getSpan(6))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName("h2")),
+                            equalTo(maybeStable(DB_SYSTEM), maybeStableDbSystemName(H2)),
                             equalTo(maybeStable(DB_NAME), "db1"),
                             equalTo(DB_USER, emitStableDatabaseSemconv() ? null : "sa"),
                             equalTo(
                                 DB_CONNECTION_STRING,
                                 emitStableDatabaseSemconv() ? null : "h2:mem:"),
-                            satisfies(
-                                maybeStable(DB_STATEMENT),
-                                stringAssert -> stringAssert.startsWith("delete")),
-                            equalTo(maybeStable(DB_OPERATION), "DELETE"),
-                            equalTo(maybeStable(DB_SQL_TABLE), "Value"))));
-
+                            satisfies(maybeStable(DB_STATEMENT), val -> val.startsWith("delete")),
+                            equalTo(
+                                DB_QUERY_SUMMARY,
+                                emitStableDatabaseSemconv() ? "delete Value" : null),
+                            equalTo(
+                                maybeStable(DB_OPERATION),
+                                emitStableDatabaseSemconv() ? null : "DELETE"),
+                            equalTo(
+                                maybeStable(DB_SQL_TABLE),
+                                emitStableDatabaseSemconv() ? null : "Value"))));
     assertThat(sessionId1.get()).isNotEqualTo(sessionId2.get());
     assertThat(sessionId1.get()).isNotEqualTo(sessionId3.get());
     assertThat(sessionId2.get()).isNotEqualTo(sessionId3.get());

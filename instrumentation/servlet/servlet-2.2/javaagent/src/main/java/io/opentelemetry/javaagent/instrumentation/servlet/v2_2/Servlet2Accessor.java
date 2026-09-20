@@ -5,31 +5,36 @@
 
 package io.opentelemetry.javaagent.instrumentation.servlet.v2_2;
 
-import io.opentelemetry.instrumentation.servlet.internal.ServletAsyncListener;
-import io.opentelemetry.instrumentation.servlet.javax.JavaxServletAccessor;
+import static java.util.Collections.emptyList;
+
+import io.opentelemetry.instrumentation.servlet.common.internal.ServletAsyncListener;
+import io.opentelemetry.instrumentation.servlet.common.javax.JavaxServletAccessor;
 import io.opentelemetry.javaagent.bootstrap.http.HttpServerResponseMutator;
-import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nullable;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-public class Servlet2Accessor extends JavaxServletAccessor<HttpServletResponse>
+class Servlet2Accessor extends JavaxServletAccessor<HttpServletResponse>
     implements HttpServerResponseMutator<HttpServletResponse> {
-  public static final Servlet2Accessor INSTANCE = new Servlet2Accessor();
+  static final Servlet2Accessor INSTANCE = new Servlet2Accessor();
 
   private Servlet2Accessor() {}
 
   @Override
+  @Nullable
   public Integer getRequestRemotePort(HttpServletRequest httpServletRequest) {
     return null;
   }
 
   @Override
+  @Nullable
   public String getRequestLocalAddr(HttpServletRequest request) {
     return null;
   }
 
   @Override
+  @Nullable
   public Integer getRequestLocalPort(HttpServletRequest request) {
     return null;
   }
@@ -38,7 +43,7 @@ public class Servlet2Accessor extends JavaxServletAccessor<HttpServletResponse>
   public void addRequestAsyncListener(
       HttpServletRequest httpServletRequest,
       ServletAsyncListener<HttpServletResponse> listener,
-      Object response) {
+      @Nullable Object response) {
     throw new UnsupportedOperationException();
   }
 
@@ -50,7 +55,7 @@ public class Servlet2Accessor extends JavaxServletAccessor<HttpServletResponse>
   @Override
   public List<String> getResponseHeaderValues(
       HttpServletResponse httpServletResponse, String name) {
-    return Collections.emptyList();
+    return emptyList();
   }
 
   @Override

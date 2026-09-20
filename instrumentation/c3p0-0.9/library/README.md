@@ -7,7 +7,7 @@ Provides OpenTelemetry instrumentation for [C3P0](https://www.mchange.com/projec
 ### Add these dependencies to your project
 
 Replace `OPENTELEMETRY_VERSION` with the [latest
-release]( https://central.sonatype.com/artifact/io.opentelemetry.instrumentation/opentelemetry-c3p0-0.9).
+release](https://central.sonatype.com/artifact/io.opentelemetry.instrumentation/opentelemetry-c3p0-0.9).
 
 For Maven, add to your `pom.xml` dependencies:
 
@@ -42,5 +42,15 @@ void configure(OpenTelemetry openTelemetry, PooledDataSource dataSource) {
 
 void destroy(PooledDataSource dataSource) {
   c3p0Telemetry.unregisterMetrics(dataSource);
+}
+```
+
+The single-argument `registerMetrics` method uses the data source name provided by c3p0. To use an
+explicit name instead:
+
+```java
+void configureWithExplicitName(OpenTelemetry openTelemetry, PooledDataSource dataSource) {
+  C3p0Telemetry telemetry = C3p0Telemetry.create(openTelemetry);
+  telemetry.registerMetrics(dataSource, "orders-pool");
 }
 ```

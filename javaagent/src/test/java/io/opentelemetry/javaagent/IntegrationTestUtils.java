@@ -5,6 +5,11 @@
 
 package io.opentelemetry.javaagent;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Arrays.asList;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -16,9 +21,7 @@ import java.lang.management.RuntimeMXBean;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -52,7 +55,7 @@ public class IntegrationTestUtils {
     } catch (Exception e) {
       throw new IllegalStateException(e);
     } finally {
-      if (null != classloaderField) {
+      if (classloaderField != null) {
         classloaderField.setAccessible(false);
       }
     }
@@ -104,7 +107,7 @@ public class IntegrationTestUtils {
   private static void addToJar(Class<?> clazz, JarOutputStream jarOutputStream) throws IOException {
     InputStream inputStream = null;
     ClassLoader loader = clazz.getClassLoader();
-    if (null == loader) {
+    if (loader == null) {
       // bootstrap resources can be fetched through the system loader
       loader = ClassLoader.getSystemClassLoader();
     }
@@ -154,6 +157,13 @@ public class IntegrationTestUtils {
     throw new IllegalStateException("Agent jar not found");
   }
 
+  static String getAgentJarPath() {
+    String agentArgument = getAgentArgument();
+    int optionsIndex = agentArgument.indexOf('=');
+    return agentArgument.substring(
+        "-javaagent:".length(), optionsIndex == -1 ? agentArgument.length() : optionsIndex);
+  }
+
   public static int runOnSeparateJvm(
       String mainClassName,
       String[] jvmArgs,
@@ -181,20 +191,34 @@ public class IntegrationTestUtils {
       String classpath,
       boolean printOutputStreams)
       throws Exception {
+    return runOnSeparateJvmAndCaptureOutput(
+            mainClassName, jvmArgs, mainMethodArgs, envVars, classpath, printOutputStreams)
+        .getExitCode();
+  }
+
+  static ProcessResult runOnSeparateJvmAndCaptureOutput(
+      String mainClassName,
+      String[] jvmArgs,
+      String[] mainMethodArgs,
+      Map<String, String> envVars,
+      String classpath,
+      boolean printOutputStreams)
+      throws Exception {
+    List<String> vmArgsList = new ArrayList<>(asList(jvmArgs));
+    vmArgsList.add(getAgentArgument());
+
+    List<String> arguments = new ArrayList<>(vmArgsList);
+    arguments.add("-cp");
+    arguments.add(classpath);
+    arguments.add(mainClassName);
+    arguments.addAll(asList(mainMethodArgs));
 
     String separator = System.getProperty("file.separator");
     String path = System.getProperty("java.home") + separator + "bin" + separator + "java";
 
-    List<String> vmArgsList = new ArrayList<>(Arrays.asList(jvmArgs));
-    vmArgsList.add(getAgentArgument());
-
     List<String> commands = new ArrayList<>();
     commands.add(path);
-    commands.addAll(vmArgsList);
-    commands.add("-cp");
-    commands.add(classpath);
-    commands.add(mainClassName);
-    commands.addAll(Arrays.asList(mainMethodArgs));
+    commands.addAll(arguments);
     ProcessBuilder processBuilder = new ProcessBuilder(commands.toArray(new String[0]));
     processBuilder.environment().putAll(envVars);
 
@@ -207,12 +231,13 @@ public class IntegrationTestUtils {
     outputGobbler.start();
     errorGobbler.start();
 
-    waitFor(process, 30, TimeUnit.SECONDS);
+    waitFor(process, 30, SECONDS);
 
     outputGobbler.join();
     errorGobbler.join();
 
-    return process.exitValue();
+    return new ProcessResult(
+        process.exitValue(), outputGobbler.getOutput() + errorGobbler.getOutput());
   }
 
   private static void waitFor(Process process, long timeout, TimeUnit unit)
@@ -224,9 +249,9 @@ public class IntegrationTestUtils {
       try {
         process.exitValue();
         return;
-      } catch (IllegalThreadStateException ex) {
+      } catch (IllegalThreadStateException ignored) {
         if (rem > 0) {
-          Thread.sleep(Math.min(TimeUnit.NANOSECONDS.toMillis(rem) + 1, 100));
+          Thread.sleep(Math.min(NANOSECONDS.toMillis(rem) + 1, 100));
         }
       }
       rem = unit.toNanos(timeout) - (System.nanoTime() - startTime);
@@ -238,6 +263,7 @@ public class IntegrationTestUtils {
     final InputStream stream;
     final String type;
     final boolean print;
+    final StringBuilder output = new StringBuilder();
 
     private StreamGobbler(InputStream stream, String type, boolean print) {
       this.stream = stream;
@@ -248,10 +274,10 @@ public class IntegrationTestUtils {
     @Override
     public void run() {
       try {
-        BufferedReader reader =
-            new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, UTF_8));
         String line = null;
         while ((line = reader.readLine()) != null) {
+          output.append(line).append(System.lineSeparator());
           if (print) {
             logger.info("{}> {}", type, line);
           }
@@ -259,6 +285,28 @@ public class IntegrationTestUtils {
       } catch (IOException e) {
         logger.warn("Error gobbling.", e);
       }
+    }
+
+    private String getOutput() {
+      return output.toString();
+    }
+  }
+
+  static class ProcessResult {
+    private final int exitCode;
+    private final String output;
+
+    private ProcessResult(int exitCode, String output) {
+      this.exitCode = exitCode;
+      this.output = output;
+    }
+
+    int getExitCode() {
+      return exitCode;
+    }
+
+    String getOutput() {
+      return output;
     }
   }
 

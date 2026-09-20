@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
  * AgentTestingExporterAccess} bridge class to retrieve exported traces and metrics data from the
  * agent class loader.
  */
-public final class AgentTestRunner extends InstrumentationTestRunner {
+public class AgentTestRunner extends InstrumentationTestRunner {
   static {
     try {
       LoggerUtils.setLevel(LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME), Level.WARN);
@@ -38,6 +38,11 @@ public final class AgentTestRunner extends InstrumentationTestRunner {
   }
 
   private static final AgentTestRunner INSTANCE = new AgentTestRunner();
+
+  // the javaagent testing convention configures otel.instrumentation.common.peer-service-mapping to
+  // map every local test host to this name, see
+  // conventions/src/main/kotlin/io.opentelemetry.instrumentation.javaagent-testing.gradle.kts
+  private static final String PEER_SERVICE_NAME = "test-peer-service";
 
   public static InstrumentationTestRunner instance() {
     return INSTANCE;
@@ -109,5 +114,10 @@ public final class AgentTestRunner extends InstrumentationTestRunner {
   @Override
   public boolean forceFlushCalled() {
     return AgentTestingExporterAccess.forceFlushCalled();
+  }
+
+  @Override
+  public String expectedPeerService() {
+    return PEER_SERVICE_NAME;
   }
 }

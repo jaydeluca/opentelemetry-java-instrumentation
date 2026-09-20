@@ -5,6 +5,8 @@
 
 package io.opentelemetry.instrumentation.jdbc.internal;
 
+import static java.util.Collections.emptyMap;
+
 import io.opentelemetry.instrumentation.api.util.VirtualField;
 import io.opentelemetry.instrumentation.jdbc.internal.dbinfo.DbInfo;
 import java.lang.ref.WeakReference;
@@ -13,7 +15,6 @@ import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,16 +29,16 @@ import java.util.WeakHashMap;
 public final class JdbcData {
 
   private static final Map<DbInfo, WeakReference<DbInfo>> dbInfos = new WeakHashMap<>();
-  public static final VirtualField<Connection, DbInfo> connectionInfo =
+  public static final VirtualField<Connection, DbInfo> CONNECTION_INFO =
       VirtualField.find(Connection.class, DbInfo.class);
-  public static final VirtualField<PreparedStatement, String> preparedStatement =
+  public static final VirtualField<PreparedStatement, String> PREPARED_STATEMENT =
       VirtualField.find(PreparedStatement.class, String.class);
-  private static final VirtualField<Statement, StatementBatchInfo> statementBatch =
+  private static final VirtualField<Statement, StatementBatchInfo> STATEMENT_BATCH =
       VirtualField.find(Statement.class, StatementBatchInfo.class);
   private static final VirtualField<PreparedStatement, PreparedStatementBatchInfo>
-      preparedStatementBatch =
+      PREPARED_STATEMENT_BATCH =
           VirtualField.find(PreparedStatement.class, PreparedStatementBatchInfo.class);
-  private static final VirtualField<PreparedStatement, Map<String, String>> parameters =
+  private static final VirtualField<PreparedStatement, Map<String, String>> STATEMENT_PARAMETERS =
       VirtualField.find(PreparedStatement.class, Map.class);
 
   private JdbcData() {}
@@ -65,55 +66,55 @@ public final class JdbcData {
   }
 
   public static void addStatementBatch(Statement statement, String sql) {
-    StatementBatchInfo batchInfo = statementBatch.get(statement);
+    StatementBatchInfo batchInfo = STATEMENT_BATCH.get(statement);
     if (batchInfo == null) {
       batchInfo = new StatementBatchInfo();
-      statementBatch.set(statement, batchInfo);
+      STATEMENT_BATCH.set(statement, batchInfo);
     }
     batchInfo.add(sql);
   }
 
   public static void addPreparedStatementBatch(PreparedStatement statement) {
-    PreparedStatementBatchInfo batchInfo = preparedStatementBatch.get(statement);
+    PreparedStatementBatchInfo batchInfo = PREPARED_STATEMENT_BATCH.get(statement);
     if (batchInfo == null) {
       batchInfo = new PreparedStatementBatchInfo();
-      preparedStatementBatch.set(statement, batchInfo);
+      PREPARED_STATEMENT_BATCH.set(statement, batchInfo);
     }
     batchInfo.add();
   }
 
   public static void clearBatch(Statement statement) {
     if (statement instanceof PreparedStatement) {
-      preparedStatementBatch.set((PreparedStatement) statement, null);
+      PREPARED_STATEMENT_BATCH.set((PreparedStatement) statement, null);
     } else {
-      statementBatch.set(statement, null);
+      STATEMENT_BATCH.set(statement, null);
     }
   }
 
   public static StatementBatchInfo getStatementBatchInfo(Statement statement) {
-    return statementBatch.get(statement);
+    return STATEMENT_BATCH.get(statement);
   }
 
   public static Long getPreparedStatementBatchSize(PreparedStatement statement) {
-    PreparedStatementBatchInfo batchInfo = preparedStatementBatch.get(statement);
+    PreparedStatementBatchInfo batchInfo = PREPARED_STATEMENT_BATCH.get(statement);
     return batchInfo != null ? batchInfo.getBatchSize() : null;
   }
 
   public static void close(Statement statement) {
     // when statement is closed remove all of our virtual fields in case the JDBC driver reuses the
     // same statement instance for a subsequent query
-    statementBatch.set(statement, null);
+    STATEMENT_BATCH.set(statement, null);
     if (statement instanceof PreparedStatement) {
       PreparedStatement prepared = (PreparedStatement) statement;
-      preparedStatement.set(prepared, null);
-      preparedStatementBatch.set(prepared, null);
-      parameters.set(prepared, null);
+      PREPARED_STATEMENT.set(prepared, null);
+      PREPARED_STATEMENT_BATCH.set(prepared, null);
+      STATEMENT_PARAMETERS.set(prepared, null);
     }
   }
 
   public static Map<String, String> getParameters(PreparedStatement statement) {
-    Map<String, String> parametersMap = parameters.get(statement);
-    return parametersMap != null ? parametersMap : Collections.emptyMap();
+    Map<String, String> parametersMap = STATEMENT_PARAMETERS.get(statement);
+    return parametersMap != null ? parametersMap : emptyMap();
   }
 
   public static void addParameter(PreparedStatement statement, String key, String value) {
@@ -121,16 +122,16 @@ public final class JdbcData {
       return;
     }
 
-    Map<String, String> parametersMap = parameters.get(statement);
+    Map<String, String> parametersMap = STATEMENT_PARAMETERS.get(statement);
     if (parametersMap == null) {
       parametersMap = new HashMap<>();
-      parameters.set(statement, parametersMap);
+      STATEMENT_PARAMETERS.set(statement, parametersMap);
     }
     parametersMap.put(key, value);
   }
 
   public static void clearParameters(PreparedStatement statement) {
-    parameters.set(statement, null);
+    STATEMENT_PARAMETERS.set(statement, null);
   }
 
   /**
@@ -138,18 +139,18 @@ public final class JdbcData {
    * any time.
    */
   public static final class StatementBatchInfo {
-    private final List<String> statements = new ArrayList<>();
+    private final List<String> queryTexts = new ArrayList<>();
 
     void add(String sql) {
-      statements.add(sql);
+      queryTexts.add(sql);
     }
 
-    public Collection<String> getStatements() {
-      return statements;
+    public Collection<String> getQueryTexts() {
+      return queryTexts;
     }
 
     public long getBatchSize() {
-      return statements.size();
+      return queryTexts.size();
     }
   }
 

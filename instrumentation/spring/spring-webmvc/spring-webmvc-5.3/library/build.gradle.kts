@@ -1,5 +1,6 @@
 plugins {
   id("otel.library-instrumentation")
+  id("otel.nullaway-conventions")
 }
 
 val springBootVersion = "2.6.15"
@@ -27,6 +28,6 @@ configurations.testRuntimeClasspath {
 
 tasks {
   test {
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 }

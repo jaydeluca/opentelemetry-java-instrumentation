@@ -14,10 +14,11 @@ import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
-public final class TestAgentListenerAccess {
+public class TestAgentListenerAccess {
 
   private static final MethodHandle reset;
   private static final MethodHandle getInstrumentationErrorCount;
+  private static final MethodHandle isContextStorageInitializedBeforeInstrumentation;
   private static final MethodHandle getMuzzleFailureCount;
   private static final MethodHandle getIgnoredButTransformedClassNames;
   private static final MethodHandle addSkipTransformationCondition;
@@ -33,6 +34,11 @@ public final class TestAgentListenerAccess {
       getInstrumentationErrorCount =
           lookup.findStatic(
               testAgentListenerClass, "getInstrumentationErrorCount", methodType(int.class));
+      isContextStorageInitializedBeforeInstrumentation =
+          lookup.findStatic(
+              testAgentListenerClass,
+              "isContextStorageInitializedBeforeInstrumentation",
+              methodType(boolean.class));
       getMuzzleFailureCount =
           lookup.findStatic(
               testAgentListenerClass, "getAndResetMuzzleFailureCount", methodType(int.class));
@@ -68,6 +74,15 @@ public final class TestAgentListenerAccess {
     } catch (Throwable t) {
       throw new AssertionError(
           "Could not invoke TestAgentListener.getInstrumentationErrorCount", t);
+    }
+  }
+
+  public static boolean isContextStorageInitializedBeforeInstrumentation() {
+    try {
+      return (boolean) isContextStorageInitializedBeforeInstrumentation.invokeExact();
+    } catch (Throwable t) {
+      throw new AssertionError(
+          "Could not invoke TestAgentListener.isContextStorageInitializedBeforeInstrumentation", t);
     }
   }
 

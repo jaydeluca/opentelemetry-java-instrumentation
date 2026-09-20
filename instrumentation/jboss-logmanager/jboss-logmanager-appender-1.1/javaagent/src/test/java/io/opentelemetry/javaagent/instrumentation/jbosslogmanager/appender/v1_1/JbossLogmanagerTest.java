@@ -5,12 +5,17 @@
 
 package io.opentelemetry.javaagent.instrumentation.jbosslogmanager.appender.v1_1;
 
+import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
 import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_MESSAGE;
 import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_STACKTRACE;
 import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_TYPE;
+import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_ID;
+import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_NAME;
+import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import io.opentelemetry.api.common.AttributeKey;
@@ -20,10 +25,8 @@ import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtens
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
 import io.opentelemetry.sdk.testing.assertj.AttributeAssertion;
-import io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Stream;
 import org.jboss.logmanager.Level;
@@ -37,6 +40,18 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class JbossLogmanagerTest {
+
+  private static final AttributeKey<String> LOG_BODY_TEMPLATE =
+      AttributeKey.stringKey("log.body.template");
+  private static final AttributeKey<List<String>> LOG_BODY_PARAMETERS =
+      AttributeKey.stringArrayKey("log.body.parameters");
+
+  private static final boolean CAPTURE_TEMPLATE =
+      Boolean.getBoolean("otel.instrumentation.jboss-logmanager.experimental.capture-template");
+  private static final boolean CAPTURE_ARGUMENTS =
+      Boolean.getBoolean("otel.instrumentation.jboss-logmanager.experimental.capture-arguments");
+  private static final String MDC_CONFIGURATION =
+      System.getProperty("testMdcConfiguration", "none");
 
   private static final Logger logger = LogContext.getLogContext().getLogger("abc");
 
@@ -61,7 +76,7 @@ class JbossLogmanagerTest {
 
   @ParameterizedTest
   @MethodSource("provideParameters")
-  public void test(boolean withParam, boolean logException, boolean withParent)
+  void test(boolean withParam, boolean logException, boolean withParent)
       throws InterruptedException {
     test(
         java.util.logging.Level.FINE,
@@ -147,20 +162,28 @@ class JbossLogmanagerTest {
 
             List<AttributeAssertion> attributeAsserts =
                 new ArrayList<>(
-                    Arrays.asList(
-                        equalTo(
-                            ThreadIncubatingAttributes.THREAD_NAME,
-                            Thread.currentThread().getName()),
-                        equalTo(
-                            ThreadIncubatingAttributes.THREAD_ID, Thread.currentThread().getId())));
+                    asList(
+                        equalTo(THREAD_NAME, Thread.currentThread().getName()),
+                        equalTo(THREAD_ID, Thread.currentThread().getId())));
             if (logException) {
               attributeAsserts.addAll(
-                  Arrays.asList(
+                  asList(
                       equalTo(EXCEPTION_TYPE, IllegalStateException.class.getName()),
                       equalTo(EXCEPTION_MESSAGE, "hello"),
                       satisfies(
                           EXCEPTION_STACKTRACE,
-                          v -> v.contains(JbossLogmanagerTest.class.getName()))));
+                          val -> val.contains(JbossLogmanagerTest.class.getName()))));
+            }
+            // logging via the Supplier + Throwable overload used above for logException doesn't
+            // support parameters, so the template/arguments attributes are only captured in the
+            // plain withParam case
+            if (withParam && !logException) {
+              if (CAPTURE_TEMPLATE) {
+                attributeAsserts.add(equalTo(LOG_BODY_TEMPLATE, "xyz: {0}"));
+              }
+              if (CAPTURE_ARGUMENTS) {
+                attributeAsserts.add(equalTo(LOG_BODY_PARAMETERS, singletonList("123")));
+              }
             }
             logRecord.hasAttributesSatisfyingExactly(attributeAsserts);
 
@@ -197,31 +220,61 @@ class JbossLogmanagerTest {
 
   @Test
   void testMdc() {
-    MDC.put("key1", "val1");
-    MDC.put("key2", "val2");
-    MDC.put("event.name", "MyEventName");
+    MDC.put("exact", "exact-value");
+    MDC.put("prefix.public", "prefix-value");
+    MDC.put("prefix.secret", "secret-value");
+    MDC.put("single1", "single-value");
+    MDC.put("single22", "double-value");
+    MDC.put("legacy", "legacy-value");
+    MDC.put("new", "new-value");
+    MDC.put("excluded-value", "excluded-value");
+    MDC.put("otel.event.name", "MyEventName");
     try {
       logger.info("xyz");
     } finally {
-      MDC.remove("key1");
-      MDC.remove("key2");
-      MDC.remove("event.name");
+      MDC.remove("exact");
+      MDC.remove("prefix.public");
+      MDC.remove("prefix.secret");
+      MDC.remove("single1");
+      MDC.remove("single22");
+      MDC.remove("legacy");
+      MDC.remove("new");
+      MDC.remove("excluded-value");
+      MDC.remove("otel.event.name");
     }
 
     testing.waitAndAssertLogRecords(
-        logRecord ->
-            logRecord
-                .hasBody("xyz")
-                .hasInstrumentationScope(InstrumentationScopeInfo.builder("abc").build())
-                .hasSeverity(Severity.INFO)
-                .hasSeverityText("INFO")
-                .hasEventName("MyEventName")
-                .hasAttributesSatisfyingExactly(
-                    equalTo(AttributeKey.stringKey("key1"), "val1"),
-                    equalTo(AttributeKey.stringKey("key2"), "val2"),
-                    equalTo(
-                        ThreadIncubatingAttributes.THREAD_NAME, Thread.currentThread().getName()),
-                    equalTo(ThreadIncubatingAttributes.THREAD_ID, Thread.currentThread().getId())));
+        logRecord -> {
+          List<AttributeAssertion> attributeAsserts =
+              new ArrayList<>(
+                  asList(
+                      equalTo(THREAD_NAME, Thread.currentThread().getName()),
+                      equalTo(THREAD_ID, Thread.currentThread().getId())));
+          if (MDC_CONFIGURATION.equals("new")) {
+            attributeAsserts.add(equalTo(stringKey("exact"), "exact-value"));
+            attributeAsserts.add(equalTo(stringKey("prefix.public"), "prefix-value"));
+            attributeAsserts.add(equalTo(stringKey("single1"), "single-value"));
+          } else if (MDC_CONFIGURATION.equals("legacy")) {
+            attributeAsserts.add(equalTo(stringKey("legacy"), "legacy-value"));
+          } else if (MDC_CONFIGURATION.equals("precedence")) {
+            attributeAsserts.add(equalTo(stringKey("new"), "new-value"));
+          } else if (MDC_CONFIGURATION.equals("excludedOnly")) {
+            // excluded patterns are prefix.secret and excluded*, so every other MDC key is captured
+            attributeAsserts.add(equalTo(stringKey("exact"), "exact-value"));
+            attributeAsserts.add(equalTo(stringKey("prefix.public"), "prefix-value"));
+            attributeAsserts.add(equalTo(stringKey("single1"), "single-value"));
+            attributeAsserts.add(equalTo(stringKey("single22"), "double-value"));
+            attributeAsserts.add(equalTo(stringKey("legacy"), "legacy-value"));
+            attributeAsserts.add(equalTo(stringKey("new"), "new-value"));
+          }
+          logRecord
+              .hasBody("xyz")
+              .hasInstrumentationScope(InstrumentationScopeInfo.builder("abc").build())
+              .hasSeverity(Severity.INFO)
+              .hasSeverityText("INFO")
+              .hasEventName("MyEventName")
+              .hasAttributesSatisfyingExactly(attributeAsserts);
+        });
   }
 
   @FunctionalInterface

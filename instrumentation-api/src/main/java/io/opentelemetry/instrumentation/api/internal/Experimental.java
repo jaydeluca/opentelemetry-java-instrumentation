@@ -9,7 +9,9 @@ import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.OperationListener;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesExtractorBuilder;
+import io.opentelemetry.instrumentation.api.semconv.http.HttpServerAttributesExtractorBuilder;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpSpanNameExtractorBuilder;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -21,8 +23,12 @@ import javax.annotation.Nullable;
 public final class Experimental {
 
   @Nullable
-  private static volatile BiConsumer<HttpClientAttributesExtractorBuilder<?, ?>, Boolean>
-      redactHttpClientQueryParameters;
+  private static volatile BiConsumer<HttpClientAttributesExtractorBuilder<?, ?>, Set<String>>
+      clientSensitiveQueryParameters;
+
+  @Nullable
+  private static volatile BiConsumer<HttpServerAttributesExtractorBuilder<?, ?>, Set<String>>
+      serverSensitiveQueryParameters;
 
   @Nullable
   private static volatile BiConsumer<HttpSpanNameExtractorBuilder<?>, Function<?, String>>
@@ -32,19 +38,40 @@ public final class Experimental {
   private static volatile BiConsumer<InstrumenterBuilder<?, ?>, AttributesExtractor<?, ?>>
       operationListenerAttributesExtractorAdder;
 
+  @Nullable
+  private static volatile BiConsumer<InstrumenterBuilder<?, ?>, InternalExceptionEventExtractor<?>>
+      exceptionEventExtractorSetter;
+
+  @Nullable
+  private static volatile BiConsumer<InstrumenterBuilder<?, ?>, String>
+      spanSuppressionStrategySetter;
+
   private Experimental() {}
 
-  public static void setRedactQueryParameters(
-      HttpClientAttributesExtractorBuilder<?, ?> builder, boolean redactQueryParameters) {
-    if (redactHttpClientQueryParameters != null) {
-      redactHttpClientQueryParameters.accept(builder, redactQueryParameters);
+  public static void setSensitiveQueryParameters(
+      HttpClientAttributesExtractorBuilder<?, ?> builder, Set<String> sensitiveQueryParameters) {
+    if (clientSensitiveQueryParameters != null) {
+      clientSensitiveQueryParameters.accept(builder, sensitiveQueryParameters);
     }
   }
 
-  public static void internalSetRedactHttpClientQueryParameters(
-      BiConsumer<HttpClientAttributesExtractorBuilder<?, ?>, Boolean>
-          redactHttpClientQueryParameters) {
-    Experimental.redactHttpClientQueryParameters = redactHttpClientQueryParameters;
+  public static void setSensitiveQueryParameters(
+      HttpServerAttributesExtractorBuilder<?, ?> builder, Set<String> sensitiveQueryParameters) {
+    if (serverSensitiveQueryParameters != null) {
+      serverSensitiveQueryParameters.accept(builder, sensitiveQueryParameters);
+    }
+  }
+
+  public static void internalSetClientSensitiveQueryParameters(
+      BiConsumer<HttpClientAttributesExtractorBuilder<?, ?>, Set<String>>
+          clientSensitiveQueryParameters) {
+    Experimental.clientSensitiveQueryParameters = clientSensitiveQueryParameters;
+  }
+
+  public static void internalSetServerSensitiveQueryParameters(
+      BiConsumer<HttpServerAttributesExtractorBuilder<?, ?>, Set<String>>
+          serverSensitiveQueryParameters) {
+    Experimental.serverSensitiveQueryParameters = serverSensitiveQueryParameters;
   }
 
   public static <REQUEST> void setUrlTemplateExtractor(
@@ -84,5 +111,41 @@ public final class Experimental {
           operationListenerAttributesExtractorAdder) {
     Experimental.operationListenerAttributesExtractorAdder =
         (BiConsumer) operationListenerAttributesExtractorAdder;
+  }
+
+  /**
+   * Sets the {@link InternalExceptionEventExtractor} that will determine the exception event name
+   * and severity. Only used when emitting exceptions as logs is enabled via the {@code
+   * otel.semconv.exception.signal.preview} flag.
+   */
+  public static <REQUEST> void setExceptionEventExtractor(
+      InstrumenterBuilder<REQUEST, ?> builder,
+      InternalExceptionEventExtractor<? super REQUEST> exceptionEventExtractor) {
+    if (exceptionEventExtractorSetter != null) {
+      exceptionEventExtractorSetter.accept(builder, exceptionEventExtractor);
+    }
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"}) // we lose the generic type information
+  public static <REQUEST> void internalSetExceptionEventExtractor(
+      BiConsumer<InstrumenterBuilder<REQUEST, ?>, InternalExceptionEventExtractor<? super REQUEST>>
+          exceptionEventExtractorSetter) {
+    Experimental.exceptionEventExtractorSetter = (BiConsumer) exceptionEventExtractorSetter;
+  }
+
+  /**
+   * Sets the span suppression strategy. Supported values are {@code none}, {@code span-kind}, and
+   * {@code semconv}.
+   */
+  public static void setSpanSuppressionStrategy(
+      InstrumenterBuilder<?, ?> builder, String spanSuppressionStrategy) {
+    if (spanSuppressionStrategySetter != null) {
+      spanSuppressionStrategySetter.accept(builder, spanSuppressionStrategy);
+    }
+  }
+
+  public static void internalSetSpanSuppressionStrategy(
+      BiConsumer<InstrumenterBuilder<?, ?>, String> spanSuppressionStrategySetter) {
+    Experimental.spanSuppressionStrategySetter = spanSuppressionStrategySetter;
   }
 }

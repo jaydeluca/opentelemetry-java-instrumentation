@@ -23,17 +23,13 @@ dependencies {
   testInstrumentation(project(":instrumentation:okhttp:okhttp-2.2:javaagent"))
 }
 
-val testLatestDeps = findProperty("testLatestDeps") as Boolean
-
 testing {
   suites {
-    val http2Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("http2Test") {
       dependencies {
-        if (testLatestDeps) {
-          implementation("com.squareup.okhttp3:okhttp:latest.release")
+        implementation("com.squareup.okhttp3:okhttp:${baseVersion("3.11.0").orLatest()}")
+        if (otelProps.testLatestDeps) {
           compileOnly("com.google.android:annotations:4.1.1.4")
-        } else {
-          implementation("com.squareup.okhttp3:okhttp:3.11.0")
         }
         implementation(project(":instrumentation:okhttp:okhttp-3.0:testing"))
       }
@@ -42,11 +38,33 @@ testing {
 }
 
 tasks {
-  check {
-    dependsOn(testing.suites)
+  withType<Test>().configureEach {
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  test {
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}StableSemconv") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+        systemProperty("metadataConfig", "otel.semconv-stability.opt-in=service.peer")
+      }
+    }
+
+  val exceptionSignalLogsSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}ExceptionSignalLogs") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        jvmArgs("-Dotel.semconv.exception.signal.preview=logs")
+        systemProperty("metadataConfig", "otel.semconv.exception.signal.preview=logs")
+      }
+    }
+
+  check {
+    dependsOn(testing.suites, stableSemconvSuites, exceptionSignalLogsSuites)
   }
 }

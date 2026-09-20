@@ -5,19 +5,19 @@
 
 package io.opentelemetry.instrumentation.api.semconv.http;
 
-import static io.opentelemetry.instrumentation.api.internal.AttributesExtractorUtil.internalSet;
 import static io.opentelemetry.instrumentation.api.internal.HttpConstants._OTHER;
-import static io.opentelemetry.instrumentation.api.semconv.http.CapturedHttpHeadersUtil.lowercase;
-import static io.opentelemetry.instrumentation.api.semconv.http.CapturedHttpHeadersUtil.requestAttributeKey;
-import static io.opentelemetry.instrumentation.api.semconv.http.CapturedHttpHeadersUtil.responseAttributeKey;
+import static io.opentelemetry.semconv.ErrorAttributes.ERROR_TYPE;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_REQUEST_METHOD;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_REQUEST_METHOD_ORIGINAL;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_RESPONSE_STATUS_CODE;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PROTOCOL_NAME;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PROTOCOL_VERSION;
 
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.instrumentation.api.semconv.network.NetworkAttributesGetter;
-import io.opentelemetry.semconv.ErrorAttributes;
-import io.opentelemetry.semconv.HttpAttributes;
-import io.opentelemetry.semconv.NetworkAttributes;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -39,20 +39,20 @@ abstract class HttpCommonAttributesExtractor<
 
   final GETTER getter;
   private final HttpStatusCodeConverter statusCodeConverter;
-  private final String[] capturedRequestHeaders;
-  private final String[] capturedResponseHeaders;
+  private final CapturedHttpHeaders capturedRequestHeaders;
+  private final CapturedHttpHeaders capturedResponseHeaders;
   private final Set<String> knownMethods;
 
   HttpCommonAttributesExtractor(
       GETTER getter,
       HttpStatusCodeConverter statusCodeConverter,
-      List<String> capturedRequestHeaders,
-      List<String> capturedResponseHeaders,
+      CapturedHttpHeaders capturedRequestHeaders,
+      CapturedHttpHeaders capturedResponseHeaders,
       Set<String> knownMethods) {
     this.getter = getter;
     this.statusCodeConverter = statusCodeConverter;
-    this.capturedRequestHeaders = lowercase(capturedRequestHeaders);
-    this.capturedResponseHeaders = lowercase(capturedResponseHeaders);
+    this.capturedRequestHeaders = capturedRequestHeaders;
+    this.capturedResponseHeaders = capturedResponseHeaders;
     this.knownMethods = new HashSet<>(knownMethods);
   }
 
@@ -60,16 +60,23 @@ abstract class HttpCommonAttributesExtractor<
   public void onStart(AttributesBuilder attributes, Context parentContext, REQUEST request) {
     String method = getter.getHttpRequestMethod(request);
     if (method == null || knownMethods.contains(method)) {
-      internalSet(attributes, HttpAttributes.HTTP_REQUEST_METHOD, method);
+      attributes.put(HTTP_REQUEST_METHOD, method);
     } else {
-      internalSet(attributes, HttpAttributes.HTTP_REQUEST_METHOD, _OTHER);
-      internalSet(attributes, HttpAttributes.HTTP_REQUEST_METHOD_ORIGINAL, method);
+      attributes.put(HTTP_REQUEST_METHOD, _OTHER);
+      attributes.put(HTTP_REQUEST_METHOD_ORIGINAL, method);
     }
 
-    for (String name : capturedRequestHeaders) {
+    if (capturedRequestHeaders.isEmpty()) {
+      return;
+    }
+    Collection<String> names =
+        capturedRequestHeaders.enumerateNames()
+            ? capturedRequestHeaders.matchingNames(getter.getHttpRequestHeaderNames(request))
+            : capturedRequestHeaders.exactNames();
+    for (String name : names) {
       List<String> values = getter.getHttpRequestHeader(request, name);
       if (!values.isEmpty()) {
-        internalSet(attributes, requestAttributeKey(name), values);
+        attributes.put(capturedRequestHeaders.attributeKey(name), values);
       }
     }
   }
@@ -86,15 +93,10 @@ abstract class HttpCommonAttributesExtractor<
     if (response != null) {
       statusCode = getter.getHttpResponseStatusCode(request, response, error);
       if (statusCode != null && statusCode > 0) {
-        internalSet(attributes, HttpAttributes.HTTP_RESPONSE_STATUS_CODE, (long) statusCode);
+        attributes.put(HTTP_RESPONSE_STATUS_CODE, (long) statusCode);
       }
 
-      for (String name : capturedResponseHeaders) {
-        List<String> values = getter.getHttpResponseHeader(request, response, name);
-        if (!values.isEmpty()) {
-          internalSet(attributes, responseAttributeKey(name), values);
-        }
-      }
+      captureResponseHeaders(attributes, request, response);
     }
 
     String errorType = null;
@@ -112,16 +114,34 @@ abstract class HttpCommonAttributesExtractor<
         errorType = _OTHER;
       }
     }
-    internalSet(attributes, ErrorAttributes.ERROR_TYPE, errorType);
+    attributes.put(ERROR_TYPE, errorType);
 
     String protocolName = lowercaseStr(getter.getNetworkProtocolName(request, response));
     String protocolVersion = lowercaseStr(getter.getNetworkProtocolVersion(request, response));
 
     if (protocolVersion != null) {
       if (!"http".equals(protocolName)) {
-        internalSet(attributes, NetworkAttributes.NETWORK_PROTOCOL_NAME, protocolName);
+        attributes.put(NETWORK_PROTOCOL_NAME, protocolName);
       }
-      internalSet(attributes, NetworkAttributes.NETWORK_PROTOCOL_VERSION, protocolVersion);
+      attributes.put(NETWORK_PROTOCOL_VERSION, protocolVersion);
+    }
+  }
+
+  private void captureResponseHeaders(
+      AttributesBuilder attributes, REQUEST request, RESPONSE response) {
+    if (capturedResponseHeaders.isEmpty()) {
+      return;
+    }
+    Collection<String> names =
+        capturedResponseHeaders.enumerateNames()
+            ? capturedResponseHeaders.matchingNames(
+                getter.getHttpResponseHeaderNames(request, response))
+            : capturedResponseHeaders.exactNames();
+    for (String name : names) {
+      List<String> values = getter.getHttpResponseHeader(request, response, name);
+      if (!values.isEmpty()) {
+        attributes.put(capturedResponseHeaders.attributeKey(name), values);
+      }
     }
   }
 

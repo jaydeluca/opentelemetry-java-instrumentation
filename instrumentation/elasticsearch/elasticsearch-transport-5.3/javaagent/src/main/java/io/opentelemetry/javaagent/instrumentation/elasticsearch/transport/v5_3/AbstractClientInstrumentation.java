@@ -5,9 +5,7 @@
 
 package io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.v5_3;
 
-import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
 import static io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.v5_3.Elasticsearch53TransportSingletons.instrumenter;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
 
@@ -15,8 +13,8 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
-import io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.ElasticTransportRequest;
-import io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.TransportActionListener;
+import io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.common.v5_0.ElasticTransportRequest;
+import io.opentelemetry.javaagent.instrumentation.elasticsearch.transport.common.v5_0.TransportActionListener;
 import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.Advice.AssignReturned;
@@ -27,8 +25,9 @@ import org.elasticsearch.action.Action;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionRequest;
 import org.elasticsearch.action.ActionResponse;
+import org.elasticsearch.client.support.AbstractClient;
 
-public class AbstractClientInstrumentation implements TypeInstrumentation {
+class AbstractClientInstrumentation implements TypeInstrumentation {
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
     // If we want to be more generic, we could instrument the interface instead:
@@ -39,12 +38,11 @@ public class AbstractClientInstrumentation implements TypeInstrumentation {
   @Override
   public void transform(TypeTransformer transformer) {
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(takesArgument(0, named("org.elasticsearch.action.Action")))
             .and(takesArgument(1, named("org.elasticsearch.action.ActionRequest")))
             .and(takesArgument(2, named("org.elasticsearch.action.ActionListener"))),
-        this.getClass().getName() + "$ExecuteAdvice");
+        getClass().getName() + "$ExecuteAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -65,8 +63,10 @@ public class AbstractClientInstrumentation implements TypeInstrumentation {
       }
 
       @Nullable
-      public static AdviceScope start(ElasticTransportRequest request) {
-        Context parentContext = currentContext();
+      public static AdviceScope start(AbstractClient client, Object action, Object actionRequest) {
+        ElasticTransportRequest request =
+            Elasticsearch53TransportRequests.request(client, action, actionRequest);
+        Context parentContext = Context.current();
         if (!instrumenter().shouldStart(parentContext, request)) {
           return null;
         }
@@ -89,15 +89,15 @@ public class AbstractClientInstrumentation implements TypeInstrumentation {
     }
 
     @AssignReturned.ToArguments(@ToArgument(value = 2, index = 1))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static Object[] onEnter(
+        @Advice.This AbstractClient client,
         @Advice.Argument(0) Action<?, ?, ?> action,
         @Advice.Argument(1) ActionRequest actionRequest,
         @Advice.Argument(2) ActionListener<ActionResponse> originalActionListener) {
       ActionListener<ActionResponse> actionListener = originalActionListener;
 
-      ElasticTransportRequest request = ElasticTransportRequest.create(action, actionRequest);
-      AdviceScope adviceScope = AdviceScope.start(request);
+      AdviceScope adviceScope = AdviceScope.start(client, action, actionRequest);
       if (adviceScope == null) {
         return new Object[] {null, actionListener};
       }
@@ -106,7 +106,7 @@ public class AbstractClientInstrumentation implements TypeInstrumentation {
       return new Object[] {adviceScope, actionListener};
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable, @Advice.Enter Object[] enterResult) {
       AdviceScope adviceScope = (AdviceScope) enterResult[0];

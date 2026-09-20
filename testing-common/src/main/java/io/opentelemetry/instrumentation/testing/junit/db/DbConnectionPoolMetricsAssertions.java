@@ -18,7 +18,7 @@ import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.testing.assertj.LongSumAssert;
 import io.opentelemetry.sdk.testing.assertj.MetricAssert;
 
-public final class DbConnectionPoolMetricsAssertions {
+public class DbConnectionPoolMetricsAssertions {
 
   private static final AttributeKey<String> POOL_NAME_KEY =
       stringKey(emitStableDatabaseSemconv() ? "db.client.connection.pool.name" : "pool.name");
@@ -153,7 +153,7 @@ public final class DbConnectionPoolMetricsAssertions {
   private void verifyMaxConnections() {
     testing.waitAndAssertMetrics(
         instrumentationName,
-        emitStableDatabaseSemconv() ? "db.client.connection.max" : "db.client.connections.max",
+        emitStableDatabaseSemconv() ? "db.client.connection.limit" : "db.client.connections.max",
         metrics -> metrics.anySatisfy(this::verifyMaxConnectionsMetric));
   }
 

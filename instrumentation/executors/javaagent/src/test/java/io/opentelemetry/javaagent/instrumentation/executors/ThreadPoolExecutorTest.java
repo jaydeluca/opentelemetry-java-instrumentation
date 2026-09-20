@@ -5,21 +5,26 @@
 
 package io.opentelemetry.javaagent.instrumentation.executors;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import io.opentelemetry.api.baggage.Baggage;
 import io.opentelemetry.context.Scope;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.javaagent.bootstrap.field.VirtualFieldInstalledMarker;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 class ThreadPoolExecutorTest {
+
+  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
   @Test
   void virtualFieldsAdded() {
@@ -32,12 +37,13 @@ class ThreadPoolExecutorTest {
     Runnable task = latch::countDown;
 
     RunnableCheckingThreadPoolExecutor executor = new RunnableCheckingThreadPoolExecutor(task);
+    cleanup.deferCleanup(executor::shutdownNow);
 
     Baggage baggage = Baggage.builder().put("test", "test").build();
     try (Scope ignored = baggage.makeCurrent()) {
       executor.execute(task);
     }
-    latch.await(10, TimeUnit.SECONDS);
+    latch.await(10, SECONDS);
 
     assertThat(executor.sameTaskBefore).isTrue();
     await().untilAsserted(() -> assertThat(executor.sameTaskAfter).isTrue());
@@ -52,7 +58,7 @@ class ThreadPoolExecutorTest {
     final AtomicBoolean sameTaskAfter = new AtomicBoolean();
 
     RunnableCheckingThreadPoolExecutor(Runnable expectedTask) {
-      super(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+      super(1, 1, 0L, MILLISECONDS, new LinkedBlockingQueue<>());
       this.expectedTask = expectedTask;
     }
 

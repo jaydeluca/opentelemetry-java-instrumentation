@@ -8,6 +8,7 @@ package io.opentelemetry.javaagent.instrumentation.servlet.v2_2;
 import static io.opentelemetry.instrumentation.testing.GlobalTraceUtil.runWithSpan;
 import static io.opentelemetry.instrumentation.testing.junit.code.SemconvCodeStabilityUtil.codeFunctionAssertions;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
+import static java.util.Collections.emptyEnumeration;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -18,7 +19,6 @@ import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.trace.data.StatusData;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.Collections;
 import java.util.Locale;
 import javax.servlet.ServletException;
 import javax.servlet.ServletOutputStream;
@@ -42,8 +42,8 @@ class HttpServletResponseTest {
   void setUp() throws ServletException, IOException {
     when(request.getProtocol()).thenReturn("HTTP/1.1");
     when(request.getMethod()).thenReturn("GET");
-    when(request.getHeaderNames()).thenReturn(Collections.emptyEnumeration());
-    when(request.getAttributeNames()).thenReturn(Collections.emptyEnumeration());
+    when(request.getHeaderNames()).thenReturn(emptyEnumeration());
+    when(request.getAttributeNames()).thenReturn(emptyEnumeration());
 
     HttpServlet servlet = new HttpServlet() {};
     // We need to call service so HttpServletAdvice can link the request to the response.
@@ -96,7 +96,7 @@ class HttpServletResponseTest {
   }
 
   @Test
-  void testSendWithException() throws ServletException, IOException {
+  void testSendWithException() throws Exception {
     RuntimeException ex = new RuntimeException("some error");
     TestResponse response =
         new TestResponse() {
@@ -133,7 +133,7 @@ class HttpServletResponseTest {
 
   /** Tests deprecated methods */
   @SuppressWarnings("deprecation")
-  public static class TestResponse implements HttpServletResponse {
+  static class TestResponse implements HttpServletResponse {
     @Override
     public void addCookie(Cookie cookie) {}
 

@@ -6,6 +6,7 @@
 package io.opentelemetry.instrumentation.api.incubator.semconv.db;
 
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.databaseSchemaUrl;
 import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 
 import io.opentelemetry.api.OpenTelemetry;
@@ -37,13 +38,25 @@ public final class DbConnectionPoolMetrics {
 
   public static DbConnectionPoolMetrics create(
       OpenTelemetry openTelemetry, String instrumentationName, String poolName) {
-
     MeterBuilder meterBuilder = openTelemetry.getMeterProvider().meterBuilder(instrumentationName);
     String version = EmbeddedInstrumentationProperties.findVersion(instrumentationName);
     if (version != null) {
       meterBuilder.setInstrumentationVersion(version);
     }
-    return new DbConnectionPoolMetrics(meterBuilder.build(), Attributes.of(POOL_NAME, poolName));
+    meterBuilder.setSchemaUrl(databaseSchemaUrl());
+    return create(meterBuilder.build(), poolName);
+  }
+
+  /**
+   * Like {@link #create(OpenTelemetry, String, String)}, but accepts a pre-built {@link Meter}.
+   *
+   * @deprecated Exists only so the {@code tomcat-jdbc-8.5} javaagent can emit the pre-rename {@code
+   *     io.opentelemetry.tomcat-jdbc} scope by default; to be removed in 3.0 once v3-preview
+   *     becomes the default.
+   */
+  @Deprecated
+  public static DbConnectionPoolMetrics create(Meter meter, String poolName) {
+    return new DbConnectionPoolMetrics(meter, Attributes.of(POOL_NAME, poolName));
   }
 
   private final Meter meter;
@@ -95,7 +108,7 @@ public final class DbConnectionPoolMetrics {
 
   public ObservableLongMeasurement maxConnections() {
     String metricName =
-        emitStableDatabaseSemconv() ? "db.client.connection.max" : "db.client.connections.max";
+        emitStableDatabaseSemconv() ? "db.client.connection.limit" : "db.client.connections.max";
     return meter
         .upDownCounterBuilder(metricName)
         .setUnit(emitStableDatabaseSemconv() ? "{connection}" : "{connections}")

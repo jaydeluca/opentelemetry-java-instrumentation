@@ -11,13 +11,11 @@ import static java.util.Arrays.asList;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
 import net.bytebuddy.matcher.ElementMatcher;
 
 @AutoService(InstrumentationModule.class)
-public class MongoClientInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class MongoClientInstrumentationModule extends InstrumentationModule {
 
   public MongoClientInstrumentationModule() {
     super("mongo", "mongo-4.0");
@@ -25,6 +23,7 @@ public class MongoClientInstrumentationModule extends InstrumentationModule
 
   @Override
   public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
+    // added in 4.0 (moved from com.mongodb.async.SingleResultCallback)
     return hasClassesNamed("com.mongodb.internal.async.SingleResultCallback");
   }
 
@@ -32,15 +31,14 @@ public class MongoClientInstrumentationModule extends InstrumentationModule
   public List<TypeInstrumentation> typeInstrumentations() {
     return asList(
         new MongoClientSettingsBuilderInstrumentation(),
+        new ClusterSettingsBuilderInstrumentation(),
+        new SocketStreamInstrumentation(),
+        new NettyStreamInstrumentation(),
         new InternalStreamConnectionInstrumentation(),
         new BaseClusterInstrumentation(),
+        new ClusterInstrumentation(),
         new DefaultConnectionPoolInstrumentation(),
         new DefaultConnectionPoolTaskInstrumentation(),
         new AsyncWorkManagerInstrumentation());
-  }
-
-  @Override
-  public boolean isIndyReady() {
-    return true;
   }
 }

@@ -17,25 +17,18 @@ import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 
 /** Entrypoint for instrumenting Spring Webflux HTTP clients. */
 public final class SpringWebfluxClientTelemetry {
+  private final Instrumenter<ClientRequest, ClientResponse> clientInstrumenter;
+  private final ContextPropagators propagators;
 
-  /**
-   * Returns a new {@link SpringWebfluxClientTelemetry} configured with the given {@link
-   * OpenTelemetry}.
-   */
+  /** Returns a new instance configured with the given {@link OpenTelemetry} instance. */
   public static SpringWebfluxClientTelemetry create(OpenTelemetry openTelemetry) {
     return builder(openTelemetry).build();
   }
 
-  /**
-   * Returns a new {@link SpringWebfluxClientTelemetryBuilder} configured with the given {@link
-   * OpenTelemetry}.
-   */
+  /** Returns a builder configured with the given {@link OpenTelemetry} instance. */
   public static SpringWebfluxClientTelemetryBuilder builder(OpenTelemetry openTelemetry) {
     return new SpringWebfluxClientTelemetryBuilder(openTelemetry);
   }
-
-  private final Instrumenter<ClientRequest, ClientResponse> clientInstrumenter;
-  private final ContextPropagators propagators;
 
   SpringWebfluxClientTelemetry(
       Instrumenter<ClientRequest, ClientResponse> clientInstrumenter,
@@ -45,8 +38,7 @@ public final class SpringWebfluxClientTelemetry {
   }
 
   /**
-   * Adds the OpenTelemetry telemetry producing {@link ExchangeFilterFunction} to the provided list
-   * of filter functions.
+   * Adds an instrumented {@link ExchangeFilterFunction} to the provided list.
    *
    * @param exchangeFilterFunctions existing filter functions
    */
@@ -60,9 +52,8 @@ public final class SpringWebfluxClientTelemetry {
   }
 
   /**
-   * Adds the OpenTelemetry telemetry producing {@link ExchangeFilterFunction} to the provided list
-   * of filter functions. Also registers the Reactor context propagation hook {@link
-   * ContextPropagationOperator} for propagating OpenTelemetry context into reactive pipelines.
+   * Adds an instrumented {@link ExchangeFilterFunction} to the provided list. Also registers the
+   * Reactor context propagation hook for reactive pipelines.
    *
    * @param exchangeFilterFunctions existing filter functions
    */

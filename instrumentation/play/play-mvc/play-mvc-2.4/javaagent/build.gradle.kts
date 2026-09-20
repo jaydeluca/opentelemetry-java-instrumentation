@@ -44,25 +44,49 @@ dependencies {
   testLibrary("com.typesafe.play:play-test_2.11:2.5.0")
 
   latestDepTestLibrary("com.typesafe.play:play-java_2.11:2.5.+") // see play-2.6 module
-  latestDepTestLibrary("com.typesafe.play:play-java-ws_2.11:2.5.+") // see play-2.6 module
   latestDepTestLibrary("com.typesafe.play:play-test_2.11:2.5.+") // see play-2.6 module
 }
 
 testing {
   suites {
-    val play24Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("play24Test") {
       dependencies {
-        implementation("com.typesafe.play:play-java_2.11:2.4.0")
-        implementation("com.typesafe.play:play-java-ws_2.11:2.4.0")
-        implementation("com.typesafe.play:play-test_2.11:2.4.0")
+        val version = baseVersion("2.4.0").orLatest("2.4.+")
+        implementation("com.typesafe.play:play-java_2.11:$version")
+        implementation("com.typesafe.play:play-java-ws_2.11:$version")
+        implementation("com.typesafe.play:play-test_2.11:$version")
       }
     }
   }
 }
 
 tasks {
+  withType<Test>().configureEach {
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+    systemProperty(
+      "metadataConfig",
+      "otel.instrumentation.common.experimental.controller-telemetry.enabled=true"
+    )
+    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+  }
+
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}StableSemconv") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+        systemProperty(
+          "metadataConfig",
+          "otel.instrumentation.common.experimental.controller-telemetry.enabled=true," +
+            "otel.semconv-stability.opt-in=service.peer"
+        )
+      }
+    }
+
   check {
-    dependsOn(testing.suites)
+    dependsOn(testing.suites, stableSemconvSuites)
   }
 }
 
@@ -73,7 +97,7 @@ configurations.configureEach {
 
 // async-http-client 2.0 does not work with Netty versions newer than this due to referencing an
 // internal file.
-if (!(findProperty("testLatestDeps") as Boolean)) {
+if (!otelProps.testLatestDeps) {
   configurations.configureEach {
     resolutionStrategy {
       eachDependency {
@@ -84,7 +108,4 @@ if (!(findProperty("testLatestDeps") as Boolean)) {
       }
     }
   }
-}
-tasks.withType<Test>().configureEach {
-  jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
 }

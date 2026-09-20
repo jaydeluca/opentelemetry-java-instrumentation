@@ -13,15 +13,17 @@ import static io.opentelemetry.semconv.ExceptionAttributes.EXCEPTION_TYPE;
 import static io.opentelemetry.semconv.incubating.RpcIncubatingAttributes.RPC_METHOD;
 import static io.opentelemetry.semconv.incubating.RpcIncubatingAttributes.RPC_SERVICE;
 import static io.opentelemetry.semconv.incubating.RpcIncubatingAttributes.RPC_SYSTEM;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.test.utils.PortUtils;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.testing.assertj.SpanDataAssert;
 import io.opentelemetry.sdk.trace.data.StatusData;
+import java.io.File;
 import java.rmi.RemoteException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,7 +32,6 @@ import java.util.Map;
 import java.util.function.Consumer;
 import javax.ejb.EJBException;
 import javax.ejb.embeddable.EJBContainer;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -47,10 +48,13 @@ import org.springframework.stereotype.Component;
 import springrmi.app.SpringRmiGreeter;
 import springrmi.app.SpringRmiGreeterImpl;
 
+@SuppressWarnings("deprecation") // using deprecated semconv
 class SpringRmiTest {
 
   @RegisterExtension
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
+
+  @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
   private static ConfigurableApplicationContext serverAppContext;
   private static ConfigurableApplicationContext clientAppContext;
@@ -92,8 +96,9 @@ class SpringRmiTest {
 
     Map<String, Object> map = new HashMap<>();
     map.put(EJBContainer.APP_NAME, "test");
-    map.put(EJBContainer.MODULES, new java.io.File("build/classes/java/test"));
+    map.put(EJBContainer.MODULES, new File("build/classes/java/test"));
     ejbContainer = EJBContainer.createEJBContainer(map);
+    cleanup.deferAfterAll(ejbContainer);
 
     Map<String, Object> props = new HashMap<>();
     props.put("spring.jmx.enabled", false);
@@ -102,20 +107,15 @@ class SpringRmiTest {
     SpringApplication serverApp = new SpringApplication(ServerConfig.class);
     serverApp.setDefaultProperties(props);
     serverAppContext = serverApp.run();
+    cleanup.deferAfterAll(serverAppContext);
 
     SpringApplication clientApp = new SpringApplication(ClientConfig.class);
     clientApp.setDefaultProperties(props);
     clientAppContext = clientApp.run();
+    cleanup.deferAfterAll(clientAppContext);
 
     xmlAppContext = new ClassPathXmlApplicationContext("spring-rmi.xml");
-  }
-
-  @AfterAll
-  static void afterAll() {
-    serverAppContext.close();
-    clientAppContext.close();
-    xmlAppContext.close();
-    ejbContainer.close();
+    cleanup.deferAfterAll(xmlAppContext);
   }
 
   @SuppressWarnings("ImmutableEnumChecker")
@@ -149,7 +149,7 @@ class SpringRmiTest {
   void clientCallCreatesSpans(TestSource testSource) throws RemoteException {
     SpringRmiGreeter client = testSource.appContext.getBean(SpringRmiGreeter.class);
     String response = testing.runWithSpan("parent", () -> client.hello("Test Name"));
-    assertEquals(response, "Hello Test Name");
+    assertThat(response).isEqualTo("Hello Test Name");
     testing.waitAndAssertTraces(
         trace -> {
           List<Consumer<SpanDataAssert>> assertions = new ArrayList<>();
@@ -159,7 +159,7 @@ class SpringRmiTest {
                   span.hasName("springrmi.app.SpringRmiGreeter/hello")
                       .hasKind(SpanKind.CLIENT)
                       .hasParent(trace.getSpan(0))
-                      .hasAttributesSatisfying(
+                      .hasAttributesSatisfyingExactly(
                           equalTo(RPC_SYSTEM, "spring_rmi"),
                           equalTo(RPC_SERVICE, "springrmi.app.SpringRmiGreeter"),
                           equalTo(RPC_METHOD, "hello")));
@@ -169,7 +169,7 @@ class SpringRmiTest {
                     span.hasName(testSource.remoteClassName + "/hello")
                         .hasKind(SpanKind.SERVER)
                         .hasParent(trace.getSpan(1))
-                        .hasAttributesSatisfying(
+                        .hasAttributesSatisfyingExactly(
                             equalTo(RPC_SYSTEM, testSource.serverSystem),
                             equalTo(RPC_SERVICE, testSource.remoteClassName),
                             equalTo(RPC_METHOD, "hello")));
@@ -183,9 +183,8 @@ class SpringRmiTest {
   @EnumSource(TestSource.class)
   void throwsException(TestSource testSource) {
     SpringRmiGreeter client = testSource.appContext.getBean(SpringRmiGreeter.class);
-    Throwable error =
-        assertThrows(
-            testSource.expectedException, () -> testing.runWithSpan("parent", client::exceptional));
+    Throwable error = catchThrowable(() -> testing.runWithSpan("parent", client::exceptional));
+    assertThat(error).isInstanceOf(testSource.expectedException);
     testing.waitAndAssertTraces(
         trace -> {
           List<Consumer<SpanDataAssert>> assertions = new ArrayList<>();
@@ -199,7 +198,7 @@ class SpringRmiTest {
                           event ->
                               event
                                   .hasName("exception")
-                                  .hasAttributesSatisfying(
+                                  .hasAttributesSatisfyingExactly(
                                       equalTo(EXCEPTION_TYPE, error.getClass().getCanonicalName()),
                                       equalTo(EXCEPTION_MESSAGE, error.getMessage()),
                                       satisfies(
@@ -215,13 +214,13 @@ class SpringRmiTest {
                           event ->
                               event
                                   .hasName("exception")
-                                  .hasAttributesSatisfying(
+                                  .hasAttributesSatisfyingExactly(
                                       equalTo(EXCEPTION_TYPE, error.getClass().getCanonicalName()),
                                       equalTo(EXCEPTION_MESSAGE, error.getMessage()),
                                       satisfies(
                                           EXCEPTION_STACKTRACE,
                                           val -> val.isInstanceOf(String.class))))
-                      .hasAttributesSatisfying(
+                      .hasAttributesSatisfyingExactly(
                           equalTo(RPC_SYSTEM, "spring_rmi"),
                           equalTo(RPC_SERVICE, "springrmi.app.SpringRmiGreeter"),
                           equalTo(RPC_METHOD, "exceptional")));
@@ -236,14 +235,14 @@ class SpringRmiTest {
                             event ->
                                 event
                                     .hasName("exception")
-                                    .hasAttributesSatisfying(
+                                    .hasAttributesSatisfyingExactly(
                                         equalTo(
                                             EXCEPTION_TYPE, error.getClass().getCanonicalName()),
                                         equalTo(EXCEPTION_MESSAGE, error.getMessage()),
                                         satisfies(
                                             EXCEPTION_STACKTRACE,
                                             val -> val.isInstanceOf(String.class))))
-                        .hasAttributesSatisfying(
+                        .hasAttributesSatisfyingExactly(
                             equalTo(RPC_SYSTEM, testSource.serverSystem),
                             equalTo(RPC_SERVICE, testSource.remoteClassName),
                             equalTo(RPC_METHOD, "exceptional")));

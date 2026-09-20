@@ -5,15 +5,12 @@
 
 package io.opentelemetry.instrumentation.spring.autoconfigure.internal.instrumentation.webmvc;
 
+import static io.opentelemetry.instrumentation.testing.util.TestLatestDeps.testLatestDeps;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.instrumentation.api.incubator.config.internal.InstrumentationConfig;
-import io.opentelemetry.instrumentation.spring.autoconfigure.internal.properties.ConfigPropertiesBridge;
-import io.opentelemetry.sdk.autoconfigure.spi.internal.DefaultConfigProperties;
 import jakarta.servlet.Filter;
-import java.util.Collections;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -24,17 +21,12 @@ class SpringWebMvcInstrumentation6AutoConfigurationTest {
   private final ApplicationContextRunner contextRunner =
       new ApplicationContextRunner()
           .withBean(OpenTelemetry.class, OpenTelemetry::noop)
-          .withBean(
-              InstrumentationConfig.class,
-              () ->
-                  new ConfigPropertiesBridge(
-                      DefaultConfigProperties.createFromMap(Collections.emptyMap())))
           .withConfiguration(
               AutoConfigurations.of(SpringWebMvc6InstrumentationAutoConfiguration.class));
 
   @BeforeEach
   void setUp() {
-    assumeTrue(Boolean.getBoolean("testLatestDeps"));
+    assumeTrue(testLatestDeps());
   }
 
   @Test

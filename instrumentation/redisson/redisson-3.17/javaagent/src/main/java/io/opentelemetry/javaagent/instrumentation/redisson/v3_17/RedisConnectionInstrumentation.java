@@ -5,26 +5,27 @@
 
 package io.opentelemetry.javaagent.instrumentation.redisson.v3_17;
 
-import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 import static io.opentelemetry.javaagent.instrumentation.redisson.v3_17.RedissonSingletons.instrumenter;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
-import io.opentelemetry.javaagent.instrumentation.redisson.EndOperationListener;
-import io.opentelemetry.javaagent.instrumentation.redisson.PromiseWrapper;
-import io.opentelemetry.javaagent.instrumentation.redisson.RedissonRequest;
+import io.opentelemetry.javaagent.instrumentation.redisson.common.v3_0.EndOperationListener;
+import io.opentelemetry.javaagent.instrumentation.redisson.common.v3_0.PromiseWrapper;
+import io.opentelemetry.javaagent.instrumentation.redisson.common.v3_0.RedissonRequest;
 import java.net.InetSocketAddress;
 import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
+import org.redisson.client.RedisClient;
+import org.redisson.client.RedisClientConfig;
 import org.redisson.client.RedisConnection;
 
-public class RedisConnectionInstrumentation implements TypeInstrumentation {
+class RedisConnectionInstrumentation implements TypeInstrumentation {
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
     return named("org.redisson.client.RedisConnection");
@@ -32,8 +33,7 @@ public class RedisConnectionInstrumentation implements TypeInstrumentation {
 
   @Override
   public void transform(TypeTransformer transformer) {
-    transformer.applyAdviceToMethod(
-        isMethod().and(named("send")), this.getClass().getName() + "$SendAdvice");
+    transformer.applyAdviceToMethod(named("send"), getClass().getName() + "$SendAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -52,10 +52,11 @@ public class RedisConnectionInstrumentation implements TypeInstrumentation {
 
       @Nullable
       public static AdviceScope start(RedisConnection connection, Object arg) {
-        Context parentContext = currentContext();
+        Context parentContext = Context.current();
         InetSocketAddress remoteAddress =
             (InetSocketAddress) connection.getChannel().remoteAddress();
-        RedissonRequest request = RedissonRequest.create(remoteAddress, arg);
+        RedissonRequest request =
+            RedissonRequest.create(remoteAddress, arg, databaseIndex(connection));
         PromiseWrapper<?> promise = request.getPromiseWrapper();
         if (promise == null) {
           return null;
@@ -72,6 +73,19 @@ public class RedisConnectionInstrumentation implements TypeInstrumentation {
         return new AdviceScope(request, context, scope);
       }
 
+      @Nullable
+      private static Long databaseIndex(RedisConnection connection) {
+        if (!emitStableDatabaseSemconv()) {
+          return null;
+        }
+        RedisClient client = connection.getRedisClient();
+        if (client == null) {
+          return null;
+        }
+        RedisClientConfig config = client.getConfig();
+        return config != null ? (long) config.getDatabase() : null;
+      }
+
       public void end(@Nullable Throwable throwable) {
         scope.close();
         if (throwable != null) {
@@ -82,13 +96,13 @@ public class RedisConnectionInstrumentation implements TypeInstrumentation {
     }
 
     @Nullable
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static AdviceScope onEnter(
         @Advice.This RedisConnection connection, @Advice.Argument(0) Object arg) {
       return AdviceScope.start(connection, arg);
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void stopSpan(
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable AdviceScope adviceScope) {

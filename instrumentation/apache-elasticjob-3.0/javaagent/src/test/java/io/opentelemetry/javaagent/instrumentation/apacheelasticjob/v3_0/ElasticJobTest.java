@@ -10,6 +10,8 @@ import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static io.opentelemetry.instrumentation.testing.util.TelemetryDataUtil.comparingRootSpanAttribute;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
+import static io.opentelemetry.semconv.incubating.CodeIncubatingAttributes.CODE_FUNCTION;
+import static io.opentelemetry.semconv.incubating.CodeIncubatingAttributes.CODE_NAMESPACE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.sun.net.httpserver.HttpServer;
@@ -30,7 +32,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import javax.annotation.Nullable;
 import org.apache.shardingsphere.elasticjob.api.JobConfiguration;
 import org.apache.shardingsphere.elasticjob.http.props.HttpJobProperties;
 import org.apache.shardingsphere.elasticjob.infra.env.IpUtils;
@@ -39,25 +40,23 @@ import org.apache.shardingsphere.elasticjob.reg.base.CoordinatorRegistryCenter;
 import org.apache.shardingsphere.elasticjob.reg.zookeeper.ZookeeperConfiguration;
 import org.apache.shardingsphere.elasticjob.reg.zookeeper.ZookeeperRegistryCenter;
 import org.apache.shardingsphere.elasticjob.script.props.ScriptJobProperties;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 class ElasticJobTest {
 
-  private static String zookeeperConnectionString;
-
   @RegisterExtension
   private static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
   @RegisterExtension static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
 
+  private static final boolean EXPERIMENTAL_ATTRIBUTES =
+      Boolean.getBoolean("otel.instrumentation.apache-elasticjob.experimental-span-attributes");
+
+  private static String zookeeperConnectionString;
   private static CoordinatorRegistryCenter regCenter;
   private static HttpServer httpServer;
-
-  private static final boolean EXPERIMENTAL_ATTRIBUTES_ENABLED =
-      Boolean.getBoolean("otel.instrumentation.apache-elasticjob.experimental-span-attributes");
 
   @BeforeAll
   static void init() throws Exception {
@@ -70,7 +69,9 @@ class ElasticJobTest {
     int embedZookeeperPort = PortUtils.findOpenPort();
     zookeeperConnectionString = "localhost:" + embedZookeeperPort;
     EmbedZookeeperServer.start(embedZookeeperPort);
+    cleanup.deferAfterAll(EmbedZookeeperServer::stop);
     regCenter = setUpRegistryCenter();
+    cleanup.deferAfterAll(regCenter::close);
     httpServer = HttpServer.create(new InetSocketAddress(0), 0);
     httpServer.createContext(
         "/hello",
@@ -81,17 +82,7 @@ class ElasticJobTest {
           exchange.close();
         });
     httpServer.start();
-  }
-
-  @AfterAll
-  static void stop() throws Exception {
-    if (httpServer != null) {
-      httpServer.stop(0);
-    }
-    if (regCenter != null) {
-      regCenter.close();
-    }
-    EmbedZookeeperServer.stop();
+    cleanup.deferAfterAll(() -> httpServer.stop(0));
   }
 
   @Test
@@ -154,7 +145,7 @@ class ElasticJobTest {
             regCenter,
             job,
             JobConfiguration.newBuilder("simpleElasticJob", 2)
-                .cron("0/30 * * * * ?")
+                .cron("0/15 * * * * ?")
                 .shardingItemParameters("0=A,1=B")
                 .build());
 
@@ -354,11 +345,11 @@ class ElasticJobTest {
     return tempScript.toString();
   }
 
-  @Nullable
   private static <T> T experimental(T value) {
-    return EXPERIMENTAL_ATTRIBUTES_ENABLED ? value : null;
+    return EXPERIMENTAL_ATTRIBUTES ? value : null;
   }
 
+  @SuppressWarnings("deprecation") // using deprecated semconv
   private static List<AttributeAssertion> elasticJobAttributes(
       String jobName,
       long item,
@@ -369,8 +360,8 @@ class ElasticJobTest {
       String jobType) {
     List<AttributeAssertion> assertions = new ArrayList<>();
 
-    assertions.add(equalTo(stringKey("code.function"), codeFunction));
-    assertions.add(equalTo(stringKey("code.namespace"), codeNamespace));
+    assertions.add(equalTo(CODE_FUNCTION, codeFunction));
+    assertions.add(equalTo(CODE_NAMESPACE, codeNamespace));
 
     assertions.add(equalTo(stringKey("job.system"), experimental("elasticjob")));
     assertions.add(
@@ -390,9 +381,11 @@ class ElasticJobTest {
     assertions.add(
         satisfies(
             stringKey("scheduling.apache-elasticjob.task.id"),
-            taskId -> {
-              if (EXPERIMENTAL_ATTRIBUTES_ENABLED) {
-                taskId.contains(jobName);
+            val -> {
+              if (EXPERIMENTAL_ATTRIBUTES) {
+                val.contains(jobName);
+              } else {
+                val.isNull();
               }
             }));
 

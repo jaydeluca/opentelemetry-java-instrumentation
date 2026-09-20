@@ -6,6 +6,7 @@
 package io.opentelemetry.javaagent.instrumentation.jaxrsclient;
 
 import static java.util.Arrays.asList;
+import static java.util.Collections.unmodifiableList;
 
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest;
@@ -31,7 +32,7 @@ abstract class AbstractJaxRsClientTest extends AbstractHttpClientTest<Invocation
   @RegisterExtension
   static final InstrumentationExtension testing = HttpClientInstrumentationExtension.forAgent();
 
-  protected static final List<String> BODY_METHODS = asList("POST", "PUT");
+  protected static final List<String> BODY_METHODS = unmodifiableList(asList("POST", "PUT"));
 
   @Override
   public Invocation.Builder buildRequest(String method, URI uri, Map<String, String> headers) {
@@ -60,15 +61,18 @@ abstract class AbstractJaxRsClientTest extends AbstractHttpClientTest<Invocation
     try {
       Entity<String> body = BODY_METHODS.contains(method) ? Entity.text("") : null;
       Response response = request.build(method, body).invoke();
-      // read response body to avoid broken pipe errors on the server side
-      response.readEntity(String.class);
-      response.close();
-      return response.getStatus();
-    } catch (ProcessingException exception) {
-      if (exception.getCause() instanceof Exception) {
-        throw (Exception) exception.getCause();
+      try {
+        // read response body to avoid broken pipe errors on the server side
+        response.readEntity(String.class);
+        return response.getStatus();
+      } finally {
+        response.close();
       }
-      throw exception;
+    } catch (ProcessingException e) {
+      if (e.getCause() instanceof Exception) {
+        throw (Exception) e.getCause();
+      }
+      throw e;
     }
   }
 
@@ -89,9 +93,13 @@ abstract class AbstractJaxRsClientTest extends AbstractHttpClientTest<Invocation
             new InvocationCallback<Response>() {
               @Override
               public void completed(Response response) {
-                // read response body
-                response.readEntity(String.class);
-                requestResult.complete(response.getStatus());
+                try {
+                  // read response body
+                  response.readEntity(String.class);
+                  requestResult.complete(response.getStatus());
+                } finally {
+                  response.close();
+                }
               }
 
               @Override

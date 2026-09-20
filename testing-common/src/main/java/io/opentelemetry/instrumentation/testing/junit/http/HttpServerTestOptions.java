@@ -6,13 +6,14 @@
 package io.opentelemetry.instrumentation.testing.junit.http;
 
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.EXCEPTION;
+import static io.opentelemetry.semconv.HttpAttributes.HTTP_ROUTE;
+import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
+import static java.util.Arrays.asList;
+import static java.util.Collections.singleton;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.instrumentation.api.internal.HttpConstants;
-import io.opentelemetry.semconv.HttpAttributes;
-import io.opentelemetry.semconv.ServerAttributes;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -21,13 +22,12 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
-public final class HttpServerTestOptions {
+public class HttpServerTestOptions {
 
   public static final Set<AttributeKey<?>> DEFAULT_HTTP_ATTRIBUTES =
-      Collections.unmodifiableSet(
-          new HashSet<>(Arrays.asList(HttpAttributes.HTTP_ROUTE, ServerAttributes.SERVER_PORT)));
+      Collections.unmodifiableSet(new HashSet<>(asList(HTTP_ROUTE, SERVER_PORT)));
   public static final Set<AttributeKey<?>> DEFAULT_HTTP_ATTRIBUTES_WITHOUT_ROUTE =
-      Collections.singleton(ServerAttributes.SERVER_PORT);
+      singleton(SERVER_PORT);
   public static final SpanNameMapper DEFAULT_EXPECTED_SERVER_SPAN_NAME_MAPPER =
       (uri, method, route) -> {
         if (HttpConstants._OTHER.equals(method)) {
@@ -61,7 +61,9 @@ public final class HttpServerTestOptions {
   boolean testPathParam = false;
   boolean testCaptureHttpHeaders = true;
   boolean testCaptureRequestParameters = false;
+  boolean testClientAddressFromSocketPeer = true;
   boolean testHttpPipelining = true;
+  boolean testHttpBodyPipelining = false;
   boolean testNonStandardHttpMethod = true;
   boolean verifyServerSpanEndTime = true;
   boolean useHttp2 = false;
@@ -202,8 +204,21 @@ public final class HttpServerTestOptions {
   }
 
   @CanIgnoreReturnValue
+  public HttpServerTestOptions setTestClientAddressFromSocketPeer(
+      boolean testClientAddressFromSocketPeer) {
+    this.testClientAddressFromSocketPeer = testClientAddressFromSocketPeer;
+    return this;
+  }
+
+  @CanIgnoreReturnValue
   public HttpServerTestOptions setTestHttpPipelining(boolean testHttpPipelining) {
     this.testHttpPipelining = testHttpPipelining;
+    return this;
+  }
+
+  @CanIgnoreReturnValue
+  public HttpServerTestOptions setTestHttpBodyPipelining(boolean testHttpBodyPipelining) {
+    this.testHttpBodyPipelining = testHttpBodyPipelining;
     return this;
   }
 

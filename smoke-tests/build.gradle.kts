@@ -10,20 +10,20 @@ otelJava {
   minJavaVersionSupported.set(JavaVersion.VERSION_11)
   maxJavaVersionForTests.set(JavaVersion.VERSION_11)
 }
-val dockerJavaVersion = "3.7.0"
+val dockerJavaVersion = "3.7.1"
 dependencies {
   compileOnly("com.google.auto.value:auto-value-annotations")
   annotationProcessor("com.google.auto.value:auto-value")
 
   api("io.opentelemetry.javaagent:opentelemetry-testing-common")
 
-  implementation(platform("io.grpc:grpc-bom:1.77.0"))
+  implementation(platform("io.grpc:grpc-bom:1.84.0"))
   implementation("org.slf4j:slf4j-api")
   implementation("io.opentelemetry:opentelemetry-api")
   implementation("io.opentelemetry.proto:opentelemetry-proto")
   implementation("org.testcontainers:testcontainers")
   implementation("com.fasterxml.jackson.core:jackson-databind")
-  implementation("com.google.protobuf:protobuf-java-util:4.33.2")
+  implementation("com.google.protobuf:protobuf-java-util:4.36.1")
   implementation("io.grpc:grpc-netty-shaded")
   implementation("io.grpc:grpc-protobuf")
   implementation("io.grpc:grpc-stub")
@@ -33,6 +33,12 @@ dependencies {
 }
 
 tasks {
+  // makes the generated declarative configuration example available on the test classpath, so that
+  // DeclarativeConfigurationExampleSmokeTest can verify that the agent starts up with it
+  processTestResources {
+    from(rootProject.file("docs/declarative-configuration-example.yaml"))
+  }
+
   test {
     testLogging.showStandardStreams = true
 
@@ -51,9 +57,12 @@ tasks {
       "tomee" to listOf("**/Tomee*.*"),
       "websphere" to listOf("**/Websphere*.*"),
       "wildfly" to listOf("**/Wildfly*.*"),
+      "spring-aot" to listOf("**/SpringBootAotSmokeTest.*"),
     )
 
-    val smokeTestSuite: String? by project
+    val smokeTestSuite = project.findProperty("smokeTestSuite") as String?
+    val skipOpenJ9SmokeTests = (findProperty("skipOpenJ9SmokeTests") as String?) == "true"
+    systemProperty("reducedAppServerTests", findProperty("reducedAppServerTests") == "true")
     if (smokeTestSuite != null) {
       val suite = suites[smokeTestSuite]
       if (suite != null) {
@@ -71,14 +80,30 @@ tasks {
       }
     }
 
+    if (skipOpenJ9SmokeTests) {
+      exclude("**/*Openj9*.*")
+    }
+
     val shadowTask = project(":javaagent").tasks.named<Jar>("shadowJar")
     val agentJarPath = shadowTask.flatMap { it.archiveFile }
     inputs.files(agentJarPath)
       .withPropertyName("javaagent")
       .withNormalizer(ClasspathNormalizer::class)
 
+    val extensionTask = project(":smoke-tests:extensions:extension").tasks.named<Jar>("jar")
+    val extensionJarPath = extensionTask.flatMap { it.archiveFile }
+
+    val extensionTestAppTask = project(":smoke-tests:extensions:testapp").tasks.named<Jar>("jar")
+    val extensionTestAppJarPath = extensionTestAppTask.flatMap { it.archiveFile }
+
+    dependsOn(shadowTask, extensionTestAppTask, extensionTask)
+
     doFirst {
-      jvmArgs("-Dio.opentelemetry.smoketest.agent.shadowJar.path=${agentJarPath.get()}")
+      jvmArgs(
+        "-Dio.opentelemetry.smoketest.agent.shadowJar.path=${agentJarPath.get()}",
+        "-Dio.opentelemetry.smoketest.extension.path=${extensionJarPath.get()}",
+        "-Dio.opentelemetry.smoketest.extension.testapp.path=${extensionTestAppJarPath.get()}"
+      )
     }
   }
 }

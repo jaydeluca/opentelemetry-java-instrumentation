@@ -8,7 +8,6 @@ package io.opentelemetry.javaagent.tooling.ignore;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.ignore.IgnoredTypesBuilder;
 import io.opentelemetry.javaagent.extension.ignore.IgnoredTypesConfigurer;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 
 /**
  * Additional global ignore settings that are used to reduce number of classes we try to apply
@@ -28,14 +27,14 @@ public class AdditionalLibraryIgnoredTypesConfigurer implements IgnoredTypesConf
       "otel.javaagent.testing.additional-library-ignores.enabled";
 
   @Override
-  public void configure(IgnoredTypesBuilder builder, ConfigProperties config) {
-    if (config.getBoolean(ADDITIONAL_LIBRARY_IGNORES_ENABLED, true)) {
-      configure(builder);
+  public void configure(IgnoredTypesBuilder builder) {
+    if (!"false".equals(System.getProperty(ADDITIONAL_LIBRARY_IGNORES_ENABLED))) {
+      configureInternal(builder);
     }
   }
 
   // only used by tests (to bypass the ignores check)
-  public void configure(IgnoredTypesBuilder builder) {
+  public void configureInternal(IgnoredTypesBuilder builder) {
     builder
         .ignoreClass("com.beust.jcommander.")
         .ignoreClass("com.fasterxml.classmate.")
@@ -186,6 +185,7 @@ public class AdditionalLibraryIgnoredTypesConfigurer implements IgnoredTypesConf
         .ignoreClass("org.springframework.http.")
         .allowClass("org.springframework.http.client.reactive.AbstractClientHttpRequest$$Lambda")
         .allowClass("org.springframework.http.client.reactive.ReactorClientHttpConnector$$Lambda")
+        .allowClass("org.springframework.http.client.reactive.ReactorClientHttpResponse")
         .allowClass("org.springframework.http.codec.multipart.FileStorage$TempFileStorage$$Lambda")
         // There are some Mono implementation that get instrumented
         .allowClass("org.springframework.http.server.reactive.");
@@ -284,7 +284,8 @@ public class AdditionalLibraryIgnoredTypesConfigurer implements IgnoredTypesConf
         .allowClass("org.h2.store.FileLock")
         .allowClass("org.h2.engine.DatabaseCloser")
         .allowClass("org.h2.engine.OnExitDatabaseCloser")
-        .allowClass("org.h2.server.web.WebServlet");
+        .allowClass("org.h2.server.web.WebServlet")
+        .allowClass("org.h2.command.dml.Update$$Lambda");
 
     builder
         .ignoreClass("com.carrotsearch.hppc.")
@@ -296,6 +297,9 @@ public class AdditionalLibraryIgnoredTypesConfigurer implements IgnoredTypesConf
         .allowClass("com.fasterxml.jackson.databind.util.internal.PrivateMaxEntriesMap$AddTask");
 
     // kotlin, note we do not ignore kotlinx because we instrument coroutines code
-    builder.ignoreClass("kotlin.");
+    builder
+        .ignoreClass("kotlin.")
+        .allowClass("kotlin.sequences.SequenceBuilderIterator")
+        .allowClass("kotlin.coroutines.jvm.internal.TailCallBaseContinuationImpl");
   }
 }

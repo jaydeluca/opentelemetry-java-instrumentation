@@ -5,12 +5,10 @@
 
 package io.opentelemetry.javaagent.instrumentation.apachehttpclient.v4_0;
 
-import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.implementsInterface;
 import static io.opentelemetry.javaagent.instrumentation.apachehttpclient.v4_0.ApacheHttpClientSingletons.instrumenter;
 import static net.bytebuddy.matcher.ElementMatchers.isAbstract;
-import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.not;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
@@ -32,7 +30,7 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.ResponseHandler;
 import org.apache.http.client.methods.HttpUriRequest;
 
-public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
+class ApacheHttpClientInstrumentation implements TypeInstrumentation {
   @Override
   public ElementMatcher<ClassLoader> classLoaderOptimization() {
     return hasClassesNamed("org.apache.http.client.HttpClient");
@@ -47,84 +45,76 @@ public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
   public void transform(TypeTransformer transformer) {
     // There are 8 execute(...) methods.  Depending on the version, they may or may not delegate
     // to each other. Thus, all methods need to be instrumented.  Because of argument position and
-    // type, some methods can share the same advice class.  The call depth tracking ensures only 1
-    // span is created
+    // type, some methods can share the same advice class. Span suppression ensures only one span
+    // is created.
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(not(isAbstract()))
             .and(takesArguments(1))
             .and(takesArgument(0, named("org.apache.http.client.methods.HttpUriRequest"))),
-        this.getClass().getName() + "$UriRequestAdvice");
+        getClass().getName() + "$UriRequestAdvice");
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(not(isAbstract()))
             .and(takesArguments(2))
             .and(takesArgument(0, named("org.apache.http.client.methods.HttpUriRequest")))
             .and(takesArgument(1, named("org.apache.http.protocol.HttpContext"))),
-        this.getClass().getName() + "$UriRequestAdvice");
+        getClass().getName() + "$UriRequestAdvice");
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(not(isAbstract()))
             .and(takesArguments(2))
             .and(takesArgument(0, named("org.apache.http.client.methods.HttpUriRequest")))
             .and(takesArgument(1, named("org.apache.http.client.ResponseHandler"))),
-        this.getClass().getName() + "$UriRequestWithHandlerAdvice");
+        getClass().getName() + "$UriRequestWithHandlerAdvice");
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(not(isAbstract()))
             .and(takesArguments(3))
             .and(takesArgument(0, named("org.apache.http.client.methods.HttpUriRequest")))
             .and(takesArgument(1, named("org.apache.http.client.ResponseHandler")))
             .and(takesArgument(2, named("org.apache.http.protocol.HttpContext"))),
-        this.getClass().getName() + "$UriRequestWithHandlerAdvice");
+        getClass().getName() + "$UriRequestWithHandlerAdvice");
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(not(isAbstract()))
             .and(takesArguments(2))
             .and(takesArgument(0, named("org.apache.http.HttpHost")))
             .and(takesArgument(1, named("org.apache.http.HttpRequest"))),
-        this.getClass().getName() + "$RequestAdvice");
+        getClass().getName() + "$RequestAdvice");
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(not(isAbstract()))
             .and(takesArguments(3))
             .and(takesArgument(0, named("org.apache.http.HttpHost")))
             .and(takesArgument(1, named("org.apache.http.HttpRequest")))
             .and(takesArgument(2, named("org.apache.http.protocol.HttpContext"))),
-        this.getClass().getName() + "$RequestAdvice");
+        getClass().getName() + "$RequestAdvice");
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(not(isAbstract()))
             .and(takesArguments(3))
             .and(takesArgument(0, named("org.apache.http.HttpHost")))
             .and(takesArgument(1, named("org.apache.http.HttpRequest")))
             .and(takesArgument(2, named("org.apache.http.client.ResponseHandler"))),
-        this.getClass().getName() + "$RequestWithHandlerAdvice");
+        getClass().getName() + "$RequestWithHandlerAdvice");
 
     transformer.applyAdviceToMethod(
-        isMethod()
-            .and(named("execute"))
+        named("execute")
             .and(not(isAbstract()))
             .and(takesArguments(4))
             .and(takesArgument(0, named("org.apache.http.HttpHost")))
             .and(takesArgument(1, named("org.apache.http.HttpRequest")))
             .and(takesArgument(2, named("org.apache.http.client.ResponseHandler")))
             .and(takesArgument(3, named("org.apache.http.protocol.HttpContext"))),
-        this.getClass().getName() + "$RequestWithHandlerAdvice");
+        getClass().getName() + "$RequestWithHandlerAdvice");
   }
 
   public static class AdviceScope {
@@ -143,7 +133,7 @@ public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
 
     @Nullable
     public static AdviceScope start(ApacheHttpClientRequest otelRequest) {
-      Context parentContext = currentContext();
+      Context parentContext = Context.current();
       if (!instrumenter().shouldStart(parentContext, otelRequest)) {
         return null;
       }
@@ -170,14 +160,14 @@ public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
   @SuppressWarnings("unused")
   public static class UriRequestAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Nullable
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static AdviceScope methodEnter(@Advice.Argument(0) HttpUriRequest request) {
       return AdviceScope.start(new ApacheHttpClientRequest(request));
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void methodExit(
-        @Advice.Argument(0) HttpUriRequest request,
         @Advice.Return @Nullable Object result,
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable AdviceScope adviceScope) {
@@ -192,7 +182,7 @@ public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
   public static class UriRequestWithHandlerAdvice {
 
     @AssignReturned.ToArguments(@ToArgument(value = 1, index = 1))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static Object[] methodEnter(
         @Advice.Argument(0) HttpUriRequest request,
         @Advice.Argument(1) ResponseHandler<?> handler) {
@@ -204,10 +194,10 @@ public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
       };
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void methodExit(
-        @Advice.Return Object result,
-        @Advice.Thrown Throwable throwable,
+        @Advice.Return @Nullable Object result,
+        @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter Object[] enterResult) {
 
       AdviceScope adviceScope = (AdviceScope) enterResult[0];
@@ -220,17 +210,18 @@ public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
   @SuppressWarnings("unused")
   public static class RequestAdvice {
 
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Nullable
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static AdviceScope methodEnter(
-        @Advice.Argument(0) HttpHost host, @Advice.Argument(1) HttpRequest request) {
+        @Advice.Argument(0) @Nullable HttpHost host, @Advice.Argument(1) HttpRequest request) {
       return AdviceScope.start(new ApacheHttpClientRequest(host, request));
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void methodExit(
-        @Advice.Return Object result,
-        @Advice.Thrown Throwable throwable,
-        @Advice.Enter AdviceScope adviceScope) {
+        @Advice.Return @Nullable Object result,
+        @Advice.Thrown @Nullable Throwable throwable,
+        @Advice.Enter @Nullable AdviceScope adviceScope) {
 
       if (adviceScope != null) {
         adviceScope.end(result, throwable);
@@ -242,9 +233,9 @@ public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
   public static class RequestWithHandlerAdvice {
 
     @AssignReturned.ToArguments(@ToArgument(value = 2, index = 1))
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static Object[] methodEnter(
-        @Advice.Argument(0) HttpHost host,
+        @Advice.Argument(0) @Nullable HttpHost host,
         @Advice.Argument(1) HttpRequest request,
         @Advice.Argument(2) ResponseHandler<?> handler) {
 
@@ -256,10 +247,10 @@ public class ApacheHttpClientInstrumentation implements TypeInstrumentation {
       };
     }
 
-    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void methodExit(
-        @Advice.Return Object result,
-        @Advice.Thrown Throwable throwable,
+        @Advice.Return @Nullable Object result,
+        @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter Object[] enterResult) {
 
       AdviceScope adviceScope = (AdviceScope) enterResult[0];

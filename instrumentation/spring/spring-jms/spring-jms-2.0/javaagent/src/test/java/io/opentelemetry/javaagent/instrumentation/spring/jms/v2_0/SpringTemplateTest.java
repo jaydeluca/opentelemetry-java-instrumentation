@@ -5,18 +5,21 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.jms.v2_0;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
 import static io.opentelemetry.instrumentation.testing.util.TelemetryDataUtil.orderByRootSpanName;
+import static java.util.Collections.singleton;
+import static java.util.Collections.singletonList;
+import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.opentelemetry.instrumentation.spring.jms.v2_0.AbstractJmsTest;
+import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import java.io.File;
 import java.nio.file.Files;
-import java.util.Collections;
-import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.jms.Connection;
 import javax.jms.JMSException;
@@ -40,7 +43,6 @@ import org.hornetq.core.server.HornetQServer;
 import org.hornetq.core.server.HornetQServers;
 import org.hornetq.jms.client.HornetQConnectionFactory;
 import org.jetbrains.annotations.NotNull;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -52,8 +54,12 @@ class SpringTemplateTest extends AbstractJmsTest {
   @RegisterExtension
   private static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
+  @RegisterExtension
+  private static final AutoCleanupExtension cleanup = AutoCleanupExtension.create();
+
+  private static final String MESSAGE_TEXT = "a message";
+
   private static HornetQServer server;
-  private static final String messageText = "a message";
   private static JmsTemplate template;
   private static Session session;
   private static Connection connection;
@@ -71,13 +77,13 @@ class SpringTemplateTest extends AbstractJmsTest {
     config.setSecurityEnabled(false);
     config.setPersistenceEnabled(false);
     config.setQueueConfigurations(
-        Collections.singletonList(
-            new CoreQueueConfiguration("someQueue", "someQueue", null, true)));
+        singletonList(new CoreQueueConfiguration("someQueue", "someQueue", null, true)));
     config.setAcceptorConfigurations(
-        Collections.singleton(new TransportConfiguration(InVMAcceptorFactory.class.getName())));
+        singleton(new TransportConfiguration(InVMAcceptorFactory.class.getName())));
 
     server = HornetQServers.newHornetQServer(config);
     server.start();
+    cleanup.deferAfterAll(server::stop);
 
     ServerLocator serverLocator =
         HornetQClient.createServerLocatorWithoutHA(
@@ -92,31 +98,27 @@ class SpringTemplateTest extends AbstractJmsTest {
     HornetQConnectionFactory connectionFactory =
         HornetQJMSClient.createConnectionFactoryWithoutHA(
             JMSFactoryType.CF, new TransportConfiguration(InVMConnectorFactory.class.getName()));
+    cleanup.deferAfterAll(connectionFactory::close);
 
     connection = connectionFactory.createConnection();
     connection.start();
     session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
     session.run();
+    cleanup.deferAfterAll(connection);
+    cleanup.deferAfterAll(session);
 
     template = new JmsTemplate(connectionFactory);
-    template.setReceiveTimeout(TimeUnit.SECONDS.toMillis(10));
-  }
-
-  @AfterAll
-  static void cleanup() throws Exception {
-    session.close();
-    connection.close();
-    server.stop();
+    template.setReceiveTimeout(SECONDS.toMillis(10));
   }
 
   @Test
   void sendingMessageToDestinationNameGeneratesSpans() throws JMSException {
     Queue queue = session.createQueue("SpringTemplateJms2");
-    template.convertAndSend(queue, messageText);
+    template.convertAndSend(queue, MESSAGE_TEXT);
     TextMessage receivedMessage = (TextMessage) template.receive(queue);
 
     assertThat(receivedMessage).isNotNull();
-    assertThat(receivedMessage.getText()).isEqualTo(messageText);
+    assertThat(receivedMessage.getText()).isEqualTo(MESSAGE_TEXT);
 
     String receivedMsgId = receivedMessage.getJMSMessageID();
     AtomicReference<SpanData> producerSpan = new AtomicReference<>();
@@ -148,13 +150,13 @@ class SpringTemplateTest extends AbstractJmsTest {
           TextMessage msg = (TextMessage) template.receive(queue);
           assertThat(msg).isNotNull();
           try {
-            assertThat(msg.getText()).isEqualTo(messageText);
+            assertThat(msg.getText()).isEqualTo(MESSAGE_TEXT);
             msgId.set(msg.getJMSMessageID());
             // There's a chance this might be reported last, messing up the assertion.
             template.send(
                 msg.getJMSReplyTo(),
                 (session) ->
-                    Objects.requireNonNull(template.getMessageConverter())
+                    requireNonNull(template.getMessageConverter())
                         .toMessage("responded!", session));
           } catch (Exception e) {
             throw new RuntimeException(e);
@@ -167,8 +169,8 @@ class SpringTemplateTest extends AbstractJmsTest {
             template.sendAndReceive(
                 queue,
                 session ->
-                    Objects.requireNonNull(template.getMessageConverter())
-                        .toMessage(messageText, session));
+                    requireNonNull(template.getMessageConverter())
+                        .toMessage(MESSAGE_TEXT, session));
 
     assertThat(receivedMessage).isNotNull();
     assertThat(receivedMessage.getText()).isEqualTo("responded!");
@@ -178,10 +180,12 @@ class SpringTemplateTest extends AbstractJmsTest {
     AtomicReference<SpanData> tmpProducerSpan = new AtomicReference<>();
     testing.waitAndAssertSortedTraces(
         orderByRootSpanName(
-            "SpringTemplateJms2 publish",
-            "SpringTemplateJms2 receive",
-            "(temporary) publish",
-            "(temporary) receive"),
+            emitStableMessagingSemconv() ? "send SpringTemplateJms2" : "SpringTemplateJms2 publish",
+            emitStableMessagingSemconv()
+                ? "receive SpringTemplateJms2"
+                : "SpringTemplateJms2 receive",
+            emitStableMessagingSemconv() ? "send" : "(temporary) publish",
+            emitStableMessagingSemconv() ? "receive" : "(temporary) receive"),
         trace -> {
           trace.hasSpansSatisfyingExactly(
               span -> assertProducerSpan(span, "SpringTemplateJms2", false));
@@ -220,11 +224,12 @@ class SpringTemplateTest extends AbstractJmsTest {
     Queue queue = session.createQueue("SpringTemplateJms2");
     template.convertAndSend(
         queue,
-        messageText,
+        MESSAGE_TEXT,
         new MessagePostProcessor() {
           @Override
           public @NotNull Message postProcessMessage(@NotNull Message message) throws JMSException {
             message.setStringProperty("Test_Message_Header", "test");
+            message.setStringProperty("Uncaptured_Header", "password");
             message.setIntProperty("Test_Message_Int_Header", 1234);
             return message;
           }
@@ -232,7 +237,7 @@ class SpringTemplateTest extends AbstractJmsTest {
     TextMessage receivedMessage = (TextMessage) template.receive(queue);
 
     assertThat(receivedMessage).isNotNull();
-    assertThat(receivedMessage.getText()).isEqualTo(messageText);
+    assertThat(receivedMessage.getText()).isEqualTo(MESSAGE_TEXT);
 
     String receivedMsgId = receivedMessage.getJMSMessageID();
     AtomicReference<SpanData> producerSpan = new AtomicReference<>();

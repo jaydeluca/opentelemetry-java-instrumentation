@@ -5,12 +5,14 @@
 
 package io.opentelemetry.test.annotation;
 
+import static io.opentelemetry.api.common.AttributeKey.stringArrayKey;
+import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static io.opentelemetry.instrumentation.testing.util.TelemetryDataUtil.orderByRootSpanName;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static java.util.Arrays.asList;
+import static net.bytebuddy.matcher.ElementMatchers.named;
 
-import io.opentelemetry.api.common.AttributeKey;
-import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.SpanId;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
@@ -29,7 +31,6 @@ import net.bytebuddy.description.annotation.AnnotationDescription;
 import net.bytebuddy.implementation.MethodDelegation;
 import net.bytebuddy.implementation.bind.annotation.RuntimeType;
 import net.bytebuddy.implementation.bind.annotation.This;
-import net.bytebuddy.matcher.ElementMatchers;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -127,8 +128,16 @@ class WithSpanInstrumentationTest {
   }
 
   @Test
-  void excludedMethod() throws Exception {
+  void excludedMethod() throws InterruptedException {
     new TracedWithSpan().ignored();
+
+    Thread.sleep(500); // sleep a bit just to make sure no span is captured
+    assertThat(testing.waitForTraces(0)).isEmpty();
+  }
+
+  @Test
+  void annotatedConstructorDoesNotCreateSpan() throws InterruptedException {
+    new TracedWithSpan("unused");
 
     Thread.sleep(500); // sleep a bit just to make sure no span is captured
     assertThat(testing.waitForTraces(0)).isEmpty();
@@ -184,7 +193,7 @@ class WithSpanInstrumentationTest {
   }
 
   @Test
-  void completingCompletionStage() throws Exception {
+  void completingCompletionStage() throws InterruptedException {
     CompletableFuture<String> future = new CompletableFuture<>();
     new TracedWithSpan().completionStage(future);
 
@@ -205,7 +214,7 @@ class WithSpanInstrumentationTest {
   }
 
   @Test
-  void exceptionallyCompletingCompletionStage() throws Exception {
+  void exceptionallyCompletingCompletionStage() throws InterruptedException {
     CompletableFuture<String> future = new CompletableFuture<>();
     new TracedWithSpan().completionStage(future);
 
@@ -276,7 +285,7 @@ class WithSpanInstrumentationTest {
   }
 
   @Test
-  void completingCompletableFuture() throws Exception {
+  void completingCompletableFuture() throws InterruptedException {
     CompletableFuture<String> future = new CompletableFuture<>();
     new TracedWithSpan().completableFuture(future);
 
@@ -297,7 +306,7 @@ class WithSpanInstrumentationTest {
   }
 
   @Test
-  void exceptionallyCompletingCompletableFuture() throws Exception {
+  void exceptionallyCompletingCompletableFuture() throws InterruptedException {
     CompletableFuture<String> future = new CompletableFuture<>();
     new TracedWithSpan().completableFuture(future);
 
@@ -324,8 +333,8 @@ class WithSpanInstrumentationTest {
 
     List<AttributeAssertion> assertions =
         new ArrayList<>(codeAttributeAssertions("withSpanAttributes"));
-    assertions.add(equalTo(AttributeKey.stringKey("implicitName"), "foo"));
-    assertions.add(equalTo(AttributeKey.stringKey("explicitName"), "bar"));
+    assertions.add(equalTo(stringKey("implicitName"), "foo"));
+    assertions.add(equalTo(stringKey("explicitName"), "bar"));
 
     testing.waitAndAssertTraces(
         trace ->
@@ -334,7 +343,28 @@ class WithSpanInstrumentationTest {
                     span.hasName("TracedWithSpan.withSpanAttributes")
                         .hasKind(SpanKind.INTERNAL)
                         .hasNoParent()
-                        .hasAttributesSatisfying(assertions)));
+                        .hasAttributesSatisfyingExactly(assertions)));
+  }
+
+  @Test
+  void captureGenericAttributes() {
+    String result =
+        new TracedWithSpan().withGenericSpanAttributes("foo", new String[] {"bar", "baz"});
+    assertThat(result).isEqualTo("foo");
+
+    List<AttributeAssertion> assertions =
+        new ArrayList<>(codeAttributeAssertions("withGenericSpanAttributes"));
+    assertions.add(equalTo(stringKey("value"), "foo"));
+    assertions.add(equalTo(stringArrayKey("values"), asList("bar", "baz")));
+
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span ->
+                    span.hasName("TracedWithSpan.withGenericSpanAttributes")
+                        .hasKind(SpanKind.INTERNAL)
+                        .hasNoParent()
+                        .hasAttributesSatisfyingExactly(assertions)));
   }
 
   // Needs to be public for ByteBuddy
@@ -346,7 +376,7 @@ class WithSpanInstrumentationTest {
   }
 
   @Test
-  void java6Class() throws Exception {
+  void java6Class() throws ReflectiveOperationException {
     /*
     class GeneratedJava6TestClass implements Runnable {
       @WithSpan
@@ -365,7 +395,7 @@ class WithSpanInstrumentationTest {
             .visit(
                 new MemberAttributeExtension.ForMethod()
                     .annotateMethod(AnnotationDescription.Builder.ofType(WithSpan.class).build())
-                    .on(ElementMatchers.named("run")))
+                    .on(named("run")))
             .make()
             .load(getClass().getClassLoader())
             .getLoaded();
@@ -380,7 +410,7 @@ class WithSpanInstrumentationTest {
                   span.hasName("GeneratedJava6TestClass.run")
                       .hasKind(SpanKind.INTERNAL)
                       .hasNoParent()
-                      .hasAttributesSatisfying(
+                      .hasAttributesSatisfyingExactly(
                           SemconvCodeStabilityUtil.codeFunctionAssertions(
                               "GeneratedJava6TestClass", "run"));
                 },
@@ -388,6 +418,6 @@ class WithSpanInstrumentationTest {
                     span.hasName("intercept")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParentSpanId(trace.getSpan(0).getSpanId())
-                        .hasAttributes(Attributes.empty())));
+                        .hasTotalAttributeCount(0)));
   }
 }

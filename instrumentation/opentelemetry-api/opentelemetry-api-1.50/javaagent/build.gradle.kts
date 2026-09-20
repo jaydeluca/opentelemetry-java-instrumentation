@@ -20,13 +20,17 @@ configurations.configureEach {
     resolutionStrategy {
       force("io.opentelemetry:opentelemetry-api:1.50.0")
       force("io.opentelemetry:opentelemetry-api-incubator:1.50.0-alpha")
+      // use older SDK test artifacts that work with opentelemetry-api-incubator:1.50.0-alpha
+      force("io.opentelemetry:opentelemetry-sdk:1.50.0")
+      force("io.opentelemetry:opentelemetry-sdk-logs:1.50.0")
+      force("io.opentelemetry:opentelemetry-sdk-testing:1.50.0")
     }
   }
 }
 
 testing {
   suites {
-    val incubatorTest by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("incubatorTest") {
       dependencies {
         implementation("io.opentelemetry:opentelemetry-api-incubator:1.50.0-alpha")
       }
@@ -35,6 +39,10 @@ testing {
 }
 
 tasks {
+  check {
+    dependsOn(testing.suites)
+  }
+
   test {
     jvmArgs("-Dotel.instrumentation.opentelemetry-api-incubator-1.50.enabled=false")
   }

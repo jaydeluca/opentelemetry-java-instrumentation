@@ -6,7 +6,7 @@
 package io.opentelemetry.instrumentation.netty.common.v4_0.internal;
 
 import io.netty.channel.ChannelHandler;
-import io.opentelemetry.instrumentation.netty.common.v4_0.NettyRequest;
+import javax.annotation.Nullable;
 
 /**
  * This class is internal and is hence not for public use. Its APIs are unstable and can change at
@@ -14,25 +14,27 @@ import io.opentelemetry.instrumentation.netty.common.v4_0.NettyRequest;
  */
 public final class HttpSchemeUtil {
 
-  private static final Class<? extends ChannelHandler> sslHandlerClass = getSslHandlerClass();
+  @Nullable
+  private static final Class<? extends ChannelHandler> SSL_HANDLER_CLASS = getSslHandlerClass();
 
+  @Nullable
   private static Class<? extends ChannelHandler> getSslHandlerClass() {
     try {
       return Class.forName(
               "io.netty.handler.ssl.SslHandler", false, HttpSchemeUtil.class.getClassLoader())
           .asSubclass(ChannelHandler.class);
-    } catch (ClassNotFoundException exception) {
+    } catch (ClassNotFoundException ignored) {
       return null;
     }
   }
 
-  public static String getScheme(NettyRequest requestAndChannel) {
+  public static String getScheme(NettyCommonRequest requestAndChannel) {
     return isHttps(requestAndChannel) ? "https" : "http";
   }
 
-  private static boolean isHttps(NettyRequest requestAndChannel) {
-    return sslHandlerClass != null
-        && requestAndChannel.channel().pipeline().get(sslHandlerClass) != null;
+  private static boolean isHttps(NettyCommonRequest requestAndChannel) {
+    return SSL_HANDLER_CLASS != null
+        && requestAndChannel.getChannel().pipeline().get(SSL_HANDLER_CLASS) != null;
   }
 
   private HttpSchemeUtil() {}

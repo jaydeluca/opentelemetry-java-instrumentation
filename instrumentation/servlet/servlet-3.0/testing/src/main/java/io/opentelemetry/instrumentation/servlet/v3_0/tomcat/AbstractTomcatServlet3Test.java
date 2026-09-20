@@ -8,6 +8,7 @@ package io.opentelemetry.instrumentation.servlet.v3_0.tomcat;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.ERROR;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.NOT_FOUND;
 import static io.opentelemetry.instrumentation.testing.junit.http.ServerEndpoint.SUCCESS;
+import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -27,7 +28,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.servlet.Servlet;
 import org.apache.catalina.Context;
@@ -56,7 +56,7 @@ public abstract class AbstractTomcatServlet3Test extends AbstractServlet3Test<To
           ERROR.getStatus(),
           ERROR.getBody(),
           false);
-  private TestAccessLogValve accessLogValue;
+  private TestAccessLogValve accessLogValve;
 
   @TempDir private static File tempDir;
 
@@ -75,7 +75,7 @@ public abstract class AbstractTomcatServlet3Test extends AbstractServlet3Test<To
   protected SpanDataAssert assertResponseSpan(
       SpanDataAssert span, SpanData parentSpan, String method, ServerEndpoint endpoint) {
     if (NOT_FOUND.equals(endpoint)) {
-      span.satisfies(s -> assertThat(s.getName()).matches(".*\\.sendError"))
+      span.satisfies(spanData -> assertThat(spanData.getName()).matches(".*\\.sendError"))
           .hasKind(SpanKind.INTERNAL)
           .hasParent(parentSpan);
     }
@@ -97,7 +97,7 @@ public abstract class AbstractTomcatServlet3Test extends AbstractServlet3Test<To
     tomcatServer.setPort(port);
     tomcatServer.getConnector().setEnableLookups(true); // get localhost instead of 127.0.0.1
 
-    File applicationDir = new File(baseDir, "/webapps/ROOT");
+    File applicationDir = new File(baseDir, "webapps/ROOT");
     applicationDir.mkdirs();
 
     Context servletContext =
@@ -110,8 +110,8 @@ public abstract class AbstractTomcatServlet3Test extends AbstractServlet3Test<To
 
     ((StandardHost) tomcatServer.getHost())
         .setErrorReportValveClass(ErrorHandlerValve.class.getName());
-    accessLogValue = new TestAccessLogValve();
-    tomcatServer.getHost().getPipeline().addValve(accessLogValue);
+    accessLogValve = new TestAccessLogValve();
+    tomcatServer.getHost().getPipeline().addValve(accessLogValve);
 
     tomcatServer.start();
 
@@ -122,7 +122,7 @@ public abstract class AbstractTomcatServlet3Test extends AbstractServlet3Test<To
 
   @BeforeEach
   void setUp() {
-    accessLogValue.getLoggedIds().clear();
+    accessLogValve.clearLoggedIds();
     testing().clearAllExportedData();
   }
 
@@ -153,14 +153,12 @@ public abstract class AbstractTomcatServlet3Test extends AbstractServlet3Test<To
               assertThat(response.contentUtf8()).isEqualTo(ACCESS_LOG_SUCCESS.getBody());
             });
 
-    accessLogValue.waitForLoggedIds(count);
-    assertThat(accessLogValue.getLoggedIds().size()).isEqualTo(count);
+    accessLogValve.waitForLoggedIds(count);
+    assertThat(accessLogValve.getLoggedIds()).hasSize(count);
     List<String> loggedTraces =
-        accessLogValue.getLoggedIds().stream().map(Map.Entry::getKey).collect(Collectors.toList());
+        accessLogValve.getLoggedIds().stream().map(Map.Entry::getKey).collect(toList());
     List<String> loggedSpans =
-        accessLogValue.getLoggedIds().stream()
-            .map(Map.Entry::getValue)
-            .collect(Collectors.toList());
+        accessLogValve.getLoggedIds().stream().map(Map.Entry::getValue).collect(toList());
 
     testing()
         .waitAndAssertTraces(
@@ -178,7 +176,7 @@ public abstract class AbstractTomcatServlet3Test extends AbstractServlet3Test<To
                               assertThat(loggedTraces).contains(span.getTraceId());
                               assertThat(loggedSpans).contains(span.getSpanId());
                             })
-                .collect(Collectors.toList()));
+                .collect(toList()));
   }
 
   @Test
@@ -198,21 +196,21 @@ public abstract class AbstractTomcatServlet3Test extends AbstractServlet3Test<To
     if (errorEndpointUsesSendError()) {
       spanDataAsserts.add(
           (span, trace) ->
-              span.satisfies(s -> assertThat(s.getName()).matches(".*\\.sendError"))
+              span.satisfies(spanData -> assertThat(spanData.getName()).matches(".*\\.sendError"))
                   .hasKind(SpanKind.INTERNAL)
                   .hasParent(trace.getSpan(1)));
     }
 
-    accessLogValue.waitForLoggedIds(1);
+    accessLogValve.waitForLoggedIds(1);
     testing()
         .waitAndAssertTraces(
             trace -> {
               trace.hasSpansSatisfyingExactly(
                   spanDataAsserts.stream()
                       .map(e -> (Consumer<SpanDataAssert>) span -> e.accept(span, trace))
-                      .collect(Collectors.toList()));
+                      .collect(toList()));
               SpanData span = trace.getSpan(0);
-              Map.Entry<String, String> entry = accessLogValue.getLoggedIds().get(0);
+              Map.Entry<String, String> entry = accessLogValve.getLoggedIds().get(0);
               assertThat(entry.getKey()).isEqualTo(span.getTraceId());
               assertThat(entry.getValue()).isEqualTo(span.getSpanId());
             });

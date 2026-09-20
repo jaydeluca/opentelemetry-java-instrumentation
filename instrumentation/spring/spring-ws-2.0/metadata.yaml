@@ -1,2 +1,10 @@
+display_name: Spring WS
 disabled_by_default: true
+description: >
+  This instrumentation enables controller spans for Spring Web Services 2.0+ endpoints
+  (controller spans are disabled by default).
+features:
+  - CONTROLLER_SPANS
 library_link: https://spring.io/projects/spring-ws
+configurations:
+  - ref: common.controller-telemetry.enabled

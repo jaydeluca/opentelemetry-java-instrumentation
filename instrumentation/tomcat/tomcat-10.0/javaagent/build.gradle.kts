@@ -7,11 +7,12 @@ muzzle {
     group.set("org.apache.tomcat.embed")
     module.set("tomcat-embed-core")
     versions.set("[10,)")
+    assertInverse.set(true)
   }
 }
 
 dependencies {
-  implementation(project(":instrumentation:tomcat:tomcat-common:javaagent"))
+  implementation(project(":instrumentation:tomcat:tomcat-common-7.0:javaagent"))
   implementation(project(":instrumentation:servlet:servlet-5.0:javaagent"))
   bootstrap(project(":instrumentation:servlet:servlet-common:bootstrap"))
 
@@ -26,15 +27,15 @@ dependencies {
 }
 
 tasks {
-  withType<Test>().configureEach {
-    jvmArgs("-Dotel.instrumentation.servlet.experimental.capture-request-parameters=test-parameter")
-    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+  test {
+    jvmArgs("-Dotel.instrumentation.servlet.experimental.request-parameters.included=test-*")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 }
 
 // Tomcat 10 uses deprecation annotation methods `forRemoval()` and `since()`
 // in jakarta.servlet.http.HttpServlet that don't work with Java 8
-if (findProperty("testLatestDeps") as Boolean) {
+if (otelProps.testLatestDeps) {
   otelJava {
     minJavaVersionSupported.set(JavaVersion.VERSION_11)
   }

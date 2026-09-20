@@ -4,7 +4,7 @@ plugins {
 
 muzzle {
   pass {
-    group.set("org.hibernate")
+    group.set("org.hibernate.orm")
     module.set("hibernate-core")
     versions.set("[6.0.0.Final,)")
     assertInverse.set(true)
@@ -12,9 +12,9 @@ muzzle {
 }
 
 dependencies {
-  library("org.hibernate:hibernate-core:6.0.0.Final")
+  library("org.hibernate.orm:hibernate-core:6.0.0.Final")
 
-  implementation(project(":instrumentation:hibernate:hibernate-common:javaagent"))
+  implementation(project(":instrumentation:hibernate:hibernate-common-3.3:javaagent"))
 
   testInstrumentation(project(":instrumentation:jdbc:javaagent"))
   // Added to ensure cross compatibility:
@@ -36,41 +36,35 @@ otelJava {
   minJavaVersionSupported.set(JavaVersion.VERSION_11)
 }
 
-val latestDepTest = findProperty("testLatestDeps") as Boolean
-
 testing {
   suites {
-    val hibernate6Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("hibernate6Test") {
       targets.all {
         testTask.configure {
           jvmArgs("-Dotel.instrumentation.hibernate.experimental-span-attributes=true")
+          systemProperty("metadataConfig", "otel.instrumentation.hibernate.experimental-span-attributes=true")
         }
       }
       dependencies {
         implementation("com.h2database:h2:1.4.197")
         implementation("org.hsqldb:hsqldb:2.0.0")
-        if (latestDepTest) {
-          implementation("org.hibernate:hibernate-core:6.+")
-        } else {
-          implementation("org.hibernate:hibernate-core:6.0.0.Final")
-        }
+        implementation(project(":instrumentation:hibernate:testing"))
+        implementation("org.hibernate.orm:hibernate-core:${baseVersion("6.0.0.Final").orLatest("6.+")}")
       }
     }
 
-    val hibernate7Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("hibernate7Test") {
       targets.all {
         testTask.configure {
           jvmArgs("-Dotel.instrumentation.hibernate.experimental-span-attributes=true")
+          systemProperty("metadataConfig", "otel.instrumentation.hibernate.experimental-span-attributes=true")
         }
       }
       dependencies {
         implementation("com.h2database:h2:1.4.197")
         implementation("org.hsqldb:hsqldb:2.0.0")
-        if (latestDepTest) {
-          implementation("org.hibernate:hibernate-core:7.+")
-        } else {
-          implementation("org.hibernate:hibernate-core:7.0.0.Final")
-        }
+        implementation(project(":instrumentation:hibernate:testing"))
+        implementation("org.hibernate.orm:hibernate-core:${baseVersion("7.0.0.Final").orLatest("7.+")}")
       }
     }
   }
@@ -78,22 +72,20 @@ testing {
 
 tasks {
   withType<Test>().configureEach {
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
   named("compileHibernate7TestJava", JavaCompile::class).configure {
     options.release.set(17)
   }
-  val testJavaVersion =
-    gradle.startParameter.projectProperties.get("testJavaVersion")?.let(JavaVersion::toVersion)
-      ?: JavaVersion.current()
+  val testJavaVersion = otelProps.testJavaVersion ?: JavaVersion.current()
   if (!testJavaVersion.isCompatibleWith(JavaVersion.VERSION_17)) {
     named("hibernate7Test", Test::class).configure {
       enabled = false
     }
   }
 
-  val testExperimental by registering(Test::class) {
+  val testExperimental = register<Test>("testExperimental") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
@@ -101,14 +93,24 @@ tasks {
     systemProperty("metadataConfig", "otel.instrumentation.hibernate.experimental-span-attributes=true")
   }
 
-  val testStableSemconv by registering(Test::class) {
-    testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}StableSemconv") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
 
-    jvmArgs("-Dotel.semconv-stability.opt-in=database")
+        jvmArgs("-Dotel.semconv-stability.opt-in=database")
+        systemProperty("metadataConfig", "otel.semconv-stability.opt-in=database")
+      }
+    }
+
+  if (!testJavaVersion.isCompatibleWith(JavaVersion.VERSION_17)) {
+    named("hibernate7TestStableSemconv", Test::class).configure {
+      enabled = false
+    }
   }
 
   check {
-    dependsOn(testing.suites, testStableSemconv, testExperimental)
+    dependsOn(testing.suites, testExperimental, stableSemconvSuites)
   }
 }

@@ -4,12 +4,11 @@ plugins {
 
 muzzle {
   pass {
-    coreJdk()
+    coreJdk.set(true)
   }
 }
 
 dependencies {
-  compileOnly(project(":javaagent-tooling"))
   compileOnly(project(":instrumentation-annotations-support"))
 }
 
@@ -21,12 +20,12 @@ tasks.test {
 
 testing {
   suites {
-    val declarativeConfigTest by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("declarativeConfigTest") {
       targets {
         all {
           testTask.configure {
             jvmArgs(
-              "-Dotel.experimental.config.file=$projectDir/src/declarativeConfigTest/resources/declarative-config.yaml"
+              "-Dotel.config.file=$projectDir/src/declarativeConfigTest/resources/declarative-config.yaml"
             )
           }
         }

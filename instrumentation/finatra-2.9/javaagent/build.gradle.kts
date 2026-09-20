@@ -22,7 +22,7 @@ muzzle {
 
 // Test suites don't allow excluding transitive dependencies. We use this configuration to declare
 // dependency to latest finatra and exclude netty-transport-native-epoll.
-val finatraLatest by configurations.creating {
+val finatraLatest = configurations.create("finatraLatest") {
   isCanBeConsumed = false
   isCanBeResolved = false
 }
@@ -51,9 +51,9 @@ dependencies {
 
 testing {
   suites {
-    val latestDepTest by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("latestDepTest") {
       dependencies {
-        // finatra is included via finatraLatest configuation
+        // finatra is included via finatraLatest configuration
         implementation("io.netty:netty-transport-native-epoll:4.1.51.Final:linux-x86_64")
       }
     }
@@ -67,7 +67,7 @@ configurations {
 }
 
 tasks {
-  if (findProperty("testLatestDeps") as Boolean) {
+  if (otelProps.testLatestDeps) {
     // Separate task
     named("test") {
       enabled = false
@@ -88,18 +88,18 @@ tasks {
 
     jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
 
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("collectMetadata", otelProps.collectMetadata)
     systemProperty("metadataConfig", "otel.instrumentation.common.experimental.controller-telemetry.enabled=true")
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }
   }
 }
 
-if (findProperty("testLatestDeps") as Boolean) {
+if (otelProps.testLatestDeps) {
   configurations.named("latestDepTestRuntimeClasspath") {
     resolutionStrategy {
       eachDependency {

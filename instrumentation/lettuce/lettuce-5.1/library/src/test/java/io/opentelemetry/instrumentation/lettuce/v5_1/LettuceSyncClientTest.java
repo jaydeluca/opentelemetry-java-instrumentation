@@ -16,7 +16,7 @@ class LettuceSyncClientTest extends AbstractLettuceSyncClientTest {
   static final InstrumentationExtension testing = LibraryInstrumentationExtension.create();
 
   @Override
-  public InstrumentationExtension testing() {
+  protected InstrumentationExtension testing() {
     return testing;
   }
 
@@ -24,7 +24,11 @@ class LettuceSyncClientTest extends AbstractLettuceSyncClientTest {
   protected RedisClient createClient(String uri) {
     return RedisClient.create(
         ClientResources.builder()
-            .tracing(LettuceTelemetry.create(testing().getOpenTelemetry()).newTracing())
+            .tracing(
+                LettuceTelemetry.builder(testing().getOpenTelemetry())
+                    .setEncodingSpanEventsEnabled(true)
+                    .build()
+                    .createTracing())
             .build(),
         uri);
   }

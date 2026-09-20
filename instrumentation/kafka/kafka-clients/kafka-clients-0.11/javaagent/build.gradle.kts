@@ -29,11 +29,11 @@ tasks {
   withType<Test>().configureEach {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
 
-    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
-    systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
+    systemProperty("collectMetadata", otelProps.collectMetadata)
   }
 
-  val testPropagationDisabled by registering(Test::class) {
+  val testPropagationDisabled = register<Test>("testPropagationDisabled") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     filter {
@@ -41,9 +41,10 @@ tasks {
     }
     include("**/KafkaClientPropagationDisabledTest.*")
     jvmArgs("-Dotel.instrumentation.kafka.producer-propagation.enabled=false")
+    systemProperty("metadataConfig", "otel.instrumentation.kafka.producer-propagation.enabled=false")
   }
 
-  val testReceiveSpansDisabled by registering(Test::class) {
+  val testReceiveSpansDisabled = register<Test>("testReceiveSpansDisabled") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     filter {
@@ -52,7 +53,73 @@ tasks {
     include("**/KafkaClientSuppressReceiveSpansTest.*")
   }
 
-  val testExperimental by registering(Test::class) {
+  val testMessagingPreview = register<Test>("testMessagingPreview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      excludeTestsMatching("KafkaClientPropagationDisabledTest")
+      excludeTestsMatching("KafkaClientSuppressReceiveSpansTest")
+    }
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
+  }
+
+  val testMessagingPreviewReceiveSpansDisabled = register<Test>("testMessagingPreviewReceiveSpansDisabled") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      includeTestsMatching("KafkaClientSuppressReceiveSpansTest")
+    }
+    include("**/KafkaClientSuppressReceiveSpansTest.*")
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=false")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
+  }
+
+  val testMessagingPreviewPropagationDisabled = register<Test>("testMessagingPreviewPropagationDisabled") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      includeTestsMatching("KafkaClientPropagationDisabledTest")
+    }
+    include("**/KafkaClientPropagationDisabledTest.*")
+    jvmArgs("-Dotel.instrumentation.kafka.producer-propagation.enabled=false")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
+  }
+
+  val testMessagingOptIn = register<Test>("testMessagingOptIn") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      excludeTestsMatching("KafkaClientPropagationDisabledTest")
+      excludeTestsMatching("KafkaClientSuppressReceiveSpansTest")
+    }
+    // with the v3 preview off, the legacy opt-in flag selects the new messaging semconv too
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    jvmArgs("-Dotel.semconv-stability.opt-in=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=messaging")
+  }
+
+  val testV3Preview = register<Test>("testV3Preview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      excludeTestsMatching("KafkaClientPropagationDisabledTest")
+      excludeTestsMatching("KafkaClientSuppressReceiveSpansTest")
+    }
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    jvmArgs("-Dotel.instrumentation.common.v3-preview=true")
+    // the v3 preview does not support dual emit for messaging, so this degrades to emitting only
+    // the new messaging semconv
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+    // kafka metrics are disabled by default with v3-preview enabled
+    jvmArgs("-Dotel.instrumentation.kafka-clients-metrics.enabled=true")
+    systemProperty("metadataConfig", "otel.instrumentation.common.v3-preview=true")
+  }
+
+  val testExperimental = register<Test>("testExperimental") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
@@ -61,9 +128,21 @@ tasks {
       excludeTestsMatching("KafkaClientSuppressReceiveSpansTest")
     }
     jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
-
     jvmArgs("-Dotel.instrumentation.kafka.experimental-span-attributes=true")
+
     systemProperty("metadataConfig", "otel.instrumentation.kafka.experimental-span-attributes=true")
+  }
+
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+      excludeTestsMatching("KafkaClientPropagationDisabledTest")
+      excludeTestsMatching("KafkaClientSuppressReceiveSpansTest")
+    }
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging/dup")
   }
 
   test {
@@ -75,14 +154,22 @@ tasks {
   }
 
   check {
-    dependsOn(testPropagationDisabled, testReceiveSpansDisabled, testExperimental)
+    dependsOn(
+      testPropagationDisabled,
+      testReceiveSpansDisabled,
+      testMessagingPreview,
+      testMessagingPreviewReceiveSpansDisabled,
+      testMessagingPreviewPropagationDisabled,
+      testMessagingOptIn,
+      testV3Preview,
+      testExperimental,
+      testBothSemconv,
+    )
   }
 }
 
-val latestDepTest = findProperty("testLatestDeps") as Boolean
-
 // kafka 4.1 requires java 11
-if (latestDepTest) {
+if (otelProps.testLatestDeps) {
   otelJava {
     minJavaVersionSupported.set(JavaVersion.VERSION_11)
   }

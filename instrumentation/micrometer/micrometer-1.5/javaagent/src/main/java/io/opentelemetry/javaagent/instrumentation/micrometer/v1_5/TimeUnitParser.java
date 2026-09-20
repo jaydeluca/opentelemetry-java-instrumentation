@@ -5,9 +5,15 @@
 
 package io.opentelemetry.javaagent.instrumentation.micrometer.v1_5;
 
+import static java.util.concurrent.TimeUnit.DAYS;
+import static java.util.concurrent.TimeUnit.HOURS;
+import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.logging.Level.WARNING;
 
-import io.opentelemetry.instrumentation.micrometer.v1_5.OpenTelemetryMeterRegistry;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
@@ -15,36 +21,36 @@ import javax.annotation.Nullable;
 
 final class TimeUnitParser {
 
-  private static final Logger logger = Logger.getLogger(OpenTelemetryMeterRegistry.class.getName());
+  private static final Logger logger = Logger.getLogger(TimeUnitParser.class.getName());
 
   static TimeUnit parseConfigValue(@Nullable String value) {
     if (value == null) {
-      return TimeUnit.SECONDS;
+      return SECONDS;
     }
     // short names are UCUM names
     // long names are just TimeUnit values lowercased
     switch (value.toLowerCase(Locale.ROOT)) {
       case "ns":
       case "nanoseconds":
-        return TimeUnit.NANOSECONDS;
+        return NANOSECONDS;
       case "us":
       case "microseconds":
-        return TimeUnit.MICROSECONDS;
+        return MICROSECONDS;
       case "ms":
       case "milliseconds":
-        return TimeUnit.MILLISECONDS;
+        return MILLISECONDS;
       case "s":
       case "seconds":
-        return TimeUnit.SECONDS;
+        return SECONDS;
       case "min":
       case "minutes":
-        return TimeUnit.MINUTES;
+        return MINUTES;
       case "h":
       case "hours":
-        return TimeUnit.HOURS;
+        return HOURS;
       case "d":
       case "days":
-        return TimeUnit.DAYS;
+        return DAYS;
       default:
         if (logger.isLoggable(WARNING)) {
           logger.log(
@@ -52,7 +58,7 @@ final class TimeUnitParser {
               "Invalid base time unit: \"{0}\"; using \"s\" as the base time unit instead",
               value);
         }
-        return TimeUnit.SECONDS;
+        return SECONDS;
     }
   }
 

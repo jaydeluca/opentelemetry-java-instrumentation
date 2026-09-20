@@ -6,10 +6,18 @@
 package io.opentelemetry.instrumentation.nats.v2_17;
 
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitOldMessagingSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
+import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_CLIENT_ID;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_NAME;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_TEMPLATE;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_TEMPORARY;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_MESSAGE_BODY_SIZE;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION_NAME;
+import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION_TYPE;
 import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_SYSTEM;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,41 +26,85 @@ import io.nats.client.Subscription;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.sdk.testing.assertj.AttributeAssertion;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 @SuppressWarnings("deprecation") // using deprecated semconv
-public class NatsTestHelper {
+class NatsTestHelper {
 
-  // copied from MessagingIncubatingAttributes
-  private static final AttributeKey<String> MESSAGING_CLIENT_ID = stringKey("messaging.client_id");
+  private static final AttributeKey<String> MESSAGING_CLIENT_ID_OLD =
+      stringKey("messaging.client_id");
 
-  public static AttributeAssertion[] messagingAttributes(
-      String operation, String subject, int clientId, AttributeAssertion other) {
-    return messagingAttributes(operation, subject, clientId, new AttributeAssertion[] {other});
+  static AttributeAssertion[] messagingAttributes(
+      String operation, String subject, int clientId, AttributeAssertion... other) {
+    return messagingAttributes(operation, subject, clientId, 1L, other);
   }
 
-  public static AttributeAssertion[] messagingAttributes(
-      String operation, String subject, int clientId, AttributeAssertion[] other) {
-    AttributeAssertion[] standard = messagingAttributes(operation, subject, clientId);
+  static AttributeAssertion[] messagingAttributes(
+      String operation,
+      String subject,
+      int clientId,
+      long messageBodySize,
+      AttributeAssertion... other) {
+    boolean send = operation.equals("publish") || operation.equals("request");
+    boolean settlement = isSettlementOperation(operation);
+    List<AttributeAssertion> assertions = new ArrayList<>();
+    // the old conventions did not distinguish request from publish
+    assertions.add(
+        equalTo(
+            MESSAGING_OPERATION,
+            emitOldMessagingSemconv()
+                ? settlement ? "settle" : send ? "publish" : operation
+                : null));
+    assertions.add(
+        equalTo(
+            MESSAGING_OPERATION_NAME,
+            emitStableMessagingSemconv() || settlement ? operation : null));
+    assertions.add(
+        equalTo(
+            MESSAGING_OPERATION_TYPE,
+            emitStableMessagingSemconv()
+                ? send ? "send" : isSettlementOperation(operation) ? "settle" : operation
+                : null));
+    assertions.add(equalTo(MESSAGING_SYSTEM, "nats"));
+    if (settlement) {
+      assertions.add(equalTo(MESSAGING_DESTINATION_TEMPLATE, "$JS.ACK"));
+    }
+    if (subject.equals("(temporary)") && emitStableMessagingSemconv()) {
+      assertions.add(satisfies(MESSAGING_DESTINATION_NAME, val -> val.startsWith("_INBOX.")));
+      assertions.add(equalTo(MESSAGING_DESTINATION_TEMPLATE, "_INBOX."));
+      assertions.add(equalTo(MESSAGING_DESTINATION_TEMPORARY, true));
+    } else {
+      assertions.add(equalTo(MESSAGING_DESTINATION_NAME, subject));
+      if (subject.equals("(temporary)")) {
+        assertions.add(equalTo(MESSAGING_DESTINATION_TEMPORARY, true));
+      }
+    }
+    assertions.add(
+        equalTo(MESSAGING_MESSAGE_BODY_SIZE, emitOldMessagingSemconv() ? messageBodySize : null));
+    assertions.add(
+        equalTo(
+            MESSAGING_CLIENT_ID_OLD, emitOldMessagingSemconv() ? String.valueOf(clientId) : null));
+    assertions.add(
+        equalTo(
+            MESSAGING_CLIENT_ID, emitStableMessagingSemconv() ? String.valueOf(clientId) : null));
+    AttributeAssertion[] standard = assertions.toArray(new AttributeAssertion[0]);
     AttributeAssertion[] result = new AttributeAssertion[standard.length + other.length];
     System.arraycopy(standard, 0, result, 0, standard.length);
     System.arraycopy(other, 0, result, standard.length, other.length);
     return result;
   }
 
-  public static AttributeAssertion[] messagingAttributes(
-      String operation, String subject, int clientId) {
-    return new AttributeAssertion[] {
-      equalTo(MESSAGING_OPERATION, operation),
-      equalTo(MESSAGING_SYSTEM, "nats"),
-      equalTo(MESSAGING_DESTINATION_NAME, subject),
-      equalTo(MESSAGING_MESSAGE_BODY_SIZE, 1),
-      equalTo(MESSAGING_CLIENT_ID, String.valueOf(clientId))
-    };
+  private static boolean isSettlementOperation(String operation) {
+    return operation.equals("ack")
+        || operation.equals("nak")
+        || operation.equals("in-progress")
+        || operation.equals("term");
   }
 
-  public static void assertTraceparentHeader(Subscription subscription)
-      throws InterruptedException {
+  static void assertTraceparentHeader(Subscription subscription) throws InterruptedException {
     Message published = subscription.nextMessage(Duration.ofSeconds(10));
+    assertThat(published).isNotNull();
     assertThat(published.getHeaders().get("traceparent")).isNotEmpty();
   }
 

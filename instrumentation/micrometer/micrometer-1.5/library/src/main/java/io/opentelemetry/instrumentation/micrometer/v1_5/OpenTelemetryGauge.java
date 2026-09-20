@@ -8,6 +8,7 @@ package io.opentelemetry.instrumentation.micrometer.v1_5;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.baseUnit;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.name;
 import static io.opentelemetry.instrumentation.micrometer.v1_5.Bridging.tagsAsAttributes;
+import static java.util.Collections.emptyList;
 
 import io.micrometer.core.instrument.AbstractMeter;
 import io.micrometer.core.instrument.Gauge;
@@ -15,11 +16,12 @@ import io.micrometer.core.instrument.Measurement;
 import io.micrometer.core.instrument.config.NamingConvention;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.metrics.ObservableDoubleGauge;
-import java.util.Collections;
+import io.opentelemetry.instrumentation.micrometer.v1_5.internal.OpenTelemetryInstrument;
 import java.util.function.ToDoubleFunction;
 import javax.annotation.Nullable;
 
-final class OpenTelemetryGauge<T> extends AbstractMeter implements Gauge, RemovableMeter {
+final class OpenTelemetryGauge<T> extends AbstractMeter
+    implements Gauge, RemovableMeter, OpenTelemetryInstrument {
 
   private final ObservableDoubleGauge observableGauge;
 
@@ -28,14 +30,15 @@ final class OpenTelemetryGauge<T> extends AbstractMeter implements Gauge, Remova
       NamingConvention namingConvention,
       @Nullable T obj,
       ToDoubleFunction<T> objMetric,
-      Meter otelMeter) {
+      Meter otelMeter,
+      Bridging bridging) {
     super(id);
 
     String name = name(id, namingConvention);
     observableGauge =
         otelMeter
             .gaugeBuilder(name)
-            .setDescription(Bridging.description(id))
+            .setDescription(bridging.description(name, id))
             .setUnit(baseUnit(id))
             .buildWithCallback(
                 new DoubleMeasurementRecorder<>(
@@ -51,7 +54,7 @@ final class OpenTelemetryGauge<T> extends AbstractMeter implements Gauge, Remova
   @Override
   public Iterable<Measurement> measure() {
     UnsupportedReadLogger.logWarning();
-    return Collections.emptyList();
+    return emptyList();
   }
 
   @Override

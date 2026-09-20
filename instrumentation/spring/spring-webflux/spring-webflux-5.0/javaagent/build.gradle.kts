@@ -1,5 +1,6 @@
 plugins {
   id("otel.javaagent-instrumentation")
+  id("otel.nullaway-conventions")
 }
 
 muzzle {
@@ -26,6 +27,7 @@ muzzle {
     group.set("io.projectreactor.netty")
     module.set("reactor-netty")
     versions.set("[0.8.0.RELEASE,)")
+    assertInverse.set(true)
     extraDependency("org.springframework:spring-webflux:5.1.0.RELEASE")
   }
 
@@ -65,20 +67,76 @@ dependencies {
   latestDepTestLibrary("org.springframework.boot:spring-boot-starter-reactor-netty:3.+") // see testing-webflux7 module
 }
 
-val latestDepTest = findProperty("testLatestDeps") as Boolean
+tasks {
+  withType<Test>().configureEach {
+    // required on jdk17
+    jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+    jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
 
-tasks.withType<Test>().configureEach {
-  // required on jdk17
-  jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
-  jvmArgs("-XX:+IgnoreUnrecognizedVMOptions")
-  jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+    systemProperty("testLatestDeps", otelProps.testLatestDeps)
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+  }
 
-  systemProperty("metadataConfig", "otel.instrumentation.common.experimental.controller-telemetry.enabled")
-  systemProperty("testLatestDeps", latestDepTest)
-  systemProperty("collectMetadata", findProperty("collectMetadata")?.toString() ?: "false")
+  test {
+    // server tests require controller-telemetry, which is off by default
+    exclude("**/server/**")
+  }
+
+  val testControllerTelemetry = register<Test>("testControllerTelemetry") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    include("**/server/**")
+    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+    systemProperty(
+      "metadataConfig",
+      "otel.instrumentation.common.experimental.controller-telemetry.enabled=true"
+    )
+  }
+
+  val testStableSemconv = register<Test>("testStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    exclude("**/server/**")
+    jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+    systemProperty("metadataConfig", "otel.semconv-stability.opt-in=service.peer")
+  }
+
+  val testControllerTelemetryStableSemconv = register<Test>("testControllerTelemetryStableSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    include("**/server/**")
+    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+    jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+    systemProperty(
+      "metadataConfig",
+      "otel.instrumentation.common.experimental.controller-telemetry.enabled=true," +
+        "otel.semconv-stability.opt-in=service.peer"
+    )
+  }
+
+  val testExceptionSignalLogs = register<Test>("testExceptionSignalLogs") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true")
+    jvmArgs("-Dotel.semconv.exception.signal.preview=logs")
+    systemProperty(
+      "metadataConfig",
+      "otel.instrumentation.common.experimental.controller-telemetry.enabled=true," +
+        "otel.semconv.exception.signal.preview=logs"
+    )
+  }
+
+  check {
+    dependsOn(
+      testControllerTelemetry,
+      testStableSemconv,
+      testControllerTelemetryStableSemconv,
+      testExceptionSignalLogs
+    )
+  }
 }
 
-if (latestDepTest) {
+if (otelProps.testLatestDeps) {
   // spring 6 requires java 17
   otelJava {
     minJavaVersionSupported.set(JavaVersion.VERSION_17)

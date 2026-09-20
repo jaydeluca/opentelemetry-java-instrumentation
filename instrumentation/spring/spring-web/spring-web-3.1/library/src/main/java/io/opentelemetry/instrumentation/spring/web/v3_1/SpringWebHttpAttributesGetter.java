@@ -5,18 +5,20 @@
 
 package io.opentelemetry.instrumentation.spring.web.v3_1;
 
+import io.opentelemetry.instrumentation.api.internal.HttpConstants;
 import io.opentelemetry.instrumentation.api.semconv.http.HttpClientAttributesGetter;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.net.URI;
+import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nullable;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.client.ClientHttpResponse;
 
-enum SpringWebHttpAttributesGetter
+class SpringWebHttpAttributesGetter
     implements HttpClientAttributesGetter<HttpRequest, ClientHttpResponse> {
-  INSTANCE;
 
   @Nullable private static final MethodHandle GET_STATUS_CODE;
   @Nullable private static final MethodHandle STATUS_CODE_VALUE;
@@ -30,10 +32,10 @@ enum SpringWebHttpAttributesGetter
 
     try {
       httpStatusCodeClass = Class.forName("org.springframework.http.HttpStatusCode");
-    } catch (ClassNotFoundException e) {
+    } catch (ClassNotFoundException ignored) {
       try {
         httpStatusCodeClass = Class.forName("org.springframework.http.HttpStatus");
-      } catch (ClassNotFoundException ignored) {
+      } catch (ClassNotFoundException ignore) {
         // ignored
       }
     }
@@ -62,7 +64,6 @@ enum SpringWebHttpAttributesGetter
   }
 
   @Override
-  @Nullable
   public String getUrlFull(HttpRequest httpRequest) {
     return httpRequest.getURI().toString();
   }
@@ -70,6 +71,11 @@ enum SpringWebHttpAttributesGetter
   @Override
   public List<String> getHttpRequestHeader(HttpRequest httpRequest, String name) {
     return HeaderUtil.getHeader(httpRequest.getHeaders(), name);
+  }
+
+  @Override
+  public Collection<String> getHttpRequestHeaderNames(HttpRequest httpRequest) {
+    return HeaderUtil.getHeaderNames(httpRequest.getHeaders());
   }
 
   @Override
@@ -84,7 +90,7 @@ enum SpringWebHttpAttributesGetter
     try {
       Object statusCode = GET_STATUS_CODE.invoke(clientHttpResponse);
       return (int) STATUS_CODE_VALUE.invoke(statusCode);
-    } catch (Throwable e) {
+    } catch (Throwable ignored) {
       return null;
     }
   }
@@ -96,13 +102,21 @@ enum SpringWebHttpAttributesGetter
   }
 
   @Override
+  public Collection<String> getHttpResponseHeaderNames(
+      HttpRequest httpRequest, ClientHttpResponse clientHttpResponse) {
+    return HeaderUtil.getHeaderNames(clientHttpResponse.getHeaders());
+  }
+
+  @Override
   @Nullable
   public String getServerAddress(HttpRequest httpRequest) {
     return httpRequest.getURI().getHost();
   }
 
   @Override
+  @Nullable
   public Integer getServerPort(HttpRequest httpRequest) {
-    return httpRequest.getURI().getPort();
+    URI uri = httpRequest.getURI();
+    return HttpConstants.portOrDefaultFromScheme(uri.getPort(), uri.getScheme());
   }
 }

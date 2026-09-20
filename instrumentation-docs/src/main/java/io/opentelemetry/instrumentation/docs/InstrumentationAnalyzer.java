@@ -12,7 +12,6 @@ import io.opentelemetry.instrumentation.docs.internal.EmittedMetrics;
 import io.opentelemetry.instrumentation.docs.internal.EmittedSpans;
 import io.opentelemetry.instrumentation.docs.internal.InstrumentationMetadata;
 import io.opentelemetry.instrumentation.docs.internal.InstrumentationModule;
-import io.opentelemetry.instrumentation.docs.internal.InstrumentationType;
 import io.opentelemetry.instrumentation.docs.internal.TelemetryMerger;
 import io.opentelemetry.instrumentation.docs.parsers.EmittedScopeParser;
 import io.opentelemetry.instrumentation.docs.parsers.GradleParser;
@@ -24,6 +23,7 @@ import io.opentelemetry.instrumentation.docs.utils.InstrumentationPath;
 import io.opentelemetry.instrumentation.docs.utils.YamlHelper;
 import io.opentelemetry.sdk.common.InstrumentationScopeInfo;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,8 +52,7 @@ class InstrumentationAnalyzer {
    */
   public List<InstrumentationModule> analyze() throws IOException {
     List<InstrumentationPath> paths = fileManager.getInstrumentationPaths();
-    List<InstrumentationModule> modules =
-        ModuleParser.convertToModules(fileManager.rootDir(), paths);
+    List<InstrumentationModule> modules = ModuleParser.convertToModules(paths);
 
     for (InstrumentationModule module : modules) {
       enrichModule(module);
@@ -68,15 +67,15 @@ class InstrumentationAnalyzer {
       module.setMetadata(metaData);
     }
 
-    module.setTargetVersions(getVersionInformation(module));
-
-    // Handle telemetry merging (manual + emitted)
-    setMergedTelemetry(module, metaData);
+    module.setAgentTargetVersions(getVersionInformation(module));
 
     InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
     if (scopeInfo != null) {
       module.setScopeInfo(scopeInfo);
     }
+
+    // Handle telemetry merging (manual + emitted)
+    setMergedTelemetry(module, metaData);
   }
 
   @Nullable
@@ -94,10 +93,10 @@ class InstrumentationAnalyzer {
     }
   }
 
-  private Map<InstrumentationType, Set<String>> getVersionInformation(
-      InstrumentationModule module) {
-    List<String> gradleFiles = fileManager.findBuildGradleFiles(module.getSrcPath());
-    return GradleParser.extractVersions(gradleFiles, module);
+  private Set<String> getVersionInformation(InstrumentationModule module) {
+    Path moduleRoot = fileManager.rootDir().resolve(module.getSrcPath());
+    List<Path> gradleFiles = fileManager.findBuildGradleFiles(module.getSrcPath());
+    return GradleParser.extractVersions(moduleRoot, gradleFiles, module);
   }
 
   /**

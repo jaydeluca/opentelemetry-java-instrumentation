@@ -24,14 +24,16 @@ public abstract class AbstractHttpServerUsingTest<SERVER> {
   InstrumentationTestRunner testing;
   private SERVER server;
   public WebClient client;
+  WebClient clientWithoutForwardedFor;
   public int port;
   public URI address;
+  public URI h1Address;
 
   protected abstract SERVER setupServer() throws Exception;
 
   protected abstract void stopServer(SERVER server) throws Exception;
 
-  protected final InstrumentationTestRunner testing() {
+  protected InstrumentationTestRunner testing() {
     return testing;
   }
 
@@ -39,11 +41,12 @@ public abstract class AbstractHttpServerUsingTest<SERVER> {
     if (address == null) {
       address = buildAddress();
     }
+    h1Address = toUri(address.toString().replace("http://", "h1c://"));
 
     try {
       server = setupServer();
-    } catch (Exception exception) {
-      throw new IllegalStateException("Failed to start server", exception);
+    } catch (Exception e) {
+      throw new IllegalStateException("Failed to start server", e);
     }
     if (server != null) {
       logger.info(
@@ -63,18 +66,22 @@ public abstract class AbstractHttpServerUsingTest<SERVER> {
     }
     try {
       stopServer(server);
-    } catch (Exception exception) {
-      throw new IllegalStateException("Failed to stop server", exception);
+    } catch (Exception e) {
+      throw new IllegalStateException("Failed to stop server", e);
     }
     server = null;
     logger.info(getClass().getName() + " http server stopped at: http://localhost:" + port + "/");
   }
 
   protected URI buildAddress() {
+    return toUri("http://localhost:" + port + getContextPath() + "/");
+  }
+
+  private static URI toUri(String string) {
     try {
-      return new URI("http://localhost:" + port + getContextPath() + "/");
-    } catch (URISyntaxException exception) {
-      throw new IllegalStateException(exception);
+      return new URI(string);
+    } catch (URISyntaxException e) {
+      throw new IllegalStateException(e);
     }
   }
 
@@ -100,14 +107,23 @@ public abstract class AbstractHttpServerUsingTest<SERVER> {
     return url;
   }
 
-  final void setTesting(InstrumentationTestRunner testing, WebClient client, int port) {
-    setTesting(testing, client, port, null);
+  void setTesting(
+      InstrumentationTestRunner testing,
+      WebClient client,
+      WebClient clientWithoutForwardedFor,
+      int port) {
+    setTesting(testing, client, clientWithoutForwardedFor, port, null);
   }
 
-  final void setTesting(
-      InstrumentationTestRunner testing, WebClient client, int port, URI address) {
+  void setTesting(
+      InstrumentationTestRunner testing,
+      WebClient client,
+      WebClient clientWithoutForwardedFor,
+      int port,
+      URI address) {
     this.testing = testing;
     this.client = client;
+    this.clientWithoutForwardedFor = clientWithoutForwardedFor;
     this.port = port;
     this.address = address;
   }

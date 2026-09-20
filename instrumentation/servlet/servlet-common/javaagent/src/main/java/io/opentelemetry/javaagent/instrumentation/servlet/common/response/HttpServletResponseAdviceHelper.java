@@ -5,19 +5,21 @@
 
 package io.opentelemetry.javaagent.instrumentation.servlet.common.response;
 
+import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.api.incubator.semconv.util.ClassAndMethod;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
-import io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge;
+import javax.annotation.Nullable;
 
 public class HttpServletResponseAdviceHelper {
 
+  @Nullable
   public static StartResult startSpan(
       Instrumenter<ClassAndMethod, Void> instrumenter, Class<?> declaringClass, String methodName) {
-    Context parentContext = Java8BytecodeBridge.currentContext();
+    Context parentContext = Context.current();
     // Don't want to generate a new top-level span
-    if (Java8BytecodeBridge.spanFromContext(parentContext).getSpanContext().isValid()) {
+    if (Span.fromContext(parentContext).getSpanContext().isValid()) {
       ClassAndMethod classAndMethod = ClassAndMethod.create(declaringClass, methodName);
       if (instrumenter.shouldStart(parentContext, classAndMethod)) {
         Context context = instrumenter.start(parentContext, classAndMethod);
@@ -29,7 +31,7 @@ public class HttpServletResponseAdviceHelper {
     return null;
   }
 
-  public static final class StartResult {
+  public static class StartResult {
     private final ClassAndMethod classAndMethod;
     private final Context context;
     private final Scope scope;
@@ -55,10 +57,10 @@ public class HttpServletResponseAdviceHelper {
 
   public static void stopSpan(
       Instrumenter<ClassAndMethod, Void> instrumenter,
-      Throwable throwable,
-      Context context,
-      Scope scope,
-      ClassAndMethod request) {
+      @Nullable Throwable throwable,
+      @Nullable Context context,
+      @Nullable Scope scope,
+      @Nullable ClassAndMethod request) {
     if (scope != null) {
       scope.close();
 

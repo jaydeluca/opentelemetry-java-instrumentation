@@ -5,10 +5,12 @@
 
 package io.opentelemetry.instrumentation.docs.parsers;
 
+import static io.opentelemetry.api.common.AttributeKey.booleanKey;
+import static io.opentelemetry.api.common.AttributeKey.doubleKey;
+import static io.opentelemetry.api.common.AttributeKey.longKey;
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.instrumentation.docs.internal.EmittedScope;
 import io.opentelemetry.instrumentation.docs.internal.InstrumentationModule;
 import io.opentelemetry.instrumentation.docs.utils.FileManager;
@@ -72,7 +74,7 @@ class EmittedScopeParserTest {
     Files.writeString(telemetryDir.resolve("scope-abc123.yaml"), scopeContent);
 
     Set<EmittedScope.Scope> scopes =
-        EmittedScopeParser.getScopesFromFiles(tempDir.toString(), "test-instrumentation");
+        EmittedScopeParser.getScopesFromFiles(tempDir, "test-instrumentation");
 
     assertThat(scopes).hasSize(2);
     assertThat(scopes)
@@ -110,7 +112,7 @@ class EmittedScopeParserTest {
     Files.writeString(telemetryDir.resolve("scope-file2.yaml"), scopeContent2);
 
     Set<EmittedScope.Scope> scopes =
-        EmittedScopeParser.getScopesFromFiles(tempDir.toString(), "test-instrumentation");
+        EmittedScopeParser.getScopesFromFiles(tempDir, "test-instrumentation");
 
     // duplicates should be removed
     assertThat(scopes).hasSize(2);
@@ -131,7 +133,7 @@ class EmittedScopeParserTest {
 
     // Parse should return empty set
     Set<EmittedScope.Scope> scopes =
-        EmittedScopeParser.getScopesFromFiles(tempDir.toString(), "test-instrumentation");
+        EmittedScopeParser.getScopesFromFiles(tempDir, "test-instrumentation");
 
     assertThat(scopes).isEmpty();
   }
@@ -152,14 +154,9 @@ class EmittedScopeParserTest {
 
     Files.writeString(telemetryDir.resolve("scope-abc123.yaml"), scopeContent);
 
-    FileManager fileManager = new FileManager(tempDir + "/");
+    FileManager fileManager = new FileManager(tempDir);
     InstrumentationModule module =
-        new InstrumentationModule.Builder()
-            .srcPath("test-instrumentation")
-            .instrumentationName("test-lib-1.0")
-            .namespace("test-lib")
-            .group("test-lib")
-            .build();
+        new InstrumentationModule.Builder("test-lib-1.0").srcPath("test-instrumentation").build();
 
     InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
 
@@ -184,14 +181,9 @@ class EmittedScopeParserTest {
 
     Files.writeString(telemetryDir.resolve("scope-test.yaml"), scopeContent);
 
-    FileManager fileManager = new FileManager(tempDir + "/");
+    FileManager fileManager = new FileManager(tempDir);
     InstrumentationModule module =
-        new InstrumentationModule.Builder()
-            .srcPath("test-instrumentation")
-            .instrumentationName("spring-web-6.0")
-            .namespace("spring")
-            .group("spring")
-            .build();
+        new InstrumentationModule.Builder("spring-web-6.0").srcPath("test-instrumentation").build();
 
     InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
 
@@ -202,14 +194,9 @@ class EmittedScopeParserTest {
 
   @Test
   void testGetScopeNoTelemetryDirectory(@TempDir Path tempDir) {
-    FileManager fileManager = new FileManager(tempDir.toString() + "/");
+    FileManager fileManager = new FileManager(tempDir);
     InstrumentationModule module =
-        new InstrumentationModule.Builder()
-            .srcPath("test-instrumentation")
-            .instrumentationName("test-lib-1.0")
-            .namespace("test-lib")
-            .group("test-lib")
-            .build();
+        new InstrumentationModule.Builder("test-lib-1.0").srcPath("test-instrumentation").build();
 
     InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
 
@@ -235,18 +222,169 @@ class EmittedScopeParserTest {
 
     Files.writeString(telemetryDir.resolve("scope-abc123.yaml"), scopeContent);
 
-    FileManager fileManager = new FileManager(tempDir + "/");
+    FileManager fileManager = new FileManager(tempDir);
     InstrumentationModule module =
-        new InstrumentationModule.Builder()
+        new InstrumentationModule.Builder("test-lib-1.0").srcPath("test-instrumentation").build();
+
+    InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
+
+    assertThat(scopeInfo).isNull();
+  }
+
+  @Test
+  void testGetScopeMatchesVersionStrippedModuleName(@TempDir Path tempDir) throws IOException {
+    Path instrumentationDir = tempDir.resolve("test-instrumentation");
+    Path telemetryDir = instrumentationDir.resolve(".telemetry");
+    Files.createDirectories(telemetryDir);
+
+    String scopeContent =
+        """
+        scopes:
+          - name: io.opentelemetry.sdk.metrics
+            version: null
+            schemaUrl: null
+          - name: io.opentelemetry.oshi
+            version: 2.14.0
+            schemaUrl: null
+        """;
+
+    Files.writeString(telemetryDir.resolve("scope-abc123.yaml"), scopeContent);
+
+    FileManager fileManager = new FileManager(tempDir);
+    InstrumentationModule module =
+        new InstrumentationModule.Builder("oshi-5.0").srcPath("test-instrumentation").build();
+
+    InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
+
+    assertThat(scopeInfo).isNotNull();
+    assertThat(scopeInfo.getName()).isEqualTo("io.opentelemetry.oshi");
+  }
+
+  @Test
+  void testGetScopeIgnoresBorrowedScopeFromAnotherInstrumentation(@TempDir Path tempDir)
+      throws IOException {
+    // reactor-netty-0.9 emits no telemetry of its own; its tests exercise netty-4.1.
+    Path instrumentationDir = tempDir.resolve("test-instrumentation");
+    Path telemetryDir = instrumentationDir.resolve(".telemetry");
+    Files.createDirectories(telemetryDir);
+
+    String scopeContent =
+        """
+        scopes:
+          - name: io.opentelemetry.sdk.metrics
+            version: null
+            schemaUrl: null
+          - name: io.opentelemetry.netty-4.1
+            version: 2.14.0
+            schemaUrl: null
+        """;
+
+    Files.writeString(telemetryDir.resolve("scope-abc123.yaml"), scopeContent);
+
+    FileManager fileManager = new FileManager(tempDir);
+    InstrumentationModule module =
+        new InstrumentationModule.Builder("reactor-netty-0.9")
             .srcPath("test-instrumentation")
-            .instrumentationName("test-lib-1.0")
-            .namespace("test-lib")
-            .group("test-lib")
             .build();
 
     InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
 
     assertThat(scopeInfo).isNull();
+  }
+
+  @Test
+  void testGetScopePrefersExactDefaultScopeMatch(@TempDir Path tempDir) throws IOException {
+    Path instrumentationDir = tempDir.resolve("test-instrumentation");
+    Path telemetryDir = instrumentationDir.resolve(".telemetry");
+    Files.createDirectories(telemetryDir);
+
+    String scopeContent =
+        """
+        scopes:
+          - name: io.opentelemetry.test-lib
+            version: 2.14.0
+            schemaUrl: null
+          - name: io.opentelemetry.test-lib-1.0
+            version: 2.14.0
+            schemaUrl: https://opentelemetry.io/schemas/1.21.0
+        """;
+
+    Files.writeString(telemetryDir.resolve("scope-abc123.yaml"), scopeContent);
+
+    FileManager fileManager = new FileManager(tempDir);
+    InstrumentationModule module =
+        new InstrumentationModule.Builder("test-lib-1.0").srcPath("test-instrumentation").build();
+
+    InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
+
+    assertThat(scopeInfo).isNotNull();
+    assertThat(scopeInfo.getName()).isEqualTo("io.opentelemetry.test-lib-1.0");
+    assertThat(scopeInfo.getSchemaUrl()).isEqualTo("https://opentelemetry.io/schemas/1.21.0");
+  }
+
+  @Test
+  void testGetScopePrefersNewestCanonicalSchemaUrl(@TempDir Path tempDir) throws IOException {
+    Path instrumentationDir = tempDir.resolve("test-instrumentation");
+    Path telemetryDir = instrumentationDir.resolve(".telemetry");
+    Files.createDirectories(telemetryDir);
+
+    String scopeContent =
+        """
+        scopes:
+          - name: io.opentelemetry.test-lib-1.0
+            version: 2.14.0
+            schemaUrl: https://opentelemetry.io/schemas/1.9.0
+          - name: io.opentelemetry.test-lib-1.0
+            version: 2.14.0
+            schemaUrl: https://opentelemetry.io/schemas/1.5.invalid
+          - name: io.opentelemetry.test-lib-1.0
+            version: 2.14.0
+            schemaUrl: null
+          - name: io.opentelemetry.test-lib-1.0
+            version: 2.14.0
+            schemaUrl: https://opentelemetry.io/schemas/1.10.0
+        """;
+
+    Files.writeString(telemetryDir.resolve("scope-abc123.yaml"), scopeContent);
+
+    FileManager fileManager = new FileManager(tempDir);
+    InstrumentationModule module =
+        new InstrumentationModule.Builder("test-lib-1.0").srcPath("test-instrumentation").build();
+
+    InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
+
+    assertThat(scopeInfo).isNotNull();
+    assertThat(scopeInfo.getSchemaUrl()).isEqualTo("https://opentelemetry.io/schemas/1.10.0");
+  }
+
+  @Test
+  void testGetScopeHandlesLargeSchemaVersionComponents(@TempDir Path tempDir) throws IOException {
+    Path instrumentationDir = tempDir.resolve("test-instrumentation");
+    Path telemetryDir = instrumentationDir.resolve(".telemetry");
+    Files.createDirectories(telemetryDir);
+
+    String scopeContent =
+        """
+        scopes:
+          - name: io.opentelemetry.test-lib-1.0
+            version: 2.14.0
+            schemaUrl: https://opentelemetry.io/schemas/1.10.0
+          - name: io.opentelemetry.test-lib-1.0
+            version: 2.14.0
+            schemaUrl: https://opentelemetry.io/schemas/999999999999999999999999.0.0
+        """;
+
+    Files.writeString(telemetryDir.resolve("scope-abc123.yaml"), scopeContent);
+
+    FileManager fileManager = new FileManager(tempDir);
+    InstrumentationModule module =
+        new InstrumentationModule.Builder("test-lib-1.0").srcPath("test-instrumentation").build();
+
+    InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
+
+    assertThat(scopeInfo).isNotNull();
+    assertThat(scopeInfo.getSchemaUrl())
+        .isEqualTo("https://opentelemetry.io/schemas/999999999999999999999999.0.0");
   }
 
   @Test
@@ -271,14 +409,9 @@ class EmittedScopeParserTest {
 
     Files.writeString(telemetryDir.resolve("scope-multi.yaml"), scopeContent);
 
-    FileManager fileManager = new FileManager(tempDir + "/");
+    FileManager fileManager = new FileManager(tempDir);
     InstrumentationModule module =
-        new InstrumentationModule.Builder()
-            .srcPath("test-instrumentation")
-            .instrumentationName("hibernate-6.0")
-            .namespace("hibernate")
-            .group("hibernate")
-            .build();
+        new InstrumentationModule.Builder("hibernate-6.0").srcPath("test-instrumentation").build();
 
     InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
 
@@ -306,14 +439,9 @@ class EmittedScopeParserTest {
 
     Files.writeString(telemetryDir.resolve("scope-with-attrs.yaml"), scopeContent);
 
-    FileManager fileManager = new FileManager(tempDir + "/");
+    FileManager fileManager = new FileManager(tempDir);
     InstrumentationModule module =
-        new InstrumentationModule.Builder()
-            .srcPath("test-instrumentation")
-            .instrumentationName("jdbc")
-            .namespace("jdbc")
-            .group("jdbc")
-            .build();
+        new InstrumentationModule.Builder("jdbc").srcPath("test-instrumentation").build();
 
     InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
 
@@ -346,25 +474,19 @@ class EmittedScopeParserTest {
 
     Files.writeString(telemetryDir.resolve("scope-mixed-attrs.yaml"), scopeContent);
 
-    FileManager fileManager = new FileManager(tempDir + "/");
+    FileManager fileManager = new FileManager(tempDir);
     InstrumentationModule module =
-        new InstrumentationModule.Builder()
-            .srcPath("test-instrumentation")
-            .instrumentationName("test-lib")
-            .namespace("test-lib")
-            .group("test-lib")
-            .build();
+        new InstrumentationModule.Builder("test-lib").srcPath("test-instrumentation").build();
 
     InstrumentationScopeInfo scopeInfo = EmittedScopeParser.getScope(fileManager, module);
 
     assertThat(scopeInfo).isNotNull();
     assertThat(scopeInfo.getAttributes()).isNotNull();
     assertThat(scopeInfo.getAttributes().get(stringKey("string.key"))).isEqualTo("string-value");
-    assertThat(scopeInfo.getAttributes().get(AttributeKey.longKey("int.key"))).isEqualTo(123L);
-    assertThat(scopeInfo.getAttributes().get(AttributeKey.longKey("long.key")))
-        .isEqualTo(9876543210L);
-    assertThat(scopeInfo.getAttributes().get(AttributeKey.doubleKey("double.key"))).isEqualTo(3.14);
-    assertThat(scopeInfo.getAttributes().get(AttributeKey.booleanKey("bool.key"))).isTrue();
+    assertThat(scopeInfo.getAttributes().get(longKey("int.key"))).isEqualTo(123L);
+    assertThat(scopeInfo.getAttributes().get(longKey("long.key"))).isEqualTo(9876543210L);
+    assertThat(scopeInfo.getAttributes().get(doubleKey("double.key"))).isEqualTo(3.14);
+    assertThat(scopeInfo.getAttributes().get(booleanKey("bool.key"))).isTrue();
   }
 
   @Test
@@ -397,7 +519,7 @@ class EmittedScopeParserTest {
     Files.writeString(telemetryDir.resolve("scope-2.yaml"), scopeContent2);
 
     Set<EmittedScope.Scope> scopes =
-        EmittedScopeParser.getScopesFromFiles(tempDir.toString(), "test-instrumentation");
+        EmittedScopeParser.getScopesFromFiles(tempDir, "test-instrumentation");
 
     assertThat(scopes).hasSize(1);
   }
@@ -432,7 +554,7 @@ class EmittedScopeParserTest {
     Files.writeString(telemetryDir.resolve("scope-2.yaml"), scopeContent2);
 
     Set<EmittedScope.Scope> scopes =
-        EmittedScopeParser.getScopesFromFiles(tempDir.toString(), "test-instrumentation");
+        EmittedScopeParser.getScopesFromFiles(tempDir, "test-instrumentation");
 
     assertThat(scopes).hasSize(2);
   }

@@ -5,50 +5,72 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.pulsar.v1_0;
 
+import static io.opentelemetry.instrumentation.api.incubator.semconv.messaging.internal.MessagingExceptionEventExtractors.setMessagingProcessExceptionEventExtractor;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessageOperation;
 import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingAttributesExtractor;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingConsumerMetrics;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingOperationType;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingProcessMetrics;
 import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingSpanNameExtractor;
+import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.internal.MessagingProcessInstrumenterFactory;
 import io.opentelemetry.instrumentation.api.instrumenter.Instrumenter;
 import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
-import io.opentelemetry.instrumentation.api.instrumenter.SpanKindExtractor;
-import io.opentelemetry.instrumentation.api.internal.PropagatorBasedSpanLinksExtractor;
 import io.opentelemetry.javaagent.bootstrap.internal.ExperimentalConfig;
 import org.apache.pulsar.client.api.Message;
 
-public final class SpringPulsarSingletons {
+public class SpringPulsarSingletons {
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.spring-pulsar-1.0";
-  private static final Instrumenter<Message<?>, Void> INSTRUMENTER;
+  private static final String PROCESS_OPERATION_NAME = "process";
+  private static final Instrumenter<Message<?>, Void> instrumenter;
+  private static final Instrumenter<Message<?>, Void> instrumenterWithConsumedMessages;
 
   static {
     OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
-    SpringPulsarMessageAttributesGetter getter = SpringPulsarMessageAttributesGetter.INSTANCE;
-    MessageOperation operation = MessageOperation.PROCESS;
+    SpringPulsarMessageAttributesGetter getter = new SpringPulsarMessageAttributesGetter();
     boolean messagingReceiveInstrumentationEnabled =
         ExperimentalConfig.get().messagingReceiveInstrumentationEnabled();
 
+    instrumenter =
+        createInstrumenter(openTelemetry, getter, messagingReceiveInstrumentationEnabled, false);
+    instrumenterWithConsumedMessages =
+        emitStableMessagingSemconv()
+            ? createInstrumenter(
+                openTelemetry, getter, messagingReceiveInstrumentationEnabled, true)
+            : instrumenter;
+  }
+
+  private static Instrumenter<Message<?>, Void> createInstrumenter(
+      OpenTelemetry openTelemetry,
+      SpringPulsarMessageAttributesGetter getter,
+      boolean messagingReceiveInstrumentationEnabled,
+      boolean recordConsumedMessages) {
+    MessagingOperationType operationType = MessagingOperationType.PROCESS;
     InstrumenterBuilder<Message<?>, Void> builder =
         Instrumenter.<Message<?>, Void>builder(
                 openTelemetry,
                 INSTRUMENTATION_NAME,
-                MessagingSpanNameExtractor.create(getter, operation))
+                MessagingSpanNameExtractor.create(getter, operationType, PROCESS_OPERATION_NAME))
             .addAttributesExtractor(
-                MessagingAttributesExtractor.builder(getter, operation)
-                    .setCapturedHeaders(ExperimentalConfig.get().getMessagingHeaders())
-                    .build());
-    if (messagingReceiveInstrumentationEnabled) {
-      builder.addSpanLinksExtractor(
-          new PropagatorBasedSpanLinksExtractor<>(
-              openTelemetry.getPropagators().getTextMapPropagator(), MessageHeaderGetter.INSTANCE));
-      INSTRUMENTER = builder.buildInstrumenter(SpanKindExtractor.alwaysConsumer());
-    } else {
-      INSTRUMENTER = builder.buildConsumerInstrumenter(MessageHeaderGetter.INSTANCE);
+                MessagingAttributesExtractor.builder(getter, operationType, PROCESS_OPERATION_NAME)
+                    .setHeaders(ExperimentalConfig.get().getMessagingHeaders())
+                    .build())
+            .addOperationMetrics(MessagingProcessMetrics.get());
+    if (recordConsumedMessages) {
+      builder.addOperationMetrics(MessagingConsumerMetrics.getConsumedMessages());
     }
+    setMessagingProcessExceptionEventExtractor(builder);
+    return MessagingProcessInstrumenterFactory.create(
+        builder,
+        openTelemetry.getPropagators().getTextMapPropagator(),
+        new MessageHeaderGetter(),
+        messagingReceiveInstrumentationEnabled);
   }
 
-  public static Instrumenter<Message<?>, Void> instrumenter() {
-    return INSTRUMENTER;
+  public static Instrumenter<Message<?>, Void> instrumenter(boolean receiveTelemetryRecorded) {
+    return receiveTelemetryRecorded ? instrumenter : instrumenterWithConsumedMessages;
   }
 
   private SpringPulsarSingletons() {}

@@ -11,13 +11,11 @@ import static java.util.Arrays.asList;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
 import net.bytebuddy.matcher.ElementMatcher;
 
 @AutoService(InstrumentationModule.class)
-public class HibernateInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class HibernateInstrumentationModule extends InstrumentationModule {
 
   public HibernateInstrumentationModule() {
     super("hibernate", "hibernate-6.0");
@@ -25,14 +23,8 @@ public class HibernateInstrumentationModule extends InstrumentationModule
 
   @Override
   public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
-    return hasClassesNamed(
-        // not present before 6.0
-        "org.hibernate.query.spi.SqmQuery");
-  }
-
-  @Override
-  public String getModuleGroup() {
-    return "hibernate";
+    // added in 6.0
+    return hasClassesNamed("org.hibernate.query.spi.SqmQuery");
   }
 
   @Override

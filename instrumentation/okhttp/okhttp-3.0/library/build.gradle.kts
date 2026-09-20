@@ -1,27 +1,30 @@
 plugins {
   id("otel.library-instrumentation")
+  id("otel.instrumentation-version-class")
   id("otel.nullaway-conventions")
   id("otel.animalsniffer-conventions")
 }
 
-dependencies {
-  library("com.squareup.okhttp3:okhttp:3.0.0")
+instrumentationVersionClass {
+  className.set("io.opentelemetry.instrumentation.okhttp.v3_0.internal.InstrumentationVersion")
+}
 
+dependencies {
+  compileOnly(project(":muzzle"))
+  compileOnly("com.squareup.okhttp3:okhttp:3.11.0")
+
+  testLibrary("com.squareup.okhttp3:okhttp:3.0.0")
   testImplementation(project(":instrumentation:okhttp:okhttp-3.0:testing"))
 }
 
-val testLatestDeps = findProperty("testLatestDeps") as Boolean
-
 testing {
   suites {
-    val http2Test by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("http2Test") {
       dependencies {
         implementation(project())
-        if (testLatestDeps) {
-          implementation("com.squareup.okhttp3:okhttp:latest.release")
+        implementation("com.squareup.okhttp3:okhttp:${baseVersion("3.11.0").orLatest()}")
+        if (otelProps.testLatestDeps) {
           compileOnly("com.google.android:annotations:4.1.1.4")
-        } else {
-          implementation("com.squareup.okhttp3:okhttp:3.11.0")
         }
         implementation(project(":instrumentation:okhttp:okhttp-3.0:testing"))
       }
@@ -30,7 +33,17 @@ testing {
 }
 
 tasks {
+  val stableSemconvSuites = testing.suites.withType(JvmTestSuite::class)
+    .map { suite ->
+      register<Test>("${suite.name}StableSemconv") {
+        testClassesDirs = suite.sources.output.classesDirs
+        classpath = suite.sources.runtimeClasspath
+
+        jvmArgs("-Dotel.semconv-stability.opt-in=service.peer")
+      }
+    }
+
   check {
-    dependsOn(testing.suites)
+    dependsOn(testing.suites, stableSemconvSuites)
   }
 }

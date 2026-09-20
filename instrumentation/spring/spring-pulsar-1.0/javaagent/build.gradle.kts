@@ -13,8 +13,6 @@ muzzle {
   }
 }
 
-val latestDepTest = findProperty("testLatestDeps") as Boolean
-
 dependencies {
   library("org.springframework.pulsar:spring-pulsar:1.0.0")
   implementation(project(":instrumentation:pulsar:pulsar-2.8:javaagent"))
@@ -26,37 +24,37 @@ dependencies {
   testLibrary("org.springframework.boot:spring-boot-starter-test:3.2.4")
   testLibrary("org.springframework.boot:spring-boot-starter:3.2.4")
 
-  if (latestDepTest) {
+  if (otelProps.testLatestDeps) {
     testLibrary("org.springframework.boot:spring-boot-starter-pulsar:latest.release")
   }
 }
 
-val collectMetadata = findProperty("collectMetadata")?.toString() ?: "false"
-
 testing {
   suites {
-    val testReceiveSpansDisabled by registering(JvmTestSuite::class) {
+    register<JvmTestSuite>("testReceiveSpansDisabled") {
       dependencies {
         implementation(project(":instrumentation:spring:spring-pulsar-1.0:testing"))
 
-        if (latestDepTest) {
-          implementation("org.springframework.boot:spring-boot-starter-pulsar:latest.release")
-          implementation("org.springframework.boot:spring-boot-starter-test:latest.release")
-          implementation("org.springframework.boot:spring-boot-starter:latest.release")
+        val springBootVersion = baseVersion("3.2.4").orLatest()
+        val springPulsarVersion = baseVersion("1.0.0").orLatest()
+        implementation("org.springframework.boot:spring-boot-starter-test:$springBootVersion")
+        implementation("org.springframework.boot:spring-boot-starter:$springBootVersion")
+        if (otelProps.testLatestDeps) {
+          implementation("org.springframework.boot:spring-boot-starter-pulsar:$springPulsarVersion")
         } else {
-          implementation("org.springframework.pulsar:spring-pulsar:1.0.0")
-          implementation("org.springframework.boot:spring-boot-starter-test:3.2.4")
-          implementation("org.springframework.boot:spring-boot-starter:3.2.4")
+          implementation("org.springframework.pulsar:spring-pulsar:$springPulsarVersion")
         }
       }
 
       targets {
         all {
           testTask.configure {
-            usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
-
             jvmArgs("-Dotel.instrumentation.pulsar.experimental-span-attributes=true")
             jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=false")
+            systemProperty(
+              "metadataConfig",
+              "otel.instrumentation.pulsar.experimental-span-attributes=true",
+            )
           }
         }
       }
@@ -65,20 +63,74 @@ testing {
 }
 
 tasks {
-  test {
+  withType<Test>().configureEach {
     usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
+    systemProperty("collectMetadata", otelProps.collectMetadata)
+  }
 
+  test {
     jvmArgs("-Dotel.instrumentation.pulsar.experimental-span-attributes=false")
     jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    systemProperty(
+      "metadataConfig",
+      "otel.instrumentation.messaging.experimental.receive-telemetry.enabled=true",
+    )
+  }
 
-    systemProperty("collectMetadata", collectMetadata)
+  val testMessagingPreview = register<Test>("testMessagingPreview") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.instrumentation.pulsar.experimental-span-attributes=false")
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging")
+  }
+
+  val testBothSemconv = register<Test>("testBothSemconv") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs("-Dotel.instrumentation.pulsar.experimental-span-attributes=false")
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=true")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+    systemProperty("metadataConfig", "otel.semconv-stability.preview=messaging/dup")
+  }
+
+  val testMessagingPreviewReceiveSpansDisabled = register<Test>("testMessagingPreviewReceiveSpansDisabled") {
+    testClassesDirs = sourceSets["testReceiveSpansDisabled"].output.classesDirs
+    classpath = sourceSets["testReceiveSpansDisabled"].runtimeClasspath
+    jvmArgs("-Dotel.instrumentation.pulsar.experimental-span-attributes=true")
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=false")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging")
+    systemProperty(
+      "metadataConfig",
+      "otel.instrumentation.pulsar.experimental-span-attributes=true,otel.semconv-stability.preview=messaging",
+    )
+  }
+
+  val testBothSemconvReceiveSpansDisabled = register<Test>("testBothSemconvReceiveSpansDisabled") {
+    testClassesDirs = sourceSets["testReceiveSpansDisabled"].output.classesDirs
+    classpath = sourceSets["testReceiveSpansDisabled"].runtimeClasspath
+    isEnabled = project.tasks.named("testReceiveSpansDisabled").get().enabled
+    jvmArgs("-Dotel.instrumentation.pulsar.experimental-span-attributes=true")
+    jvmArgs("-Dotel.instrumentation.messaging.experimental.receive-telemetry.enabled=false")
+    jvmArgs("-Dotel.semconv-stability.preview=messaging/dup")
+    systemProperty(
+      "metadataConfig",
+      "otel.instrumentation.pulsar.experimental-span-attributes=true,otel.semconv-stability.preview=messaging/dup",
+    )
   }
 
   check {
-    dependsOn(testing.suites)
+    dependsOn(
+      testing.suites,
+      testMessagingPreview,
+      testBothSemconv,
+      testMessagingPreviewReceiveSpansDisabled,
+      testBothSemconvReceiveSpansDisabled,
+    )
   }
 
-  if (findProperty("denyUnsafe") as Boolean) {
+  if (otelProps.denyUnsafe) {
     withType<Test>().configureEach {
       enabled = false
     }

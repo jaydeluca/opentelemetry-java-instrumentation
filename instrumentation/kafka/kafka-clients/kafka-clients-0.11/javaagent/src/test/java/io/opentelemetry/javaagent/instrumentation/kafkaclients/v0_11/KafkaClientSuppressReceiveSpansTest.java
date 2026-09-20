@@ -5,19 +5,25 @@
 
 package io.opentelemetry.javaagent.instrumentation.kafkaclients.v0_11;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
+import static io.opentelemetry.instrumentation.testing.junit.messaging.KafkaMessagingMetricsAssertions.assertProcessMetricsWithConsumedMessages;
+import static io.opentelemetry.instrumentation.testing.junit.messaging.KafkaMessagingMetricsAssertions.assertSendMetrics;
+import static io.opentelemetry.instrumentation.testing.junit.messaging.KafkaMessagingMetricsAssertions.assertTotalConsumedMessages;
+import static io.opentelemetry.instrumentation.testing.util.TestLatestDeps.testLatestDeps;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaClientBaseTest;
 import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaClientPropagationBaseTest;
+import io.opentelemetry.instrumentation.kafkaclients.common.v0_11.internal.KafkaConsumerContextUtil;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -39,12 +45,8 @@ class KafkaClientSuppressReceiveSpansTest extends KafkaClientPropagationBaseTest
           producerRecord
               .headers()
               // adding baggage header in w3c baggage format
-              .add(
-                  "baggage",
-                  "test-baggage-key-1=test-baggage-value-1".getBytes(StandardCharsets.UTF_8))
-              .add(
-                  "baggage",
-                  "test-baggage-key-2=test-baggage-value-2".getBytes(StandardCharsets.UTF_8));
+              .add("baggage", "test-baggage-key-1=test-baggage-value-1".getBytes(UTF_8))
+              .add("baggage", "test-baggage-key-2=test-baggage-value-2".getBytes(UTF_8));
           producer.send(
               producerRecord,
               (meta, ex) -> {
@@ -58,7 +60,12 @@ class KafkaClientSuppressReceiveSpansTest extends KafkaClientPropagationBaseTest
 
     awaitUntilConsumerIsReady();
     // check that the message was received
-    ConsumerRecords<?, ?> records = poll(Duration.ofSeconds(5));
+    ConsumerRecords<?, ?> records;
+    Context inheritedContext =
+        KafkaConsumerContextUtil.withReceiveOperation(Context.current(), true);
+    try (Scope ignored = inheritedContext.makeCurrent()) {
+      records = poll(Duration.ofSeconds(5));
+    }
     for (ConsumerRecord<?, ?> record : records) {
       testing.runWithSpan(
           "processing",
@@ -73,12 +80,12 @@ class KafkaClientSuppressReceiveSpansTest extends KafkaClientPropagationBaseTest
             trace.hasSpansSatisfyingExactly(
                 span -> span.hasName("parent").hasKind(SpanKind.INTERNAL).hasNoParent(),
                 span ->
-                    span.hasName(SHARED_TOPIC + " publish")
+                    span.hasName(spanName("publish", "send"))
                         .hasKind(SpanKind.PRODUCER)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(sendAttributes("10", greeting, false)),
                 span ->
-                    span.hasName(SHARED_TOPIC + " process")
+                    span.hasName(spanName("process", "process"))
                         .hasKind(SpanKind.CONSUMER)
                         .hasParent(trace.getSpan(1))
                         .hasAttributesSatisfyingExactly(
@@ -91,12 +98,23 @@ class KafkaClientSuppressReceiveSpansTest extends KafkaClientPropagationBaseTest
                     span.hasName("producer callback")
                         .hasKind(SpanKind.INTERNAL)
                         .hasParent(trace.getSpan(0))));
+    String instrumentationName = "io.opentelemetry.kafka-clients-0.11";
+    assertSendMetrics(testing, instrumentationName, SHARED_TOPIC, "0", 1, null);
+    assertProcessMetricsWithConsumedMessages(
+        testing,
+        instrumentationName,
+        SHARED_TOPIC,
+        testLatestDeps() ? "test" : null,
+        "0",
+        1,
+        1,
+        null);
+    assertTotalConsumedMessages(testing, instrumentationName, 1);
   }
 
   @Test
-  void testPassThroughTombstone()
-      throws ExecutionException, InterruptedException, TimeoutException {
-    producer.send(new ProducerRecord<>(SHARED_TOPIC, null)).get(5, TimeUnit.SECONDS);
+  void testPassThroughTombstone() throws Exception {
+    producer.send(new ProducerRecord<>(SHARED_TOPIC, null)).get(5, SECONDS);
     awaitUntilConsumerIsReady();
     ConsumerRecords<?, ?> records = poll(Duration.ofSeconds(5));
     assertThat(records.count()).isEqualTo(1);
@@ -111,12 +129,12 @@ class KafkaClientSuppressReceiveSpansTest extends KafkaClientPropagationBaseTest
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName(SHARED_TOPIC + " publish")
+                    span.hasName(spanName("publish", "send"))
                         .hasKind(SpanKind.PRODUCER)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(sendAttributes(null, null, false)),
                 span ->
-                    span.hasName(SHARED_TOPIC + " process")
+                    span.hasName(spanName("process", "process"))
                         .hasKind(SpanKind.CONSUMER)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
@@ -124,20 +142,17 @@ class KafkaClientSuppressReceiveSpansTest extends KafkaClientPropagationBaseTest
   }
 
   @Test
-  void testRecordsWithTopicPartitionKafkaConsume()
-      throws ExecutionException, InterruptedException, TimeoutException {
+  void testRecordsWithTopicPartitionKafkaConsume() throws Exception {
     String greeting = "Hello from MockConsumer!";
-    producer
-        .send(new ProducerRecord<>(SHARED_TOPIC, partition, null, greeting))
-        .get(5, TimeUnit.SECONDS);
+    producer.send(new ProducerRecord<>(SHARED_TOPIC, PARTITION, null, greeting)).get(5, SECONDS);
 
     testing.waitForTraces(1);
 
     awaitUntilConsumerIsReady();
     ConsumerRecords<?, ?> consumerRecords = poll(Duration.ofSeconds(5));
     List<? extends ConsumerRecord<?, ?>> recordsInPartition =
-        consumerRecords.records(KafkaClientBaseTest.topicPartition);
-    assertThat(recordsInPartition.size()).isEqualTo(1);
+        consumerRecords.records(KafkaClientBaseTest.TOPIC_PARTITION);
+    assertThat(recordsInPartition).hasSize(1);
 
     // iterate over records to generate spans
     for (ConsumerRecord<?, ?> record : recordsInPartition) {
@@ -149,15 +164,21 @@ class KafkaClientSuppressReceiveSpansTest extends KafkaClientPropagationBaseTest
         trace ->
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName(SHARED_TOPIC + " publish")
+                    span.hasName(spanName("publish", "send"))
                         .hasKind(SpanKind.PRODUCER)
                         .hasNoParent()
                         .hasAttributesSatisfyingExactly(sendAttributes(null, greeting, false)),
                 span ->
-                    span.hasName(SHARED_TOPIC + " process")
+                    span.hasName(spanName("process", "process"))
                         .hasKind(SpanKind.CONSUMER)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
                             processAttributes(null, greeting, false, false))));
+  }
+
+  private static String spanName(String oldOperation, String operationName) {
+    return emitStableMessagingSemconv()
+        ? operationName + " " + SHARED_TOPIC
+        : SHARED_TOPIC + " " + oldOperation;
   }
 }

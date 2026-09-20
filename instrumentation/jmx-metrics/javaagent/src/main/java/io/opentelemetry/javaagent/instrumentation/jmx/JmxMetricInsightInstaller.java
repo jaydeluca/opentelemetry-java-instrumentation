@@ -5,19 +5,28 @@
 
 package io.opentelemetry.javaagent.instrumentation.jmx;
 
+import static io.opentelemetry.instrumentation.api.incubator.config.internal.SelectorConfig.Stability.STABLE;
+import static java.util.Collections.emptyList;
+import static java.util.logging.Level.SEVERE;
+import static java.util.logging.Level.WARNING;
+
 import com.google.auto.service.AutoService;
 import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
+import io.opentelemetry.instrumentation.api.config.IncludeExclude;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
+import io.opentelemetry.instrumentation.api.incubator.config.internal.SelectorConfig;
 import io.opentelemetry.instrumentation.jmx.JmxTelemetry;
 import io.opentelemetry.instrumentation.jmx.JmxTelemetryBuilder;
+import io.opentelemetry.javaagent.bootstrap.internal.AgentCommonConfig;
 import io.opentelemetry.javaagent.extension.AgentListener;
+import io.opentelemetry.javaagent.extension.instrumentation.internal.AgentDistributionConfig;
 import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk;
-import io.opentelemetry.sdk.autoconfigure.internal.AutoConfigureUtil;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /** An {@link AgentListener} that enables JMX metrics during agent startup. */
@@ -25,23 +34,47 @@ import java.util.logging.Logger;
 public class JmxMetricInsightInstaller implements AgentListener {
 
   private static final Logger logger = Logger.getLogger(JmxMetricInsightInstaller.class.getName());
+  private static final String INSTRUMENTATION_NAME = "jmx";
 
   @Override
   public void afterAgent(AutoConfiguredOpenTelemetrySdk autoConfiguredSdk) {
-    ConfigProperties config = AutoConfigureUtil.getConfig(autoConfiguredSdk);
+    DeclarativeConfigProperties config =
+        DeclarativeConfigUtil.getInstrumentationConfig(
+            GlobalOpenTelemetry.get(), INSTRUMENTATION_NAME);
 
-    if (config.getBoolean("otel.jmx.enabled", true)) {
-      JmxTelemetryBuilder jmx =
-          JmxTelemetry.builder(GlobalOpenTelemetry.get())
-              .beanDiscoveryDelay(beanDiscoveryDelay(config));
-
-      config.getList("otel.jmx.config").stream()
-          .map(Paths::get)
-          .forEach(path -> addFileRules(path, jmx));
-      config.getList("otel.jmx.target.system").forEach(target -> addClasspathRules(target, jmx));
-
-      jmx.build().start();
+    boolean v3Preview = AgentCommonConfig.get().isV3Preview();
+    if (v3Preview) {
+      if (!AgentDistributionConfig.get().isInstrumentationEnabled(INSTRUMENTATION_NAME)) {
+        return;
+      }
+    } else {
+      if (!config.getBoolean("enabled", true)) {
+        return;
+      }
     }
+
+    JmxTelemetryBuilder jmx =
+        JmxTelemetry.builder(GlobalOpenTelemetry.get())
+            .beanDiscoveryDelay(
+                Duration.ofMillis(
+                    config.get("discovery").getLong("delay", Duration.ofMinutes(1).toMillis())));
+
+    config.getScalarList("config", String.class, emptyList()).stream()
+        .map(Paths::get)
+        .forEach(path -> addFileRules(path, jmx));
+
+    config
+        .get("target")
+        .getScalarList("system", String.class, emptyList())
+        .forEach(target -> addClasspathRules(target, jmx));
+
+    IncludeExclude metrics =
+        SelectorConfig.resolve(config, INSTRUMENTATION_NAME, "metrics", STABLE);
+    if (metrics != null) {
+      jmx.setMetrics(metrics);
+    }
+
+    jmx.build().start();
   }
 
   private static void addFileRules(Path path, JmxTelemetryBuilder builder) {
@@ -49,31 +82,38 @@ public class JmxMetricInsightInstaller implements AgentListener {
       builder.addRules(path);
     } catch (RuntimeException e) {
       // for now only log JMX metric configuration errors as they do not prevent agent startup
-      logger.log(Level.SEVERE, "Error while loading JMX configuration from " + path, e);
+      logger.log(SEVERE, "Error while loading JMX configuration from " + path, e);
     }
   }
 
   private static void addClasspathRules(String target, JmxTelemetryBuilder builder) {
     ClassLoader classLoader = JmxTelemetryBuilder.class.getClassLoader();
-    String resource = String.format("jmx/rules/%s.yaml", target);
-    InputStream input = classLoader.getResourceAsStream(resource);
-    try {
+    String resource = targetSystemResource(target, AgentCommonConfig.get().isV3Preview());
+    try (InputStream input = classLoader.getResourceAsStream(resource)) {
+      if (input == null) {
+        logger.log(SEVERE, "JMX configuration not found on classpath " + resource);
+        return;
+      }
       builder.addRules(input);
-    } catch (RuntimeException e) {
+    } catch (IOException | RuntimeException e) {
       // for now only log JMX metric configuration errors as they do not prevent agent startup
-      logger.log(
-          Level.SEVERE, "Error while loading JMX configuration from classpath " + resource, e);
+      logger.log(SEVERE, "Error while loading JMX configuration from classpath " + resource, e);
     }
   }
 
-  private static Duration beanDiscoveryDelay(ConfigProperties configProperties) {
-    Duration discoveryDelay = configProperties.getDuration("otel.jmx.discovery.delay");
-    if (discoveryDelay != null) {
-      return discoveryDelay;
+  private static String targetSystemResource(String target, boolean v3Preview) {
+    if (target.equals("kafka-broker") && !v3Preview) {
+      logger.log(
+          WARNING,
+          "The kafka-broker JMX target system has been renamed to experimental-kafka-broker.");
+      return "jmx/rules/experimental-kafka-broker.yaml";
     }
-
-    // If discovery delay has not been configured, have a peek at the metric export interval.
-    // It makes sense for both of these values to be similar.
-    return configProperties.getDuration("otel.metric.export.interval", Duration.ofMinutes(1));
+    if (target.equals("kafka-connect") && !v3Preview) {
+      logger.log(
+          WARNING,
+          "The kafka-connect JMX target system has been renamed to experimental-kafka-connect.");
+      return "jmx/rules/experimental-kafka-connect.yaml";
+    }
+    return String.format("jmx/rules/%s.yaml", target);
   }
 }

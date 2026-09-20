@@ -6,7 +6,6 @@
 package io.opentelemetry.javaagent.instrumentation.internal.classloader;
 
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.extendsClass;
-import static io.opentelemetry.javaagent.instrumentation.internal.classloader.AdviceUtil.applyInlineAdvice;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.returns;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
@@ -28,7 +27,7 @@ import net.bytebuddy.matcher.ElementMatcher;
  * Instruments {@link ClassLoader} to have calls to get resources intercepted and check our map of
  * helper resources that is filled by instrumentation when they need helpers.
  */
-public class ResourceInjectionInstrumentation implements TypeInstrumentation {
+class ResourceInjectionInstrumentation implements TypeInstrumentation {
 
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
@@ -37,20 +36,17 @@ public class ResourceInjectionInstrumentation implements TypeInstrumentation {
 
   @Override
   public void transform(TypeTransformer transformer) {
-    applyInlineAdvice(
-        transformer,
+    transformer.applyAdviceToMethod(
         named("getResource").and(takesArguments(String.class)).and(returns(URL.class)),
-        this.getClass().getName() + "$GetResourceAdvice");
-    applyInlineAdvice(
-        transformer,
+        getClass().getName() + "$GetResourceAdvice");
+    transformer.applyAdviceToMethod(
         named("getResources").and(takesArguments(String.class)).and(returns(Enumeration.class)),
-        this.getClass().getName() + "$GetResourcesAdvice");
-    applyInlineAdvice(
-        transformer,
+        getClass().getName() + "$GetResourcesAdvice");
+    transformer.applyAdviceToMethod(
         named("getResourceAsStream")
             .and(takesArguments(String.class))
             .and(returns(InputStream.class)),
-        this.getClass().getName() + "$GetResourceAsStreamAdvice");
+        getClass().getName() + "$GetResourceAsStreamAdvice");
   }
 
   @SuppressWarnings("unused")
@@ -86,7 +82,7 @@ public class ResourceInjectionInstrumentation implements TypeInstrumentation {
         return resources;
       }
 
-      if (!resources.hasMoreElements()) {
+      if (resources == null || !resources.hasMoreElements()) {
         return Collections.enumeration(helpers);
       }
 

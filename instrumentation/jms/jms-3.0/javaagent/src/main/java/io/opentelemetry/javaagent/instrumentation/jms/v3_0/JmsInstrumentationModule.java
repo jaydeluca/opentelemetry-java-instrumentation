@@ -10,12 +10,10 @@ import static java.util.Arrays.asList;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
 import java.util.List;
 
 @AutoService(InstrumentationModule.class)
-public class JmsInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+public class JmsInstrumentationModule extends InstrumentationModule {
   public JmsInstrumentationModule() {
     super("jms", "jms-3.0");
   }
@@ -23,13 +21,9 @@ public class JmsInstrumentationModule extends InstrumentationModule
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
     return asList(
+        new JmsSessionInstrumentation(),
         new JmsMessageConsumerInstrumentation(),
         new JmsMessageListenerInstrumentation(),
         new JmsMessageProducerInstrumentation());
-  }
-
-  @Override
-  public boolean isIndyReady() {
-    return true;
   }
 }

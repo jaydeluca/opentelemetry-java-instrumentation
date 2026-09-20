@@ -5,6 +5,8 @@
 
 package io.opentelemetry.instrumentation.c3p0.v0_9;
 
+import static java.util.logging.Level.FINE;
+
 import com.mchange.v2.c3p0.PooledDataSource;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
@@ -14,7 +16,6 @@ import io.opentelemetry.instrumentation.api.incubator.semconv.db.DbConnectionPoo
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.Nullable;
 
@@ -30,16 +31,22 @@ final class ConnectionPoolMetrics {
   private static final Map<IdentityDataSourceKey, BatchCallback> dataSourceMetrics =
       new ConcurrentHashMap<>();
 
-  public static void registerMetrics(OpenTelemetry openTelemetry, PooledDataSource dataSource) {
+  static void registerMetrics(OpenTelemetry openTelemetry, PooledDataSource dataSource) {
+    registerMetrics(openTelemetry, dataSource, dataSource.getDataSourceName());
+  }
+
+  static void registerMetrics(
+      OpenTelemetry openTelemetry, PooledDataSource dataSource, String dataSourceName) {
     dataSourceMetrics.compute(
         new IdentityDataSourceKey(dataSource),
         (key, existingCallback) ->
-            ConnectionPoolMetrics.createMeters(openTelemetry, key, existingCallback));
+            createMeters(openTelemetry, key, dataSourceName, existingCallback));
   }
 
   private static BatchCallback createMeters(
       OpenTelemetry openTelemetry,
       IdentityDataSourceKey key,
+      String dataSourceName,
       @Nullable BatchCallback existingCallback) {
     // remove old counters from the registry in case they were already there
     removeMetersFromRegistry(existingCallback);
@@ -47,8 +54,7 @@ final class ConnectionPoolMetrics {
     PooledDataSource dataSource = key.dataSource;
 
     DbConnectionPoolMetrics metrics =
-        DbConnectionPoolMetrics.create(
-            openTelemetry, INSTRUMENTATION_NAME, dataSource.getDataSourceName());
+        DbConnectionPoolMetrics.create(openTelemetry, INSTRUMENTATION_NAME, dataSourceName);
 
     ObservableLongMeasurement connections = metrics.connections();
     ObservableLongMeasurement pendingRequestsForConnection = metrics.pendingRequestsForConnection();
@@ -67,14 +73,14 @@ final class ConnectionPoolMetrics {
             pendingRequestsForConnection.record(
                 dataSource.getNumThreadsAwaitingCheckoutDefaultUser(), attributes);
           } catch (SQLException e) {
-            logger.log(Level.FINE, "Failed to get C3P0 datasource metric", e);
+            logger.log(FINE, "Failed to get C3P0 datasource metric", e);
           }
         },
         connections,
         pendingRequestsForConnection);
   }
 
-  public static void unregisterMetrics(PooledDataSource dataSource) {
+  static void unregisterMetrics(PooledDataSource dataSource) {
     BatchCallback callback = dataSourceMetrics.remove(new IdentityDataSourceKey(dataSource));
     removeMetersFromRegistry(callback);
   }
@@ -89,8 +95,8 @@ final class ConnectionPoolMetrics {
    * A wrapper over {@link PooledDataSource} that implements identity comparison in its {@link
    * #equals(Object)} and {@link #hashCode()} methods.
    */
-  static final class IdentityDataSourceKey {
-    final PooledDataSource dataSource;
+  private static final class IdentityDataSourceKey {
+    private final PooledDataSource dataSource;
 
     IdentityDataSourceKey(PooledDataSource dataSource) {
       this.dataSource = dataSource;

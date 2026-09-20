@@ -10,18 +10,21 @@ import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
+import com.rabbitmq.client.Channel;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
+import java.util.List;
 import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 import org.springframework.amqp.core.Message;
+import org.springframework.amqp.rabbit.listener.AbstractMessageListenerContainer;
 
-public class AbstractMessageListenerContainerInstrumentation implements TypeInstrumentation {
+class AbstractMessageListenerContainerInstrumentation implements TypeInstrumentation {
   @Override
   public ElementMatcher<TypeDescription> typeMatcher() {
     return named("org.springframework.amqp.rabbit.listener.AbstractMessageListenerContainer");
@@ -45,42 +48,58 @@ public class AbstractMessageListenerContainerInstrumentation implements TypeInst
     public static class AdviceScope {
       private final Context context;
       private final Scope scope;
+      private final SpringRabbitRequest request;
 
-      public AdviceScope(Context context, Scope scope) {
+      public AdviceScope(Context context, SpringRabbitRequest request) {
         this.context = context;
-        this.scope = scope;
+        this.scope = context.makeCurrent();
+        this.request = request;
       }
 
-      public void exit(@Nullable Throwable throwable, Message message) {
+      public void end(@Nullable Throwable throwable) {
         scope.close();
-        instrumenter().end(context, message, null, throwable);
+        instrumenter().end(context, request, null, throwable);
       }
     }
 
     @Nullable
-    @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static AdviceScope onEnter(@Advice.Argument(1) Object data) {
-      if (!(data instanceof Message)) {
+    @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
+    public static AdviceScope onEnter(
+        @Advice.This AbstractMessageListenerContainer container,
+        @Advice.Argument(0) Channel channel,
+        @Advice.Argument(1) Object data) {
+      if (!SpringRabbitListenerUtil.shouldTraceListenerProcess(container)) {
         return null;
       }
+
+      SpringRabbitRequest request;
+      if (data instanceof Message) {
+        request = new SpringRabbitRequest(channel, (Message) data);
+      } else if (data instanceof List
+          && !((List<?>) data).isEmpty()
+          && ((List<?>) data).get(0) instanceof Message) {
+        List<?> messages = (List<?>) data;
+        request = new SpringRabbitRequest(channel, (Message) messages.get(0), messages.size());
+      } else {
+        return null;
+      }
+
       Context parentContext = Java8BytecodeBridge.currentContext();
-      Message message = (Message) data;
-      if (!instrumenter().shouldStart(parentContext, message)) {
+      if (!instrumenter().shouldStart(parentContext, request)) {
         return null;
       }
-      Context context = instrumenter().start(parentContext, message);
-      return new AdviceScope(context, context.makeCurrent());
+      Context context = instrumenter().start(parentContext, request);
+      return new AdviceScope(context, request);
     }
 
-    @Advice.OnMethodExit(suppress = Throwable.class, onThrowable = Throwable.class)
-    public static void onEnter(
-        @Advice.Argument(1) Object data,
+    @Advice.OnMethodExit(suppress = Throwable.class, onThrowable = Throwable.class, inline = false)
+    public static void onExit(
         @Advice.Thrown @Nullable Throwable throwable,
         @Advice.Enter @Nullable AdviceScope adviceScope) {
-      if (adviceScope == null || !(data instanceof Message)) {
+      if (adviceScope == null) {
         return;
       }
-      adviceScope.exit(throwable, (Message) data);
+      adviceScope.end(throwable);
     }
   }
 }

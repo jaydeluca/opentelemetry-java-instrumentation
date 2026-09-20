@@ -5,6 +5,9 @@
 
 package io.opentelemetry.smoketest.windows;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
+
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.CreateContainerCmd;
 import com.github.dockerjava.api.command.InspectContainerResponse;
@@ -37,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
@@ -103,6 +105,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
             containerId -> {},
             new HttpWaiter(BACKEND_PORT, "/health", Duration.ofSeconds(60)),
             /* inspect= */ true,
+            /* logOutput= */ true,
             backendLogger);
   }
 
@@ -136,9 +139,11 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
       String jvmArgsEnvVarName,
       Map<String, String> extraEnv,
       boolean setServiceName,
+      boolean logOutput,
       List<ResourceMapping> extraResources,
       List<Integer> extraPorts,
       TargetWaitStrategy waitStrategy,
+      String[] entrypoint,
       String[] cmd) {
     if (extraPorts != null && !extraPorts.isEmpty()) {
       throw new UnsupportedOperationException("extra ports not supported");
@@ -172,6 +177,9 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
               if (cmd != null) {
                 command.withCmd(cmd);
               }
+              if (entrypoint != null) {
+                command.withEntrypoint(entrypoint);
+              }
             },
             containerId -> {
               try (InputStream agentFileStream = new FileInputStream(agentPath)) {
@@ -188,6 +196,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
             },
             createTargetWaiter(waitStrategy),
             /* inspect= */ true,
+            logOutput,
             appLogger);
     return null;
   }
@@ -248,7 +257,8 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
     }
   }
 
-  private void registerLogListener(String containerId, Waiter waiter, Logger logger) {
+  private void registerLogListener(
+      String containerId, Waiter waiter, boolean logOutput, Logger logger) {
     ContainerLogFrameConsumer consumer = new ContainerLogFrameConsumer();
     waiter.configureLogger(consumer);
 
@@ -260,7 +270,9 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
         .withStdErr(true)
         .exec(consumer);
 
-    consumer.addListener(new Slf4jDockerLogLineListener(logger));
+    if (logOutput) {
+      consumer.addListener(new Slf4jDockerLogLineListener(logger));
+    }
   }
 
   private static int extractMappedPort(Container container, int internalPort) {
@@ -284,6 +296,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
       Consumer<String> prepareAction,
       Waiter waiter,
       boolean inspect,
+      boolean logOutput,
       Logger logger) {
 
     if (waiter == null) {
@@ -298,7 +311,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
     prepareAction.accept(containerId);
 
     client.startContainerCmd(containerId).exec();
-    registerLogListener(containerId, waiter, logger);
+    registerLogListener(containerId, waiter, logOutput, logger);
 
     InspectContainerResponse inspectResponse =
         inspect ? client.inspectContainerCmd(containerId).exec() : null;
@@ -388,7 +401,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
           regex.toString());
 
       try {
-        lineHit.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        lineHit.await(timeout.toMillis(), MILLISECONDS);
       } catch (InterruptedException e) {
         throw new IllegalStateException(e);
       }
@@ -405,10 +418,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
     private final String path;
     private final Duration timeout;
     private final RateLimiter rateLimiter =
-        RateLimiterBuilder.newBuilder()
-            .withRate(1, TimeUnit.SECONDS)
-            .withConstantThroughput()
-            .build();
+        RateLimiterBuilder.newBuilder().withRate(1, SECONDS).withConstantThroughput().build();
 
     private HttpWaiter(int internalPort, String path, Duration timeout) {
       this.internalPort = internalPort;
@@ -426,7 +436,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
       try {
         Unreliables.retryUntilSuccess(
             (int) timeout.toMillis(),
-            TimeUnit.MILLISECONDS,
+            MILLISECONDS,
             () -> {
               rateLimiter.doWhenReady(
                   () -> {
@@ -453,10 +463,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
     private final int internalPort;
     private final Duration timeout;
     private final RateLimiter rateLimiter =
-        RateLimiterBuilder.newBuilder()
-            .withRate(1, TimeUnit.SECONDS)
-            .withConstantThroughput()
-            .build();
+        RateLimiterBuilder.newBuilder().withRate(1, SECONDS).withConstantThroughput().build();
 
     private PortWaiter(int internalPort, Duration timeout) {
       this.internalPort = internalPort;
@@ -474,7 +481,7 @@ public class WindowsTestContainerManager extends AbstractTestContainerManager {
       try {
         Unreliables.retryUntilSuccess(
             (int) timeout.toMillis(),
-            TimeUnit.MILLISECONDS,
+            MILLISECONDS,
             () -> {
               rateLimiter.doWhenReady(
                   () -> {

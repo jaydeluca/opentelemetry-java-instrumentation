@@ -5,9 +5,9 @@
 
 package io.opentelemetry.instrumentation.jdbc.testing;
 
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.opentelemetry.instrumentation.api.internal.SemconvStability;
 import io.opentelemetry.instrumentation.jdbc.TestConnection;
 import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
@@ -35,10 +35,9 @@ public abstract class AbstractSqlCommenterTest {
   void testSqlCommenterStatement() throws SQLException {
     List<String> executedSql = new ArrayList<>();
     Connection connection = wrap(new TestConnection(executedSql::add));
-    Statement statement = connection.createStatement();
-
-    cleanup.deferCleanup(statement);
     cleanup.deferCleanup(connection);
+    Statement statement = connection.createStatement();
+    cleanup.deferCleanup(statement);
 
     String query = "SELECT 1";
     testing().runWithSpan("parent", () -> statement.execute(query));
@@ -48,7 +47,9 @@ public abstract class AbstractSqlCommenterTest {
             trace ->
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("parent").hasNoParent(),
-                    span -> span.hasName("SELECT dbname").hasParent(trace.getSpan(0))));
+                    span ->
+                        span.hasName(emitStableDatabaseSemconv() ? "SELECT" : "SELECT dbname")
+                            .hasParent(trace.getSpan(0))));
 
     assertThat(executedSql).hasSize(1);
     assertThat(executedSql.get(0)).contains(query).contains("traceparent");
@@ -59,10 +60,9 @@ public abstract class AbstractSqlCommenterTest {
   void testSqlCommenterStatementUpdate(boolean largeUpdate) throws SQLException {
     List<String> executedSql = new ArrayList<>();
     Connection connection = wrap(new TestConnection(executedSql::add));
-    Statement statement = connection.createStatement();
-
-    cleanup.deferCleanup(statement);
     cleanup.deferCleanup(connection);
+    Statement statement = connection.createStatement();
+    cleanup.deferCleanup(statement);
 
     String query = "INSERT INTO test VALUES(1)";
     testing()
@@ -81,7 +81,10 @@ public abstract class AbstractSqlCommenterTest {
             trace ->
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("parent").hasNoParent(),
-                    span -> span.hasName("INSERT dbname.test").hasParent(trace.getSpan(0))));
+                    span ->
+                        span.hasName(
+                                emitStableDatabaseSemconv() ? "INSERT test" : "INSERT dbname.test")
+                            .hasParent(trace.getSpan(0))));
 
     assertThat(executedSql).hasSize(1);
     assertThat(executedSql.get(0)).contains(query).contains("traceparent");
@@ -92,10 +95,9 @@ public abstract class AbstractSqlCommenterTest {
   void testSqlCommenterStatementBatch(boolean largeUpdate) throws SQLException {
     List<String> executedSql = new ArrayList<>();
     Connection connection = wrap(new TestConnection(executedSql::add));
-    Statement statement = connection.createStatement();
-
-    cleanup.deferCleanup(statement);
     cleanup.deferCleanup(connection);
+    Statement statement = connection.createStatement();
+    cleanup.deferCleanup(statement);
 
     testing()
         .runWithSpan(
@@ -116,10 +118,7 @@ public abstract class AbstractSqlCommenterTest {
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("parent").hasNoParent(),
                     span ->
-                        span.hasName(
-                                SemconvStability.emitStableDatabaseSemconv()
-                                    ? "BATCH INSERT dbname.test"
-                                    : "dbname")
+                        span.hasName(emitStableDatabaseSemconv() ? "BATCH INSERT test" : "dbname")
                             .hasParent(trace.getSpan(0))));
 
     assertThat(executedSql).hasSize(2);
@@ -131,6 +130,7 @@ public abstract class AbstractSqlCommenterTest {
   void testSqlCommenterPreparedStatement() throws SQLException {
     List<String> executedSql = new ArrayList<>();
     Connection connection = wrap(new TestConnection(executedSql::add));
+    cleanup.deferCleanup(connection);
 
     String query = "SELECT 1";
     testing()
@@ -139,7 +139,6 @@ public abstract class AbstractSqlCommenterTest {
             () -> {
               PreparedStatement statement = connection.prepareStatement(query);
               cleanup.deferCleanup(statement);
-              cleanup.deferCleanup(connection);
 
               statement.execute();
             });
@@ -149,7 +148,9 @@ public abstract class AbstractSqlCommenterTest {
             trace ->
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("parent").hasNoParent(),
-                    span -> span.hasName("SELECT dbname").hasParent(trace.getSpan(0))));
+                    span ->
+                        span.hasName(emitStableDatabaseSemconv() ? "SELECT" : "SELECT dbname")
+                            .hasParent(trace.getSpan(0))));
 
     assertThat(executedSql).hasSize(1);
     assertThat(executedSql.get(0)).contains(query).contains("traceparent");
@@ -160,6 +161,7 @@ public abstract class AbstractSqlCommenterTest {
   void testSqlCommenterPreparedStatementUpdate(boolean largeUpdate) throws SQLException {
     List<String> executedSql = new ArrayList<>();
     Connection connection = wrap(new TestConnection(executedSql::add));
+    cleanup.deferCleanup(connection);
 
     String query = "INSERT INTO test VALUES(1)";
     testing()
@@ -168,7 +170,6 @@ public abstract class AbstractSqlCommenterTest {
             () -> {
               PreparedStatement statement = connection.prepareStatement(query);
               cleanup.deferCleanup(statement);
-              cleanup.deferCleanup(connection);
 
               if (largeUpdate) {
                 statement.executeLargeUpdate();
@@ -182,7 +183,10 @@ public abstract class AbstractSqlCommenterTest {
             trace ->
                 trace.hasSpansSatisfyingExactly(
                     span -> span.hasName("parent").hasNoParent(),
-                    span -> span.hasName("INSERT dbname.test").hasParent(trace.getSpan(0))));
+                    span ->
+                        span.hasName(
+                                emitStableDatabaseSemconv() ? "INSERT test" : "INSERT dbname.test")
+                            .hasParent(trace.getSpan(0))));
 
     assertThat(executedSql).hasSize(1);
     assertThat(executedSql.get(0)).contains(query).contains("traceparent");

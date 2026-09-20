@@ -12,24 +12,27 @@ import io.opentelemetry.instrumentation.netty.v4_1.internal.AttributeKeys;
 import io.opentelemetry.instrumentation.ratpack.v1_7.internal.ContextHolder;
 import io.opentelemetry.instrumentation.ratpack.v1_7.internal.OpenTelemetryHttpClient;
 import io.opentelemetry.instrumentation.ratpack.v1_7.internal.RatpackClientInstrumenterBuilderFactory;
+import io.opentelemetry.instrumentation.ratpack.v1_7.internal.RatpackHttpProtocolVersion;
 import io.opentelemetry.javaagent.bootstrap.internal.AgentCommonConfig;
 import ratpack.exec.Execution;
+import ratpack.http.client.RequestSpec;
 
-public final class RatpackSingletons {
+public class RatpackSingletons {
+
+  private static final OpenTelemetryHttpClient httpClient;
 
   static {
-    HTTP_CLIENT =
+    httpClient =
         new OpenTelemetryHttpClient(
             RatpackClientInstrumenterBuilderFactory.create(
                     "io.opentelemetry.ratpack-1.7", GlobalOpenTelemetry.get())
+                .addAttributesExtractor(new RatpackProtocolVersionAttributesExtractor())
                 .configure(AgentCommonConfig.get())
                 .build());
   }
 
-  private static final OpenTelemetryHttpClient HTTP_CLIENT;
-
   public static OpenTelemetryHttpClient httpClient() {
-    return HTTP_CLIENT;
+    return httpClient;
   }
 
   public static void propagateContextToChannel(Execution execution, Channel channel) {
@@ -39,6 +42,14 @@ public final class RatpackSingletons {
             .map(ContextHolder::context)
             .orElse(Context.current());
     channel.attr(AttributeKeys.CLIENT_PARENT_CONTEXT).set(parentContext);
+  }
+
+  public static void captureProtocolVersion(Execution execution, Channel channel) {
+    RequestSpec request =
+        execution.maybeGet(ContextHolder.class).map(ContextHolder::requestSpec).orElse(null);
+    if (request != null) {
+      RatpackHttpProtocolVersion.attach(request, channel);
+    }
   }
 
   private RatpackSingletons() {}

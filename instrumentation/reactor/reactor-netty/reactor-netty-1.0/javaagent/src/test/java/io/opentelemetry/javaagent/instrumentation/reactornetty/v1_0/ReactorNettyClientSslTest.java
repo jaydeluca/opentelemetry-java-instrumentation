@@ -8,6 +8,7 @@ package io.opentelemetry.javaagent.instrumentation.reactornetty.v1_0;
 import static io.opentelemetry.api.trace.SpanKind.CLIENT;
 import static io.opentelemetry.api.trace.SpanKind.INTERNAL;
 import static io.opentelemetry.api.trace.SpanKind.SERVER;
+import static io.opentelemetry.instrumentation.testing.junit.service.SemconvServiceStabilityUtil.maybeStablePeerService;
 import static io.opentelemetry.javaagent.instrumentation.reactornetty.v1_0.AbstractReactorNettyHttpClientTest.USER_AGENT;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.assertThat;
 import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
@@ -26,7 +27,6 @@ import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_TYPE;
 import static io.opentelemetry.semconv.ServerAttributes.SERVER_ADDRESS;
 import static io.opentelemetry.semconv.ServerAttributes.SERVER_PORT;
 import static io.opentelemetry.semconv.UrlAttributes.URL_FULL;
-import static io.opentelemetry.semconv.incubating.PeerIncubatingAttributes.PEER_SERVICE;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import io.netty.handler.ssl.SslContextBuilder;
@@ -36,7 +36,6 @@ import io.opentelemetry.instrumentation.testing.junit.http.HttpClientTestServer;
 import io.opentelemetry.sdk.trace.data.EventData;
 import io.opentelemetry.sdk.trace.data.StatusData;
 import java.util.List;
-import javax.annotation.Nullable;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
 import org.assertj.core.api.AbstractLongAssert;
@@ -49,12 +48,13 @@ import reactor.netty.http.client.HttpClient;
 import reactor.netty.http.client.HttpClientResponse;
 import reactor.netty.tcp.SslProvider;
 
+@SuppressWarnings("deprecation") // using deprecated semconv
 class ReactorNettyClientSslTest {
 
   @RegisterExtension
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
-  static HttpClientTestServer server;
+  private static HttpClientTestServer server;
 
   @BeforeAll
   static void setUp() {
@@ -69,7 +69,7 @@ class ReactorNettyClientSslTest {
 
   @Test
   void shouldFailSslHandshake() throws SSLException {
-    HttpClient httpClient = createHttpClient("SSLv3");
+    HttpClient httpClient = createHttpClientWithProtocol("SSLv3");
     String uri = "https://localhost:" + server.httpsPort() + "/success";
 
     Mono<HttpClientResponse> responseMono =
@@ -105,7 +105,7 @@ class ReactorNettyClientSslTest {
                         .hasAttributesSatisfyingExactly(
                             equalTo(HTTP_REQUEST_METHOD, "GET"),
                             equalTo(URL_FULL, uri),
-                            equalTo(PEER_SERVICE, "test-peer-service"),
+                            equalTo(maybeStablePeerService(), "test-peer-service"),
                             equalTo(SERVER_ADDRESS, "localhost"),
                             equalTo(SERVER_PORT, server.httpsPort()),
                             equalTo(ERROR_TYPE, SSLHandshakeException.class.getCanonicalName())),
@@ -114,7 +114,7 @@ class ReactorNettyClientSslTest {
                         .hasKind(INTERNAL)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(PEER_SERVICE, "test-peer-service"),
+                            equalTo(maybeStablePeerService(), "test-peer-service"),
                             equalTo(SERVER_ADDRESS, "localhost"),
                             equalTo(SERVER_PORT, server.httpsPort())),
                 span ->
@@ -124,7 +124,7 @@ class ReactorNettyClientSslTest {
                         .hasAttributesSatisfyingExactly(
                             equalTo(NETWORK_TRANSPORT, "tcp"),
                             equalTo(NETWORK_TYPE, "ipv4"),
-                            equalTo(PEER_SERVICE, "test-peer-service"),
+                            equalTo(maybeStablePeerService(), "test-peer-service"),
                             equalTo(SERVER_ADDRESS, "localhost"),
                             equalTo(SERVER_PORT, server.httpsPort()),
                             equalTo(NETWORK_PEER_ADDRESS, "127.0.0.1"),
@@ -171,7 +171,7 @@ class ReactorNettyClientSslTest {
                         .hasKind(INTERNAL)
                         .hasParent(trace.getSpan(0))
                         .hasAttributesSatisfyingExactly(
-                            equalTo(PEER_SERVICE, "test-peer-service"),
+                            equalTo(maybeStablePeerService(), "test-peer-service"),
                             equalTo(SERVER_ADDRESS, "localhost"),
                             equalTo(SERVER_PORT, server.httpsPort())),
                 span ->
@@ -181,7 +181,7 @@ class ReactorNettyClientSslTest {
                         .hasAttributesSatisfyingExactly(
                             equalTo(NETWORK_TRANSPORT, "tcp"),
                             equalTo(NETWORK_TYPE, "ipv4"),
-                            equalTo(PEER_SERVICE, "test-peer-service"),
+                            equalTo(maybeStablePeerService(), "test-peer-service"),
                             equalTo(SERVER_ADDRESS, "localhost"),
                             equalTo(SERVER_PORT, server.httpsPort()),
                             equalTo(NETWORK_PEER_ADDRESS, "127.0.0.1"),
@@ -204,7 +204,7 @@ class ReactorNettyClientSslTest {
                             equalTo(URL_FULL, uri),
                             equalTo(NETWORK_PROTOCOL_VERSION, "1.1"),
                             equalTo(HTTP_RESPONSE_STATUS_CODE, 200),
-                            equalTo(PEER_SERVICE, "test-peer-service"),
+                            equalTo(maybeStablePeerService(), "test-peer-service"),
                             equalTo(SERVER_ADDRESS, "localhost"),
                             equalTo(SERVER_PORT, server.httpsPort()),
                             equalTo(NETWORK_PEER_ADDRESS, "127.0.0.1"),
@@ -214,15 +214,15 @@ class ReactorNettyClientSslTest {
   }
 
   private static HttpClient createHttpClient() throws SSLException {
-    return ReactorNettyClientSslTest.createHttpClient(null);
+    return buildHttpClient(SslContextBuilder.forClient());
   }
 
-  private static HttpClient createHttpClient(@Nullable String enabledProtocol) throws SSLException {
-    SslContextBuilder sslContext = SslContextBuilder.forClient();
-    if (enabledProtocol != null) {
-      sslContext = sslContext.protocols(enabledProtocol);
-    }
+  private static HttpClient createHttpClientWithProtocol(String enabledProtocol)
+      throws SSLException {
+    return buildHttpClient(SslContextBuilder.forClient().protocols(enabledProtocol));
+  }
 
+  private static HttpClient buildHttpClient(SslContextBuilder sslContext) throws SSLException {
     SslProvider sslProvider = SslProvider.builder().sslContext(sslContext.build()).build();
     return HttpClient.create().secure(sslProvider);
   }
@@ -235,7 +235,7 @@ class ReactorNettyClientSslTest {
                 assertThat(event)
                     .hasAttributesSatisfyingExactly(
                         equalTo(EXCEPTION_TYPE, SSLHandshakeException.class.getCanonicalName()),
-                        satisfies(EXCEPTION_MESSAGE, s -> s.isNotEmpty()),
-                        satisfies(EXCEPTION_STACKTRACE, s -> s.isNotEmpty())));
+                        satisfies(EXCEPTION_MESSAGE, val -> val.isNotEmpty()),
+                        satisfies(EXCEPTION_STACKTRACE, val -> val.isNotEmpty())));
   }
 }

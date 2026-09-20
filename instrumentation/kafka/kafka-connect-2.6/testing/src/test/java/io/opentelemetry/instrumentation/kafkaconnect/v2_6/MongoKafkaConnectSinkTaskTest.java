@@ -6,18 +6,11 @@
 package io.opentelemetry.instrumentation.kafkaconnect.v2_6;
 
 import static io.opentelemetry.api.trace.SpanKind.CONSUMER;
-import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
-import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_BATCH_MESSAGE_COUNT;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_NAME;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_SYSTEM;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MessagingOperationTypeIncubatingValues.PROCESS;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MessagingSystemIncubatingValues.KAFKA;
-import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_ID;
-import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_NAME;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
 import static io.restassured.RestAssured.given;
 import static java.lang.String.format;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.mongodb.client.MongoClient;
@@ -28,17 +21,17 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Scope;
-import io.opentelemetry.sdk.testing.assertj.TraceAssert;
-import io.opentelemetry.sdk.trace.data.LinkData;
+import io.opentelemetry.sdk.trace.data.SpanData;
 import io.restassured.http.ContentType;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -47,22 +40,20 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.MongoDBContainer;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.shaded.com.google.common.collect.ImmutableMap;
 import org.testcontainers.utility.DockerImageName;
 
 @SuppressWarnings("deprecation") // using deprecated semconv
-@Testcontainers
 class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
   // MongoDB-specific constants
   private static final String MONGO_NETWORK_ALIAS = "mongodb";
-  private static final String DB_NAME = "testdb";
+  private static final String DATABASE_NAME = "testdb";
   private static final String COLLECTION_NAME = "person";
   private static final String CONNECTOR_NAME = "test-mongo-connector";
   private static final String TOPIC_NAME = "test-mongo-topic";
 
-  private static MongoDBContainer mongoDB;
+  private MongoDBContainer mongoDB;
 
   @Override
   protected void setupDatabaseContainer() {
@@ -102,13 +93,13 @@ class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
   }
 
   @Test
-  void testSingleMessage() throws Exception {
+  void testSingleMessage() throws IOException {
     String testTopicName = TOPIC_NAME;
     setupMongoSinkConnector(testTopicName);
     awaitForTopicCreation(testTopicName);
 
     Properties props = new Properties();
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, getKafkaBoostrapServers());
+    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, getKafkaBootstrapServers());
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
 
@@ -124,54 +115,44 @@ class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
     await().atMost(Duration.ofSeconds(60)).until(() -> getRecordCountFromMongo() >= 1);
 
     AtomicReference<SpanContext> producerSpanContext = new AtomicReference<>();
-    testing.waitAndAssertTraces(
+    waitAndAssertRelevantTraces(
         trace ->
             // producer is in a separate trace, linked to consumer with a span link
             trace.hasSpansSatisfyingExactly(
                 span -> {
-                  span.hasName(testTopicName + " publish").hasKind(SpanKind.PRODUCER).hasNoParent();
+                  span.hasName(
+                          emitStableMessagingSemconv()
+                              ? "send " + testTopicName
+                              : testTopicName + " publish")
+                      .hasKind(SpanKind.PRODUCER)
+                      .hasNoParent();
                   producerSpanContext.set(span.actual().getSpanContext());
                 }),
-        trace ->
-            // kafka connect sends message to status topic while processing our message
-            trace.hasSpansSatisfyingExactly(
-                span ->
-                    span.hasName("kafka-connect-status publish")
-                        .hasKind(SpanKind.PRODUCER)
-                        .hasNoParent(),
-                span ->
-                    span.hasName("kafka-connect-status process")
-                        .hasKind(SpanKind.CONSUMER)
-                        .hasParent(trace.getSpan(0))),
         trace ->
             // kafka connect consumer trace, linked to producer span via a span link
             trace.hasSpansSatisfyingExactly(
                 span ->
-                    span.hasName(testTopicName + " process")
+                    span.hasName(
+                            emitStableMessagingSemconv()
+                                ? "process " + testTopicName
+                                : testTopicName + " process")
                         .hasKind(CONSUMER)
                         .hasNoParent()
-                        .hasLinks(LinkData.create(producerSpanContext.get()))
-                        .hasAttributesSatisfyingExactly(
-                            equalTo(MESSAGING_BATCH_MESSAGE_COUNT, 1),
-                            equalTo(MESSAGING_DESTINATION_NAME, testTopicName),
-                            equalTo(MESSAGING_OPERATION, PROCESS),
-                            equalTo(MESSAGING_SYSTEM, KAFKA),
-                            satisfies(THREAD_ID, val -> val.isNotZero()),
-                            satisfies(THREAD_NAME, val -> val.isNotBlank())),
+                        .hasLinks(recordLink(producerSpanContext.get(), "test-key"))
+                        .hasAttributesSatisfyingExactly(processAttributes(testTopicName, 1)),
                 span ->
-                    span.hasName("update " + DB_NAME + "." + COLLECTION_NAME)
+                    span.hasName(
+                            emitStableDatabaseSemconv()
+                                ? "update " + COLLECTION_NAME
+                                : "update " + DATABASE_NAME + "." + COLLECTION_NAME)
                         .hasKind(SpanKind.CLIENT)
-                        .hasParent(trace.getSpan(0))),
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("GET /connectors").hasKind(SpanKind.SERVER).hasNoParent()),
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("GET /connectors").hasKind(SpanKind.SERVER).hasNoParent()));
+                        .hasParent(trace.getSpan(0))));
+
+    assertConnectMessagingMetrics(testTopicName);
   }
 
   @Test
-  void testMultiTopic() throws Exception {
+  void testMultiTopic() throws IOException {
     String topicName1 = TOPIC_NAME + "-1";
     String topicName2 = TOPIC_NAME + "-2";
     String topicName3 = TOPIC_NAME + "-3";
@@ -182,7 +163,7 @@ class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
     awaitForTopicCreation(topicName3);
 
     Properties props = new Properties();
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, getKafkaBoostrapServers());
+    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, getKafkaBootstrapServers());
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     props.put(ProducerConfig.BATCH_SIZE_CONFIG, 10); // to send messages in one batch
@@ -210,92 +191,39 @@ class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
 
     await().atMost(Duration.ofSeconds(60)).until(() -> getRecordCountFromMongo() >= 3);
 
-    Consumer<TraceAssert> kafkaStatusAssertion =
-        trace ->
-            // kafka connect sends message to status topic while processing our message
-            trace.hasSpansSatisfyingExactly(
-                span ->
-                    span.hasName("kafka-connect-status publish")
-                        .hasKind(SpanKind.PRODUCER)
-                        .hasNoParent(),
-                span ->
-                    span.hasName("kafka-connect-status process")
-                        .hasKind(SpanKind.CONSUMER)
-                        .hasParent(trace.getSpan(0)));
-
-    AtomicReference<SpanContext> producerSpanContext1 = new AtomicReference<>();
-    AtomicReference<SpanContext> producerSpanContext2 = new AtomicReference<>();
-    AtomicReference<SpanContext> producerSpanContext3 = new AtomicReference<>();
-    testing.waitAndAssertTraces(
-        trace ->
-            // producer is in a separate trace, linked to consumer with a span link
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("parent").hasNoParent(),
-                span -> {
-                  span.hasName(topicName1 + " publish")
-                      .hasKind(SpanKind.PRODUCER)
-                      .hasParent(trace.getSpan(0));
-                  producerSpanContext1.set(span.actual().getSpanContext());
-                },
-                span -> {
-                  span.hasName(topicName2 + " publish")
-                      .hasKind(SpanKind.PRODUCER)
-                      .hasParent(trace.getSpan(0));
-                  producerSpanContext2.set(span.actual().getSpanContext());
-                },
-                span -> {
-                  span.hasName(topicName3 + " publish")
-                      .hasKind(SpanKind.PRODUCER)
-                      .hasParent(trace.getSpan(0));
-                  producerSpanContext3.set(span.actual().getSpanContext());
-                }),
-        kafkaStatusAssertion,
-        kafkaStatusAssertion,
-        kafkaStatusAssertion,
-        trace ->
-            // kafka connect consumer trace, linked to producer span via a span link
-            trace.hasSpansSatisfyingExactly(
-                span ->
-                    span.hasName("unknown process")
-                        .hasKind(CONSUMER)
-                        .hasNoParent()
-                        .hasLinks(
-                            LinkData.create(producerSpanContext1.get()),
-                            LinkData.create(producerSpanContext2.get()),
-                            LinkData.create(producerSpanContext3.get()))
-                        .hasAttributesSatisfyingExactly(
-                            equalTo(MESSAGING_BATCH_MESSAGE_COUNT, 3),
-                            equalTo(MESSAGING_OPERATION, PROCESS),
-                            equalTo(MESSAGING_SYSTEM, KAFKA),
-                            satisfies(THREAD_ID, val -> val.isNotZero()),
-                            satisfies(THREAD_NAME, val -> val.isNotBlank())),
-                span ->
-                    span.hasName("update " + DB_NAME + "." + COLLECTION_NAME)
-                        .hasKind(SpanKind.CLIENT)
-                        .hasParent(trace.getSpan(0)),
-                span ->
-                    span.hasName("update " + DB_NAME + "." + COLLECTION_NAME)
-                        .hasKind(SpanKind.CLIENT)
-                        .hasParent(trace.getSpan(0)),
-                span ->
-                    span.hasName("update " + DB_NAME + "." + COLLECTION_NAME)
-                        .hasKind(SpanKind.CLIENT)
-                        .hasParent(trace.getSpan(0))),
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("GET /connectors").hasKind(SpanKind.SERVER).hasNoParent()),
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("GET /connectors").hasKind(SpanKind.SERVER).hasNoParent()));
+    Map<String, String> expectedKeysByDestination = new HashMap<>();
+    expectedKeysByDestination.put(topicName1, "key1");
+    expectedKeysByDestination.put(topicName2, "key2");
+    expectedKeysByDestination.put(topicName3, "key3");
+    waitAndAssertMultiTopicTraces(
+        expectedKeysByDestination,
+        processTraces -> {
+          List<SpanData> updateSpans = new ArrayList<>();
+          for (List<SpanData> trace : processTraces) {
+            SpanData process = trace.get(0);
+            assertThat(trace).hasSize(process.getLinks().size() + 1);
+            for (SpanData update : trace.subList(1, trace.size())) {
+              assertThat(update.getName())
+                  .isEqualTo(
+                      emitStableDatabaseSemconv()
+                          ? "update " + COLLECTION_NAME
+                          : "update " + DATABASE_NAME + "." + COLLECTION_NAME);
+              assertThat(update.getKind()).isEqualTo(SpanKind.CLIENT);
+              assertThat(update.getParentSpanId()).isEqualTo(process.getSpanId());
+              updateSpans.add(update);
+            }
+          }
+          assertThat(updateSpans).hasSize(3);
+        });
   }
 
   // MongoDB-specific helper methods
-  private static void setupMongoSinkConnector(String topicName) throws IOException {
+  private void setupMongoSinkConnector(String topicName) throws IOException {
     Map<String, Object> configMap = new HashMap<>();
     configMap.put("connector.class", "com.mongodb.kafka.connect.MongoSinkConnector");
     configMap.put("tasks.max", "1");
     configMap.put("connection.uri", format(Locale.ROOT, "mongodb://%s:27017", MONGO_NETWORK_ALIAS));
-    configMap.put("database", DB_NAME);
+    configMap.put("database", DATABASE_NAME);
     configMap.put("collection", COLLECTION_NAME);
     configMap.put("topics", topicName);
     configMap.put("key.converter", "org.apache.kafka.connect.storage.StringConverter");
@@ -306,7 +234,7 @@ class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
         "com.mongodb.kafka.connect.sink.processor.id.strategy.BsonOidStrategy");
 
     String payload =
-        MAPPER.writeValueAsString(ImmutableMap.of("name", CONNECTOR_NAME, "config", configMap));
+        mapper.writeValueAsString(ImmutableMap.of("name", CONNECTOR_NAME, "config", configMap));
     given()
         .log()
         .headers()
@@ -321,12 +249,12 @@ class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
         .all();
   }
 
-  private static void setupMongoSinkConnectorMultiTopic(String... topicNames) throws IOException {
+  private void setupMongoSinkConnectorMultiTopic(String... topicNames) throws IOException {
     Map<String, Object> configMap = new HashMap<>();
     configMap.put("connector.class", "com.mongodb.kafka.connect.MongoSinkConnector");
     configMap.put("tasks.max", "1");
     configMap.put("connection.uri", format(Locale.ROOT, "mongodb://%s:27017", MONGO_NETWORK_ALIAS));
-    configMap.put("database", DB_NAME);
+    configMap.put("database", DATABASE_NAME);
     configMap.put("collection", COLLECTION_NAME);
     // Configure multiple topics separated by commas
     configMap.put("topics", String.join(",", topicNames));
@@ -338,7 +266,7 @@ class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
         "com.mongodb.kafka.connect.sink.processor.id.strategy.BsonOidStrategy");
 
     String payload =
-        MAPPER.writeValueAsString(
+        mapper.writeValueAsString(
             ImmutableMap.of("name", CONNECTOR_NAME + "-multi", "config", configMap));
     given()
         .log()
@@ -354,17 +282,17 @@ class MongoKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
         .all();
   }
 
-  private static long getRecordCountFromMongo() {
+  private long getRecordCountFromMongo() {
     try (MongoClient mongoClient = MongoClients.create(mongoDB.getConnectionString())) {
-      MongoDatabase database = mongoClient.getDatabase(DB_NAME);
+      MongoDatabase database = mongoClient.getDatabase(DATABASE_NAME);
       MongoCollection<Document> collection = database.getCollection(COLLECTION_NAME);
       return collection.countDocuments();
     }
   }
 
-  private static void clearMongoCollection() {
+  private void clearMongoCollection() {
     try (MongoClient mongoClient = MongoClients.create(mongoDB.getConnectionString())) {
-      MongoDatabase database = mongoClient.getDatabase(DB_NAME);
+      MongoDatabase database = mongoClient.getDatabase(DATABASE_NAME);
       MongoCollection<Document> collection = database.getCollection(COLLECTION_NAME);
       collection.drop();
     }

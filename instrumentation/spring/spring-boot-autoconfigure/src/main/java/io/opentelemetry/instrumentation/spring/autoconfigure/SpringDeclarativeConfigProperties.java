@@ -5,14 +5,15 @@
 
 package io.opentelemetry.instrumentation.spring.autoconfigure;
 
+import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 
 import io.opentelemetry.api.incubator.config.DeclarativeConfigException;
 import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
 import io.opentelemetry.common.ComponentLoader;
-import io.opentelemetry.sdk.extension.incubator.fileconfig.DeclarativeConfiguration;
-import java.util.Arrays;
+import io.opentelemetry.sdk.autoconfigure.declarativeconfig.DeclarativeConfiguration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -25,19 +26,22 @@ import javax.annotation.Nullable;
 
 /**
  * Spring flavor of {@link
- * io.opentelemetry.sdk.extension.incubator.fileconfig.YamlDeclarativeConfigProperties}, that tries
+ * io.opentelemetry.sdk.autoconfigure.declarativeconfig.YamlDeclarativeConfigProperties}, that tries
  * to coerce types, because spring doesn't tell what the original type was.
  *
  * <p>The entire class is a copy of <a
- * href="https://github.com/open-telemetry/opentelemetry-java/blob/main/sdk-extensions/incubator/src/main/java/io/opentelemetry/sdk/extension/incubator/fileconfig/YamlDeclarativeConfigProperties.java">YamlDeclarativeConfigProperties</a>
+ * href="https://github.com/open-telemetry/opentelemetry-java/blob/main/sdk-extensions/declarative-config/src/main/java/io/opentelemetry/sdk/autoconfigure/declarativeconfig/YamlDeclarativeConfigProperties.java">YamlDeclarativeConfigProperties</a>
  * with only minor modifications to type coercion logic.
+ *
+ * <p>TODO: Revisit after https://github.com/open-telemetry/opentelemetry-java/issues/8101 — if
+ * upstream {@code DeclarativeConfigProperties} exposes type introspection (e.g. {@code getType()}
+ * or {@code isString()}), this full copy can be replaced with a thin type-coercing decorator around
+ * {@code DeclarativeConfigProperties}.
  */
 final class SpringDeclarativeConfigProperties implements DeclarativeConfigProperties {
 
   private static final Set<Class<?>> SUPPORTED_SCALAR_TYPES =
-      Collections.unmodifiableSet(
-          new LinkedHashSet<>(
-              Arrays.asList(String.class, Boolean.class, Long.class, Double.class)));
+      new LinkedHashSet<>(asList(String.class, Boolean.class, Long.class, Double.class));
 
   /** Values are {@link #isPrimitive(Object)}, {@link List} of scalars. */
   private final Map<String, Object> simpleEntries;
@@ -45,17 +49,6 @@ final class SpringDeclarativeConfigProperties implements DeclarativeConfigProper
   private final Map<String, List<SpringDeclarativeConfigProperties>> listEntries;
   private final Map<String, SpringDeclarativeConfigProperties> mapEntries;
   private final ComponentLoader componentLoader;
-
-  private SpringDeclarativeConfigProperties(
-      Map<String, Object> simpleEntries,
-      Map<String, List<SpringDeclarativeConfigProperties>> listEntries,
-      Map<String, SpringDeclarativeConfigProperties> mapEntries,
-      ComponentLoader componentLoader) {
-    this.simpleEntries = simpleEntries;
-    this.listEntries = listEntries;
-    this.mapEntries = mapEntries;
-    this.componentLoader = componentLoader;
-  }
 
   /**
    * Create a {@link SpringDeclarativeConfigProperties} from the {@code properties} map.
@@ -99,13 +92,26 @@ final class SpringDeclarativeConfigProperties implements DeclarativeConfigProper
         continue;
       }
       throw new DeclarativeConfigException(
-          "Unable to initialize ExtendedConfigProperties. Key \""
+          "Unable to initialize SpringDeclarativeConfigProperties. Key \""
               + key
-              + "\" has unrecognized object type "
-              + value.getClass().getName());
+              + "\" has unrecognized value type "
+              + value.getClass().getName()
+              + ". Supported value types include primitives (String, Boolean, Integer, Long,"
+              + " Double), lists of primitives, lists of maps, and maps");
     }
     return new SpringDeclarativeConfigProperties(
         simpleEntries, listEntries, mapEntries, componentLoader);
+  }
+
+  private SpringDeclarativeConfigProperties(
+      Map<String, Object> simpleEntries,
+      Map<String, List<SpringDeclarativeConfigProperties>> listEntries,
+      Map<String, SpringDeclarativeConfigProperties> mapEntries,
+      ComponentLoader componentLoader) {
+    this.simpleEntries = simpleEntries;
+    this.listEntries = listEntries;
+    this.mapEntries = mapEntries;
+    this.componentLoader = componentLoader;
   }
 
   private static boolean isPrimitiveList(Object object) {
@@ -120,7 +126,6 @@ final class SpringDeclarativeConfigProperties implements DeclarativeConfigProper
     return object instanceof String
         || object instanceof Integer
         || object instanceof Long
-        || object instanceof Float
         || object instanceof Double
         || object instanceof Boolean;
   }
@@ -162,16 +167,26 @@ final class SpringDeclarativeConfigProperties implements DeclarativeConfigProper
   @Override
   public Integer getInt(String name) {
     Object value = simpleEntries.get(name);
-    if (value == null) {
-      return null;
-    }
     if (value instanceof Integer) {
       return (Integer) value;
     }
     if (value instanceof Long) {
-      return ((Long) value).intValue();
+      long longValue = (Long) value;
+      if (longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) {
+        // Unlikely to reach here since Jackson already deserializes values
+        // fitting in int range as Integer, but handle it for safety.
+        return (int) longValue;
+      }
+      return null;
     }
-    return Integer.parseInt(value.toString());
+    if (value instanceof String) {
+      try {
+        return Integer.parseInt((String) value);
+      } catch (NumberFormatException e) {
+        return null;
+      }
+    }
+    return null;
   }
 
   @Nullable
@@ -202,7 +217,7 @@ final class SpringDeclarativeConfigProperties implements DeclarativeConfigProper
     if (value instanceof List) {
       List<?> objectList = ((List<?>) value);
       if (objectList.isEmpty()) {
-        return Collections.emptyList();
+        return emptyList();
       }
       List<T> result =
           objectList.stream()
@@ -240,41 +255,57 @@ final class SpringDeclarativeConfigProperties implements DeclarativeConfigProper
 
   @Nullable
   private static Boolean booleanOrNull(@Nullable Object value) {
-    if (value == null) {
-      return null;
-    }
     if (value instanceof Boolean) {
       return (Boolean) value;
     }
-    return Boolean.parseBoolean(value.toString());
+    if (value instanceof String) {
+      if ("true".equalsIgnoreCase((String) value)) {
+        return true;
+      }
+      if ("false".equalsIgnoreCase((String) value)) {
+        return false;
+      }
+    }
+    return null;
   }
 
   @Nullable
   private static Long longOrNull(@Nullable Object value) {
-    if (value == null) {
-      return null;
+    if (value instanceof Long) {
+      return (Long) value;
     }
     if (value instanceof Integer) {
       return ((Integer) value).longValue();
     }
-    if (value instanceof Long) {
-      return (Long) value;
+    if (value instanceof String) {
+      try {
+        return Long.parseLong((String) value);
+      } catch (NumberFormatException e) {
+        return null;
+      }
     }
-    return Long.parseLong(value.toString());
+    return null;
   }
 
   @Nullable
   private static Double doubleOrNull(@Nullable Object value) {
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof Float) {
-      return ((Float) value).doubleValue();
-    }
     if (value instanceof Double) {
       return (Double) value;
     }
-    return Double.parseDouble(value.toString());
+    if (value instanceof Integer) {
+      return ((Integer) value).doubleValue();
+    }
+    if (value instanceof Long) {
+      return ((Long) value).doubleValue();
+    }
+    if (value instanceof String) {
+      try {
+        return Double.parseDouble((String) value);
+      } catch (NumberFormatException e) {
+        return null;
+      }
+    }
+    return null;
   }
 
   @Nullable

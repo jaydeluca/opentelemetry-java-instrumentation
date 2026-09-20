@@ -6,18 +6,11 @@
 package io.opentelemetry.instrumentation.kafkaconnect.v2_6;
 
 import static io.opentelemetry.api.trace.SpanKind.CONSUMER;
-import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equalTo;
-import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.satisfies;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_BATCH_MESSAGE_COUNT;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_DESTINATION_NAME;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_OPERATION;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MESSAGING_SYSTEM;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MessagingOperationTypeIncubatingValues.PROCESS;
-import static io.opentelemetry.semconv.incubating.MessagingIncubatingAttributes.MessagingSystemIncubatingValues.KAFKA;
-import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_ID;
-import static io.opentelemetry.semconv.incubating.ThreadIncubatingAttributes.THREAD_NAME;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableMessagingSemconv;
 import static io.restassured.RestAssured.given;
 import static java.lang.String.format;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import io.opentelemetry.api.trace.Span;
@@ -25,8 +18,7 @@ import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.sdk.testing.assertj.SpanDataAssert;
-import io.opentelemetry.sdk.testing.assertj.TraceAssert;
-import io.opentelemetry.sdk.trace.data.LinkData;
+import io.opentelemetry.sdk.trace.data.SpanData;
 import io.restassured.http.ContentType;
 import java.io.IOException;
 import java.sql.Connection;
@@ -36,6 +28,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
@@ -50,27 +43,25 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.shaded.com.google.common.collect.ImmutableMap;
 import org.testcontainers.utility.DockerImageName;
 
 @SuppressWarnings("deprecation") // using deprecated semconv
-@Testcontainers
 class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
 
   private static final Logger logger =
       LoggerFactory.getLogger(PostgresKafkaConnectSinkTaskTest.class);
 
   private static final String POSTGRES_NETWORK_ALIAS = "postgres";
-  private static final String DB_NAME = "test";
+  private static final String DATABASE_NAME = "test";
   private static final String DB_USERNAME = "postgres";
   private static final String DB_PASSWORD = "password";
   private static final String DB_TABLE_PERSON = "person";
   private static final String CONNECTOR_NAME = "test-postgres-connector";
   private static final String TOPIC_NAME = "test-postgres-topic";
 
-  private static PostgreSQLContainer<?> postgreSql;
+  private PostgreSQLContainer<?> postgreSql;
 
   @Override
   protected void setupDatabaseContainer() {
@@ -80,7 +71,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
             .withNetwork(network)
             .withNetworkAliases(POSTGRES_NETWORK_ALIAS)
             .withInitScript("postgres-setup.sql")
-            .withDatabaseName(DB_NAME)
+            .withDatabaseName(DATABASE_NAME)
             .withUsername(DB_USERNAME)
             .withPassword(DB_PASSWORD)
             .withStartupTimeout(Duration.ofMinutes(5));
@@ -99,7 +90,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
   }
 
   @Override
-  protected void clearDatabaseData() throws Exception {
+  protected void clearDatabaseData() throws SQLException {
     clearPostgresTable();
   }
 
@@ -115,13 +106,13 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
   }
 
   @Test
-  void testSingleMessage() throws Exception {
+  void testSingleMessage() throws IOException {
     String testTopicName = TOPIC_NAME;
     setupPostgresSinkConnector(testTopicName);
     awaitForTopicCreation(testTopicName);
 
     Properties props = new Properties();
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, getKafkaBoostrapServers());
+    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, getKafkaBootstrapServers());
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
 
@@ -140,64 +131,60 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
     await().atMost(Duration.ofSeconds(60)).until(() -> getRecordCountFromPostgres() >= 1);
 
     AtomicReference<SpanContext> producerSpanContext = new AtomicReference<>();
-    testing.waitAndAssertTraces(
+    waitAndAssertRelevantTraces(
         trace ->
             // producer is in a separate trace, linked to consumer with a span link
             trace.hasSpansSatisfyingExactly(
                 span -> {
-                  span.hasName(testTopicName + " publish").hasKind(SpanKind.PRODUCER).hasNoParent();
+                  span.hasName(
+                          emitStableMessagingSemconv()
+                              ? "send " + testTopicName
+                              : testTopicName + " publish")
+                      .hasKind(SpanKind.PRODUCER)
+                      .hasNoParent();
                   producerSpanContext.set(span.actual().getSpanContext());
                 }),
-        trace ->
-            // kafka connect sends message to status topic while processing our message
-            trace.hasSpansSatisfyingExactly(
-                span ->
-                    span.hasName("kafka-connect-status publish")
-                        .hasKind(SpanKind.PRODUCER)
-                        .hasNoParent(),
-                span ->
-                    span.hasName("kafka-connect-status process")
-                        .hasKind(SpanKind.CONSUMER)
-                        .hasParent(trace.getSpan(0))),
         trace -> {
           // kafka connect consumer trace, linked to producer span via a span link
           Consumer<SpanDataAssert> selectAssertion =
-              span ->
-                  span.hasName("SELECT test").hasKind(SpanKind.CLIENT).hasParent(trace.getSpan(0));
+              span -> {
+                if (emitStableDatabaseSemconv()) {
+                  span.satisfies(spanData -> assertThat(spanData.getName()).startsWith("SELECT"));
+                } else {
+                  span.hasName("SELECT " + DATABASE_NAME);
+                }
+                span.hasKind(SpanKind.CLIENT).hasParent(trace.getSpan(0));
+              };
 
           trace.hasSpansSatisfyingExactly(
               span ->
-                  span.hasName(testTopicName + " process")
+                  span.hasName(
+                          emitStableMessagingSemconv()
+                              ? "process " + testTopicName
+                              : testTopicName + " process")
                       .hasKind(CONSUMER)
                       .hasNoParent()
-                      .hasLinks(LinkData.create(producerSpanContext.get()))
-                      .hasAttributesSatisfyingExactly(
-                          equalTo(MESSAGING_BATCH_MESSAGE_COUNT, 1),
-                          equalTo(MESSAGING_DESTINATION_NAME, testTopicName),
-                          equalTo(MESSAGING_OPERATION, PROCESS),
-                          equalTo(MESSAGING_SYSTEM, KAFKA),
-                          satisfies(THREAD_ID, val -> val.isNotZero()),
-                          satisfies(THREAD_NAME, val -> val.isNotBlank())),
+                      .hasLinks(recordLink(producerSpanContext.get(), "test-key"))
+                      .hasAttributesSatisfyingExactly(processAttributes(testTopicName, 1)),
               selectAssertion,
               selectAssertion,
               selectAssertion,
               selectAssertion,
               selectAssertion,
               span ->
-                  span.hasName("INSERT test." + DB_TABLE_PERSON)
+                  span.hasName(
+                          emitStableDatabaseSemconv()
+                              ? "INSERT \"" + DB_TABLE_PERSON + "\""
+                              : "INSERT " + DATABASE_NAME + "." + DB_TABLE_PERSON)
                       .hasKind(SpanKind.CLIENT)
                       .hasParent(trace.getSpan(0)));
-        },
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("GET /connectors").hasKind(SpanKind.SERVER).hasNoParent()),
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("GET /connectors").hasKind(SpanKind.SERVER).hasNoParent()));
+        });
+
+    assertConnectMessagingMetrics(testTopicName);
   }
 
   @Test
-  void testMultiTopic() throws Exception {
+  void testMultiTopic() throws IOException {
     String topicName1 = TOPIC_NAME + "-1";
     String topicName2 = TOPIC_NAME + "-2";
     String topicName3 = TOPIC_NAME + "-3";
@@ -208,7 +195,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
     awaitForTopicCreation(topicName3);
 
     Properties props = new Properties();
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, getKafkaBoostrapServers());
+    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, getKafkaBootstrapServers());
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     props.put(ProducerConfig.BATCH_SIZE_CONFIG, 10); // to send messages in one batch
@@ -242,88 +229,40 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
 
     await().atMost(Duration.ofSeconds(60)).until(() -> getRecordCountFromPostgres() >= 3);
 
-    Consumer<TraceAssert> kafkaStatusAssertion =
-        trace ->
-            // kafka connect sends message to status topic while processing our message
-            trace.hasSpansSatisfyingExactly(
-                span ->
-                    span.hasName("kafka-connect-status publish")
-                        .hasKind(SpanKind.PRODUCER)
-                        .hasNoParent(),
-                span ->
-                    span.hasName("kafka-connect-status process")
-                        .hasKind(SpanKind.CONSUMER)
-                        .hasParent(trace.getSpan(0)));
-
-    AtomicReference<SpanContext> producerSpanContext1 = new AtomicReference<>();
-    AtomicReference<SpanContext> producerSpanContext2 = new AtomicReference<>();
-    AtomicReference<SpanContext> producerSpanContext3 = new AtomicReference<>();
-    testing.waitAndAssertTraces(
-        trace ->
-            // producer is in a separate trace, linked to consumer with a span link
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("parent").hasNoParent(),
-                span -> {
-                  span.hasName(topicName1 + " publish")
-                      .hasKind(SpanKind.PRODUCER)
-                      .hasParent(trace.getSpan(0));
-                  producerSpanContext1.set(span.actual().getSpanContext());
-                },
-                span -> {
-                  span.hasName(topicName2 + " publish")
-                      .hasKind(SpanKind.PRODUCER)
-                      .hasParent(trace.getSpan(0));
-                  producerSpanContext2.set(span.actual().getSpanContext());
-                },
-                span -> {
-                  span.hasName(topicName3 + " publish")
-                      .hasKind(SpanKind.PRODUCER)
-                      .hasParent(trace.getSpan(0));
-                  producerSpanContext3.set(span.actual().getSpanContext());
-                }),
-        kafkaStatusAssertion,
-        kafkaStatusAssertion,
-        kafkaStatusAssertion,
-        trace -> {
-          // kafka connect consumer trace, linked to producer span via a span link
-          Consumer<SpanDataAssert> selectAssertion =
-              span ->
-                  span.hasName("SELECT test").hasKind(SpanKind.CLIENT).hasParent(trace.getSpan(0));
-
-          trace.hasSpansSatisfyingExactly(
-              span ->
-                  span.hasName("unknown process")
-                      .hasKind(CONSUMER)
-                      .hasNoParent()
-                      .hasLinks(
-                          LinkData.create(producerSpanContext1.get()),
-                          LinkData.create(producerSpanContext2.get()),
-                          LinkData.create(producerSpanContext3.get()))
-                      .hasAttributesSatisfyingExactly(
-                          equalTo(MESSAGING_BATCH_MESSAGE_COUNT, 3),
-                          equalTo(MESSAGING_OPERATION, PROCESS),
-                          equalTo(MESSAGING_SYSTEM, KAFKA),
-                          satisfies(THREAD_ID, val -> val.isNotZero()),
-                          satisfies(THREAD_NAME, val -> val.isNotBlank())),
-              selectAssertion,
-              selectAssertion,
-              selectAssertion,
-              selectAssertion,
-              selectAssertion,
-              span ->
-                  span.hasName("INSERT test." + DB_TABLE_PERSON)
-                      .hasKind(SpanKind.CLIENT)
-                      .hasParent(trace.getSpan(0)));
-        },
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("GET /connectors").hasKind(SpanKind.SERVER).hasNoParent()),
-        trace ->
-            trace.hasSpansSatisfyingExactly(
-                span -> span.hasName("GET /connectors").hasKind(SpanKind.SERVER).hasNoParent()));
+    Map<String, String> expectedKeysByDestination = new HashMap<>();
+    expectedKeysByDestination.put(topicName1, "key1");
+    expectedKeysByDestination.put(topicName2, "key2");
+    expectedKeysByDestination.put(topicName3, "key3");
+    waitAndAssertMultiTopicTraces(
+        expectedKeysByDestination,
+        processTraces -> {
+          for (List<SpanData> trace : processTraces) {
+            SpanData process = trace.get(0);
+            assertThat(trace).hasSize(7);
+            for (SpanData select : trace.subList(1, 6)) {
+              if (emitStableDatabaseSemconv()) {
+                assertThat(select.getName()).startsWith("SELECT");
+              } else {
+                assertThat(select.getName()).isEqualTo("SELECT " + DATABASE_NAME);
+              }
+              assertThat(select.getKind()).isEqualTo(SpanKind.CLIENT);
+              assertThat(select.getParentSpanId()).isEqualTo(process.getSpanId());
+            }
+            SpanData insert = trace.get(6);
+            assertThat(insert.getName())
+                .isEqualTo(
+                    emitStableDatabaseSemconv()
+                        ? (process.getLinks().size() == 1 ? "INSERT \"" : "BATCH INSERT \"")
+                            + DB_TABLE_PERSON
+                            + "\""
+                        : "INSERT " + DATABASE_NAME + "." + DB_TABLE_PERSON);
+            assertThat(insert.getKind()).isEqualTo(SpanKind.CLIENT);
+            assertThat(insert.getParentSpanId()).isEqualTo(process.getSpanId());
+          }
+        });
   }
 
-  private static void setupPostgresSinkConnector(String topicName) throws IOException {
+  private void setupPostgresSinkConnector(String topicName) throws IOException {
     Map<String, Object> configMap = new HashMap<>();
     configMap.put("connector.class", "io.confluent.connect.jdbc.JdbcSinkConnector");
     configMap.put("tasks.max", "1");
@@ -333,7 +272,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
             Locale.ROOT,
             "jdbc:postgresql://%s:5432/%s?loggerLevel=OFF",
             POSTGRES_NETWORK_ALIAS,
-            DB_NAME));
+            DATABASE_NAME));
     configMap.put("connection.user", DB_USERNAME);
     configMap.put("connection.password", DB_PASSWORD);
     configMap.put("topics", topicName);
@@ -348,7 +287,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
     configMap.put("pk.mode", "none");
 
     String payload =
-        MAPPER.writeValueAsString(ImmutableMap.of("name", CONNECTOR_NAME, "config", configMap));
+        mapper.writeValueAsString(ImmutableMap.of("name", CONNECTOR_NAME, "config", configMap));
     given()
         .log()
         .headers()
@@ -363,8 +302,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
         .all();
   }
 
-  private static void setupPostgresSinkConnectorMultiTopic(String... topicNames)
-      throws IOException {
+  private void setupPostgresSinkConnectorMultiTopic(String... topicNames) throws IOException {
     Map<String, Object> configMap = new HashMap<>();
     configMap.put("connector.class", "io.confluent.connect.jdbc.JdbcSinkConnector");
     configMap.put("tasks.max", "1");
@@ -374,7 +312,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
             Locale.ROOT,
             "jdbc:postgresql://%s:5432/%s?loggerLevel=OFF",
             POSTGRES_NETWORK_ALIAS,
-            DB_NAME));
+            DATABASE_NAME));
     configMap.put("connection.user", DB_USERNAME);
     configMap.put("connection.password", DB_PASSWORD);
     // Configure multiple topics separated by commas
@@ -390,7 +328,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
     configMap.put("pk.mode", "none");
 
     String payload =
-        MAPPER.writeValueAsString(
+        mapper.writeValueAsString(
             ImmutableMap.of("name", CONNECTOR_NAME + "-multi", "config", configMap));
     given()
         .log()
@@ -406,7 +344,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
         .all();
   }
 
-  private static long getRecordCountFromPostgres() throws SQLException {
+  private long getRecordCountFromPostgres() throws SQLException {
     try (Connection conn =
             DriverManager.getConnection(postgreSql.getJdbcUrl(), DB_USERNAME, DB_PASSWORD);
         Statement st = conn.createStatement();
@@ -418,7 +356,7 @@ class PostgresKafkaConnectSinkTaskTest extends KafkaConnectSinkTaskBaseTest {
     return 0;
   }
 
-  private static void clearPostgresTable() throws SQLException {
+  private void clearPostgresTable() throws SQLException {
     try (Connection conn =
             DriverManager.getConnection(postgreSql.getJdbcUrl(), DB_USERNAME, DB_PASSWORD);
         Statement st = conn.createStatement()) {

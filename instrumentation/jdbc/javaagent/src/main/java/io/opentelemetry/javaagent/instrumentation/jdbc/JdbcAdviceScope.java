@@ -5,8 +5,8 @@
 
 package io.opentelemetry.javaagent.instrumentation.jdbc;
 
-import static io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge.currentContext;
 import static io.opentelemetry.javaagent.instrumentation.jdbc.JdbcSingletons.statementInstrumenter;
+import static java.util.Collections.emptyList;
 
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
@@ -21,11 +21,15 @@ import javax.annotation.Nullable;
 
 public class JdbcAdviceScope {
   private final CallDepth callDepth;
-  private final DbRequest request;
-  private final Context context;
-  private final Scope scope;
+  @Nullable private final DbRequest request;
+  @Nullable private final Context context;
+  @Nullable private final Scope scope;
 
-  private JdbcAdviceScope(CallDepth callDepth, DbRequest request, Context context, Scope scope) {
+  private JdbcAdviceScope(
+      CallDepth callDepth,
+      @Nullable DbRequest request,
+      @Nullable Context context,
+      @Nullable Scope scope) {
     this.callDepth = callDepth;
     this.request = request;
     this.context = context;
@@ -60,7 +64,7 @@ public class JdbcAdviceScope {
       return new JdbcAdviceScope(callDepth, null, null, null);
     }
 
-    Context parentContext = currentContext();
+    Context parentContext = Context.current();
     DbRequest request = requestSupplier.get();
     if (request == null || !statementInstrumenter().shouldStart(parentContext, request)) {
       return new JdbcAdviceScope(callDepth, null, null, null);
@@ -70,21 +74,23 @@ public class JdbcAdviceScope {
     return new JdbcAdviceScope(callDepth, request, context, context.makeCurrent());
   }
 
+  @Nullable
   private static DbRequest createBatchRequest(Statement statement) {
     if (statement instanceof PreparedStatement) {
-      String sql = JdbcData.preparedStatement.get((PreparedStatement) statement);
+      String sql = JdbcData.PREPARED_STATEMENT.get((PreparedStatement) statement);
       if (sql == null) {
         return null;
       }
       Long batchSize = JdbcData.getPreparedStatementBatchSize((PreparedStatement) statement);
       Map<String, String> parameters = JdbcData.getParameters((PreparedStatement) statement);
-      return DbRequest.create(statement, sql, batchSize, parameters);
+      return DbRequest.create(statement, sql, batchSize != null ? batchSize : 0L, parameters, true);
     } else {
       JdbcData.StatementBatchInfo batchInfo = JdbcData.getStatementBatchInfo(statement);
       if (batchInfo == null) {
-        return DbRequest.create(statement, null);
+        return DbRequest.create(statement, emptyList(), 0L, false);
       } else {
-        return DbRequest.create(statement, batchInfo.getStatements(), batchInfo.getBatchSize());
+        return DbRequest.create(
+            statement, batchInfo.getQueryTexts(), batchInfo.getBatchSize(), false);
       }
     }
   }

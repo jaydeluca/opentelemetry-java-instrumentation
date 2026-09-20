@@ -12,37 +12,36 @@ import static net.bytebuddy.matcher.ElementMatchers.not;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.extension.instrumentation.internal.ExperimentalInstrumentationModule;
+import io.opentelemetry.javaagent.extension.instrumentation.internal.V3PreviewFallbackEnabledInstrumentationModule;
 import java.util.List;
 import net.bytebuddy.matcher.ElementMatcher;
 
 @AutoService(InstrumentationModule.class)
-public class OpenTelemetryApiInstrumentationModule extends InstrumentationModule
-    implements ExperimentalInstrumentationModule {
+@SuppressWarnings("deprecation") // using v3 preview fallback helper until 3.0
+public class OpenTelemetryApiInstrumentationModule
+    extends V3PreviewFallbackEnabledInstrumentationModule {
   public OpenTelemetryApiInstrumentationModule() {
     super("opentelemetry-api", "opentelemetry-api-1.50");
   }
 
   @Override
   public ElementMatcher.Junction<ClassLoader> classLoaderMatcher() {
+    // added in 1.42
     return hasClassesNamed("application.io.opentelemetry.api.common.Value")
         .and(
+            // added in 1.42
             // disable when incubating api is present
             not(hasClassesNamed("application.io.opentelemetry.api.incubator.logs.ExtendedLogger"))
                 // unless the incubating api is at least 1.50, test infra also depends on the
                 // incubating api, and we can't exclude that like we did for older versions
                 .or(
                     hasClassesNamed(
+                        // added in 1.50
                         "application.io.opentelemetry.api.incubator.common.ExtendedAttributes")));
   }
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
     return singletonList(new OpenTelemetryInstrumentation());
-  }
-
-  @Override
-  public String getModuleGroup() {
-    return "opentelemetry-api-bridge";
   }
 }

@@ -9,13 +9,13 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 
 import io.opentelemetry.instrumentation.api.incubator.semconv.messaging.MessagingAttributesGetter;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import javax.annotation.Nullable;
-import org.apache.pulsar.client.api.Message;
-import org.apache.pulsar.common.naming.TopicName;
 
-enum PulsarMessagingAttributesGetter implements MessagingAttributesGetter<PulsarRequest, Void> {
-  INSTANCE;
+final class PulsarMessagingAttributesGetter
+    implements MessagingAttributesGetter<PulsarRequest, Void> {
 
   @Override
   public String getSystem(PulsarRequest request) {
@@ -64,12 +64,7 @@ enum PulsarMessagingAttributesGetter implements MessagingAttributesGetter<Pulsar
   @Nullable
   @Override
   public String getMessageId(PulsarRequest request, @Nullable Void response) {
-    Message<?> message = request.getMessage();
-    if (message.getMessageId() != null) {
-      return message.getMessageId().toString();
-    }
-
-    return null;
+    return Objects.toString(request.getMessage().getMessageId(), null);
   }
 
   @Nullable
@@ -87,16 +82,23 @@ enum PulsarMessagingAttributesGetter implements MessagingAttributesGetter<Pulsar
   @Nullable
   @Override
   public String getDestinationPartitionId(PulsarRequest request) {
-    int partitionIndex = TopicName.getPartitionIndex(request.getDestination());
-    if (partitionIndex == -1) {
-      return null;
-    }
-    return String.valueOf(partitionIndex);
+    return request.getDestinationPartitionId();
+  }
+
+  @Nullable
+  @Override
+  public String getDestinationSubscriptionName(PulsarRequest request) {
+    return request.getSubscription();
   }
 
   @Override
   public List<String> getMessageHeader(PulsarRequest request, String name) {
     String value = request.getMessage().getProperty(name);
     return value != null ? singletonList(value) : emptyList();
+  }
+
+  @Override
+  public Collection<String> getMessageHeaderNames(PulsarRequest request) {
+    return request.getMessage().getProperties().keySet();
   }
 }

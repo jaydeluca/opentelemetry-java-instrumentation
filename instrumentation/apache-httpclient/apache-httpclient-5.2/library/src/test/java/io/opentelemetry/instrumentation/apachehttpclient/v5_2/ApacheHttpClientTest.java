@@ -5,10 +5,11 @@
 
 package io.opentelemetry.instrumentation.apachehttpclient.v5_2;
 
+import static java.util.Collections.singletonList;
+
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest;
 import io.opentelemetry.instrumentation.testing.junit.http.HttpClientInstrumentationExtension;
-import java.util.Collections;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -29,15 +30,15 @@ class ApacheHttpClientTest extends AbstractApacheHttpClientTest {
   }
 
   @Override
+  @SuppressWarnings("deprecation") // testing deprecated API
   protected CloseableHttpClient createClient(boolean readTimeout) {
     HttpClientBuilder builder =
         ApacheHttpClientTelemetry.builder(testing.getOpenTelemetry())
-            .setCapturedRequestHeaders(
-                Collections.singletonList(AbstractHttpClientTest.TEST_REQUEST_HEADER))
-            .setCapturedResponseHeaders(
-                Collections.singletonList(AbstractHttpClientTest.TEST_RESPONSE_HEADER))
+            // keeps coverage of the deprecated exact-name setter
+            .setCapturedRequestHeaders(singletonList(AbstractHttpClientTest.TEST_REQUEST_HEADER))
+            .setResponseHeaders(AbstractHttpClientTest.TEST_HEADERS)
             .build()
-            .newHttpClientBuilder();
+            .createHttpClientBuilder();
     builder.setDefaultRequestConfig(RequestConfig.custom().setMaxRedirects(2).build());
 
     ConnectionConfig.Builder connectionConfigBuilder =
@@ -56,7 +57,6 @@ class ApacheHttpClientTest extends AbstractApacheHttpClientTest {
             .build();
 
     builder.setConnectionManager(connManager);
-    builder.setConnectionManagerShared(true);
     return builder.build();
   }
 }

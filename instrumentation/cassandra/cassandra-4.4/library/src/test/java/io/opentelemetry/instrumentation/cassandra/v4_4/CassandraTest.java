@@ -9,17 +9,19 @@ import com.datastax.oss.driver.api.core.CqlSession;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.LibraryInstrumentationExtension;
 import io.opentelemetry.testing.cassandra.v4_4.AbstractCassandra44Test;
+import java.net.InetSocketAddress;
+import java.util.List;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 class CassandraTest extends AbstractCassandra44Test {
+
+  @RegisterExtension
+  static final InstrumentationExtension testing = LibraryInstrumentationExtension.create();
 
   @Override
   protected String getInstrumentationName() {
     return "io.opentelemetry.cassandra-4.4";
   }
-
-  @RegisterExtension
-  static final InstrumentationExtension testing = LibraryInstrumentationExtension.create();
 
   @Override
   protected InstrumentationExtension testing() {
@@ -27,7 +29,7 @@ class CassandraTest extends AbstractCassandra44Test {
   }
 
   @Override
-  protected CqlSession wrap(CqlSession session) {
-    return CassandraTelemetry.create(testing.getOpenTelemetry()).wrap(session);
+  protected CqlSession wrap(CqlSession session, List<InetSocketAddress> contactPoints) {
+    return CassandraTelemetry.create(testing.getOpenTelemetry()).wrap(session, contactPoints);
   }
 }
