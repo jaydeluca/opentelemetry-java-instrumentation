@@ -115,6 +115,13 @@ public class DeclarativeConfigYamlGenerator {
       return;
     }
 
+    // The example is meant to be copied, so it only contains keys that are safe to set to the
+    // value shown. A deprecated key, or a key whose absence means falling back to another setting,
+    // can change behavior (or log a deprecation warning) merely by being present.
+    if (config.isDeprecated() || config.defaultValue() == null) {
+      return;
+    }
+
     // Skip duplicates (e.g. common configurations shared across many modules).
     if (!seenConfigs.add(declarativeName)) {
       return;

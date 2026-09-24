@@ -1058,6 +1058,70 @@ class YamlHelperTest {
     assertThat(parsed.get("global_configuration_refs")).isEqualTo(List.of("common.v3-preview"));
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void marksDeprecatedConfigurations() throws Exception {
+    ConfigurationOption deprecated =
+        new ConfigurationOption(
+                "otel.instrumentation.common.logging.trace-id",
+                "java.common.logging.trace_id",
+                "Deprecated: use `otel.instrumentation.common.logging.trace-id-key` instead.",
+                "trace_id",
+                ConfigurationType.STRING,
+                null,
+                null,
+                null,
+                null,
+                true,
+                "otel.instrumentation.common.logging.trace-id-key",
+                null)
+            .withId("common.logging.trace-id");
+
+    Map<String, Object> definition = globalDefinition(deprecated, "common.logging.trace-id");
+
+    assertThat(definition)
+        .containsEntry("default", "trace_id")
+        .containsEntry("deprecated", true)
+        .containsEntry("replaced_by", "otel.instrumentation.common.logging.trace-id-key");
+  }
+
+  @Test
+  void omitsMissingDefault() throws Exception {
+    ConfigurationOption option =
+        new ConfigurationOption(
+                null,
+                "general.db.semconv.version",
+                "When unset, the opt-in list selects the conventions.",
+                null,
+                ConfigurationType.INT,
+                null,
+                null,
+                null,
+                null,
+                null)
+            .withId("db.semconv.version");
+
+    Map<String, Object> definition = globalDefinition(option, "db.semconv.version");
+
+    assertThat(definition)
+        .containsEntry("type", "int")
+        .doesNotContainKeys("default", "deprecated", "replaced_by");
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> globalDefinition(ConfigurationOption global, String id)
+      throws IOException {
+    StringWriter stringWriter = new StringWriter();
+    try (BufferedWriter writer = new BufferedWriter(stringWriter)) {
+      YamlHelper.generateInstrumentationYaml(emptyList(), List.of(global), writer);
+    }
+    Map<String, Object> parsed = new Yaml().load(stringWriter.toString());
+    Map<String, Object> configurations =
+        (Map<String, Object>)
+            ((Map<String, Object>) parsed.get("definitions")).get("configurations");
+    return (Map<String, Object>) configurations.get(id);
+  }
+
   private static String generateInstrumentationYaml(List<InstrumentationModule> modules)
       throws IOException {
     StringWriter stringWriter = new StringWriter();

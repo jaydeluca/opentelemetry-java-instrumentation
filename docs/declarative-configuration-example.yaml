@@ -1,5 +1,8 @@
 # This file is generated and should not be manually edited.
-# It shows all available instrumentation configurations in declarative config format.
+# It shows the available instrumentation configurations in declarative config format,
+# each set to its default value, so any entry can be copied and changed on its own.
+# Deprecated configurations, and configurations that fall back to another setting when
+# unset, are left out; see docs/instrumentation-list.yaml for the complete list.
 
 # For an interactive builder, see: https://explorer.opentelemetry.io/java-agent/configuration/builder.
 
@@ -12,21 +15,11 @@ instrumentation/development:
         # With `version: 1`, emits both the old and the stable code semantic conventions. Not
         # supported under v3 preview.
         dual_emit: false
-
-        # Code semantic convention version to emit: `0` for the old conventions or `1` for the
-        # stable conventions. Takes precedence over `stability_opt_in_list`. Under v3 preview only
-        # `1` is supported and it is the default.
-        version: 0
     db:
       semconv:
         # With `version: 1`, emits both the old and the stable database semantic conventions. Not
         # supported under v3 preview.
         dual_emit: false
-
-        # Database semantic convention version to emit: `0` for the old conventions or `1` for the
-        # stable conventions. Takes precedence over `stability_opt_in_list`. Under v3 preview only
-        # `1` is supported and it is the default.
-        version: 0
     http:
       client:
         # List of HTTP request headers to capture in HTTP client telemetry.
@@ -49,12 +42,6 @@ instrumentation/development:
         # With `version: 1`, selects the preview messaging semantic conventions. Required, because
         # version 1 of the messaging semantic conventions is not yet stable.
         experimental: false
-
-        # Messaging semantic convention version to emit: `0` for the current conventions or `1`
-        # together with `experimental: true` for the preview conventions. Takes precedence over the
-        # semantic convention opt-in settings. Under v3 preview only the preview conventions are
-        # supported and they are the default.
-        version: 0
     rpc:
       semconv:
         # With `version: 1` and `experimental: true`, emits both the current and the preview RPC
@@ -64,11 +51,6 @@ instrumentation/development:
         # With `version: 1`, selects the preview RPC semantic conventions. Required, because version
         # 1 of the RPC semantic conventions is not yet stable.
         experimental: false
-
-        # RPC semantic convention version to emit: `0` for the current conventions or `1` together
-        # with `experimental: true` for the preview conventions. Takes precedence over the semantic
-        # convention opt-in settings.
-        version: 0
     sanitization:
       url:
         # List of URL query parameter names whose values are redacted in URL attributes. See
@@ -81,16 +63,6 @@ instrumentation/development:
           - X-Amz-Security-Token
           - sig
           - X-Goog-Signature
-    semconv_exception:
-      signal:
-        # Preview of emitting exceptions as log records instead of span events. `logs` emits log
-        # records only and `logs/dup` emits both log records and span events. When unset, exceptions
-        # are recorded as span events.
-        preview: ''
-    semconv_stability:
-      # Deprecated: use `general.stability_opt_in_list` instead. It is ignored when
-      # `general.stability_opt_in_list` is configured.
-      opt_in: []
 
     # Opt-in to emit stable semantic conventions instead of the old experimental semantic
     # conventions. Accepts a comma-separated list of semantic convention groups (e.g., `database`,
@@ -117,11 +89,6 @@ instrumentation/development:
       # Enables the experimental span attributes `aws.agent`, `aws.queue.name`,
       # `aws.lambda.function.arn` and `aws.lambda.function.name` for AWS SDK instrumentation.
       experimental_span_attributes/development: false
-      message_create_spans:
-        # Determines whether to create a producer span for each eligible message in an SQS batch
-        # send when stable messaging semantic conventions are enabled. Overrides
-        # `otel.instrumentation.common.messaging.message-create-spans.enabled`.
-        enabled: true
 
       # Determines whether errors returned by each individual HTTP request should be recorded as
       # events for the SDK span.
@@ -134,45 +101,10 @@ instrumentation/development:
       # Enable the capture of experimental `camel.uri`, `camel.kafka.partitionKey`,
       # `camel.kafka.key` and `camel.kafka.offset` span attributes.
       experimental_span_attributes/development: false
-      query_sanitization:
-        # Enables query sanitization for database queries traced through Camel. Takes precedence
-        # over otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.camel.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
-    cassandra:
-      query_sanitization:
-        # Enables query sanitization for Cassandra queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.cassandra.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
-    clickhouse:
-      query_sanitization:
-        # Enables query sanitization for ClickHouse queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.clickhouse.query-sanitization.enabled` instead. It
-        # is ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     common:
       controller_telemetry/development:
         # Enables the creation of experimental controller spans.
         enabled: false
-      database:
-        sqlcommenter/development:
-          # Deprecated: use `java.common.db.sqlcommenter/development.enabled` instead. It is ignored
-          # under v3 preview.
-          enabled: false
-        statement_sanitizer:
-          # Deprecated: use `java.common.db.query_sanitization.enabled` instead. It is ignored under
-          # v3 preview.
-          enabled: true
       db:
         query_sanitization:
           # Enables query sanitization for database queries.
@@ -240,10 +172,6 @@ instrumentation/development:
           # `http.server.request.body.size` and `http.server.response.body.size` metrics.
           emit_experimental_telemetry/development: false
       logging:
-        # Deprecated: use `otel.instrumentation.common.logging.span-id-key` instead. It is ignored
-        # under v3 preview and will be removed in 3.0.
-        span_id: span_id
-
         # Specifies the key name used to store the span ID in the logging context.
         span_id_key: span_id
         structured_attributes:
@@ -264,16 +192,8 @@ instrumentation/development:
           # attributes remain separate and opt-in.
           included: []
 
-        # Deprecated: use `otel.instrumentation.common.logging.trace-flags-key` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        trace_flags: trace_flags
-
         # Specifies the key name used to store the trace flags in the logging context.
         trace_flags_key: trace_flags
-
-        # Deprecated: use `otel.instrumentation.common.logging.trace-id-key` instead. It is ignored
-        # under v3 preview and will be removed in 3.0.
-        trace_id: trace_id
 
         # Specifies the key name used to store the trace ID in the logging context.
         trace_id_key: trace_id
@@ -282,11 +202,6 @@ instrumentation/development:
         # list of attribute keys.
         resource_attributes: []
       messaging:
-        # Deprecated: use `otel.instrumentation.common.messaging.experimental.headers.included`
-        # instead. A comma-separated list of header names to capture as span attributes. It does not
-        # support glob patterns: an entry containing `*` or `?` is ignored with a warning, and every
-        # other entry is matched as a literal header name.
-        capture_headers/development: []
         headers/development:
           # A comma-separated list of message header name patterns to exclude from span attributes.
           # Excluded patterns take precedence over included patterns. Matching is case-sensitive.
@@ -308,12 +223,6 @@ instrumentation/development:
           # Enables experimental receive telemetry, which will cause consumers to start a new trace,
           # with only a span link connecting it to the producer trace.
           enabled: false
-      semconv_stability:
-        # Opt-in to emit preview (not yet stable) semantic conventions for the `rpc`, `messaging`,
-        # and `service.peer` groups. Use `<group>/dup` to emit both the old and the preview
-        # conventions simultaneously. Outside v3 preview these groups are also accepted by
-        # `otel.semconv-stability.opt-in`; under v3 preview only this setting selects them.
-        preview: []
 
       # Used to specify a mapping from server addresses or configured targets to peer services.
       # Configured targets containing commas or equals signs can only be mapped with declarative
@@ -329,9 +238,10 @@ instrumentation/development:
 
       # Strategy for suppressing nested instrumentation spans: `semconv` suppresses a span nested in
       # a span of the same semantic convention type, `span-kind` suppresses a span nested in a span
-      # of the same span kind, and `none` disables suppression. The flat
-      # `otel.instrumentation.experimental.span-suppression-strategy` property is deprecated and
-      # ignored under v3 preview; use the declarative setting instead.
+      # of the same span kind, and `none` disables suppression. In the Java agent the flat
+      # `otel.instrumentation.experimental.span-suppression-strategy` property sets this. Library
+      # instrumentation also reads that property as a system property, which is deprecated there and
+      # ignored under v3 preview.
       span_suppression_strategy/development: semconv
       user:
         name:
@@ -343,9 +253,10 @@ instrumentation/development:
           # the associated attribute are not supported when v3 preview is disabled.
           enabled: false
 
-      # Enables a preview of the behavior planned for version 3.0 of the agent, such as emitting
-      # stable semantic conventions by default and ignoring deprecated settings. The set of changes
-      # it enables can grow in any release.
+      # Enables a preview of the behavior planned for version 3.0 of the agent, such as emitting the
+      # stable database and code semantic conventions and the new messaging semantic conventions by
+      # default, and ignoring deprecated settings. The set of changes it enables can grow in any
+      # release.
       v3_preview: false
       view_telemetry/development:
         # Enables the creation of experimental view spans.
@@ -354,25 +265,7 @@ instrumentation/development:
       # Enables experimental span attributes `couchbase.operation_id` and `couchbase.local.address`.
       # Different operation types receive different experimental attributes.
       emit_experimental_telemetry/development: false
-
-      # Deprecated and will be removed in the next minor release. Use
-      # otel.instrumentation.couchbase.emit-experimental-telemetry instead.
-      experimental_span_attributes/development: false
-      query_sanitization:
-        # Enables query sanitization for Couchbase queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.couchbase.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     elasticsearch:
-      # Deprecated for removal in 3.0 with no replacement. Outside v3-preview, explicitly set this
-      # to capture or omit search query bodies. Under v3-preview and in 3.0, the setting is ignored
-      # and search query bodies are always captured. Sanitization remains separately configurable
-      # with otel.instrumentation.elasticsearch.query-sanitization.enabled.
-      capture_search_query: false
-
       # Enable the capture of `elasticsearch.action`, `elasticsearch.id`, `elasticsearch.request`,
       # `elasticsearch.request.indices`, `elasticsearch.request.write.type`,
       # `elasticsearch.request.write.version`, `elasticsearch.response.status`,
@@ -380,14 +273,6 @@ instrumentation/development:
       # `elasticsearch.shard.replication.total`, `elasticsearch.type`, and `elasticsearch.version`
       # experimental span attributes.
       experimental_span_attributes/development: false
-      query_sanitization:
-        # Enables sanitization of the captured search query bodies. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.elasticsearch.query-sanitization.enabled` instead.
-        # It is ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     executors:
       # List of Executor subclasses to be instrumented.
       include: []
@@ -400,21 +285,7 @@ instrumentation/development:
 
       # Semicolon-separated list of annotation class names to instrument.
       include: []
-    geode:
-      query_sanitization:
-        # Enables query sanitization for Geode queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.geode.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     graphql:
-      add_operation_name_to_span_name:
-        # Deprecated: use `otel.instrumentation.graphql.operation-name-in-span-name.enabled`
-        # instead. It is ignored under v3 preview and will be removed in 3.0.
-        enabled: false
-
       # Whether to capture the query in `graphql.document` span attribute.
       capture_query: true
       data_fetcher:
@@ -429,28 +300,11 @@ instrumentation/development:
         # Enables sanitization of sensitive information from queries so they aren't added as span
         # attributes.
         enabled: true
-      query_sanitizer:
-        # Deprecated: use `otel.instrumentation.graphql.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
       trivial_data_fetcher:
         # Whether to create spans for trivial data fetchers. A trivial data fetcher is one that
         # simply maps data from an object to a field.
         enabled: false
     grpc:
-      capture_metadata:
-        client:
-          # Deprecated: use `otel.instrumentation.grpc.client.request-metadata.included` instead. A
-          # comma-separated list of request metadata keys to capture on client spans. It does not
-          # support glob patterns: an entry containing `*` or `?` is ignored with a warning, and
-          # every other entry is matched as a literal metadata key.
-          request: []
-        server:
-          # Deprecated: use `otel.instrumentation.grpc.server.request-metadata.included` instead. A
-          # comma-separated list of request metadata keys to capture on server spans. It does not
-          # support glob patterns: an entry containing `*` or `?` is ignored with a warning, and
-          # every other entry is matched as a literal metadata key.
-          request: []
       client:
         request_metadata:
           # A comma-separated list of ASCII request metadata key patterns to exclude from client
@@ -490,27 +344,10 @@ instrumentation/development:
     hibernate:
       # Enables the experimental `hibernate.session_id` span attribute.
       experimental_span_attributes/development: false
-      query_sanitization:
-        # Enables query sanitization for Hibernate queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.hibernate.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     hystrix:
       # Enables capturing the experimental `hystrix.command`, `hystrix.circuit_open` and
       # `hystrix.group` span attributes.
       experimental_span_attributes/development: false
-    influxdb:
-      query_sanitization:
-        # Enables query sanitization for InfluxDB queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.influxdb.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     java_util_logging:
       # Enables the capture of the log message arguments.
       capture_arguments/development: false
@@ -526,13 +363,6 @@ instrumentation/development:
     jboss_logmanager:
       # Enables the capture of the log message arguments.
       capture_arguments/development: false
-
-      # Deprecated: use `otel.instrumentation.jboss-logmanager.experimental.mdc-attributes.included`
-      # instead. Entries are matched as exact MDC keys rather than as glob patterns, except that a
-      # list containing only `*` captures all MDC attributes; in a multi-entry list, `*` and `?` are
-      # literal characters. It is ignored when an included or excluded pattern is configured, and it
-      # may be removed in the next minor release.
-      capture_mdc_attributes/development: []
 
       # Enables the capture of the log message template (if arguments are provided).
       capture_template/development: false
@@ -561,35 +391,18 @@ instrumentation/development:
       # sanitization.<p>WARNING: captured query parameters may contain sensitive information such as
       # passwords, personally identifiable information or protected health info.
       capture_query_parameters/development: false
-      query_sanitization:
-        # Enables query sanitization for database queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
       sqlcommenter/development:
         # Enables augmenting queries with a comment containing the tracing information. See
         # [sqlcommenter](https://google.github.io/sqlcommenter/) for more info. WARNING: augmenting
         # queries with tracing context will make query texts unique, which may have adverse impact
         # on database performance. Consult with database experts before enabling.
         enabled: false
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.jdbc.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
       transaction/development:
         # Enables experimental instrumentation to create spans for COMMIT and ROLLBACK operations.
         enabled: false
     jdbc_datasource:
       # Enables instrumentation of JDBC datasource connections.
       enabled: false
-    jedis:
-      query_sanitization:
-        # Enables query sanitization for Jedis queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.jedis.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     jmx:
       # List of paths to JMX metric definition YAML files.
       config: []
@@ -642,14 +455,6 @@ instrumentation/development:
       # Enables experimental span attributes `lettuce.command.cancelled` and
       # `lettuce.command.results.count`.
       experimental_span_attributes/development: false
-      query_sanitization:
-        # Enables query sanitization for Lettuce queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.lettuce.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     log4j_appender:
       # Enables the capture of the log message arguments.
       capture_arguments/development: false
@@ -658,50 +463,14 @@ instrumentation/development:
       # name, and line number.
       capture_code_attributes/development: false
 
-      # Deprecated; use otel.instrumentation.common.logging.structured-attributes.included instead.
-      # This setting is ignored under v3-preview and will be removed in 3.0. Outside v3-preview,
-      # true captures all MapMessage attributes and false captures none. It is ignored when a
-      # source-specific included or excluded pattern is configured.
-      capture_map_message_attributes/development: false
-
       # Enables the capture of the Log4j marker attribute.
       capture_marker_attribute/development: false
-
-      # Deprecated include-only alias for
-      # otel.instrumentation.log4j-appender.experimental.mdc-attributes.included. It does not
-      # support glob patterns: a list containing only "*" captures all context data attributes, and
-      # otherwise every entry, including one containing "*" or "?", is matched as a literal context
-      # data key. It is ignored when an included or excluded pattern is configured, and it may be
-      # removed in the next minor release.
-      capture_mdc_attributes/development: []
 
       # Enables the capture of the log message template (if arguments are provided).
       capture_template/development: false
 
       # Enables the capture of experimental log attributes, including thread name and thread ID.
       experimental_log_attributes/development: false
-      map_message_attributes/development:
-        # Deprecated; use otel.instrumentation.common.logging.structured-attributes.excluded
-        # instead. This setting is ignored under v3-preview and will be removed in 3.0.
-        # Comma-separated list of case-sensitive glob patterns for MapMessage keys not to capture as
-        # log attributes. "*" matches any number of characters and "?" matches one character.
-        # Excluded patterns take precedence over included patterns. No MapMessage attributes are
-        # captured unless an included pattern, an excluded pattern, or the deprecated
-        # otel.instrumentation.log4j-appender.experimental.capture-map-message-attributes setting is
-        # configured; configuring only excluded patterns captures all MapMessage attributes that do
-        # not match them. Captured MapMessage attributes may contain sensitive information.
-        excluded: []
-
-        # Deprecated; use otel.instrumentation.common.logging.structured-attributes.included
-        # instead. This setting is ignored under v3-preview and will be removed in 3.0.
-        # Comma-separated list of case-sensitive glob patterns for MapMessage keys to capture as log
-        # attributes. "*" matches any number of characters and "?" matches one character. Excluded
-        # patterns take precedence over included patterns. No MapMessage attributes are captured
-        # unless an included pattern, an excluded pattern, or the deprecated
-        # otel.instrumentation.log4j-appender.experimental.capture-map-message-attributes setting is
-        # configured; configuring only excluded patterns captures all MapMessage attributes that do
-        # not match them. Captured MapMessage attributes may contain sensitive information.
-        included: []
       mdc_attributes/development:
         # Comma-separated list of case-sensitive glob patterns for context data keys not to capture
         # as log attributes. "*" matches any number of characters and "?" matches one character.
@@ -731,76 +500,14 @@ instrumentation/development:
       # name, and line number.
       capture_code_attributes/development: false
 
-      # Deprecated; use otel.instrumentation.common.logging.structured-attributes.included instead.
-      # This setting is ignored under v3-preview and will be removed in 3.0. Outside v3-preview, it
-      # enables capture of all Logback key-value pair attributes unless a source-specific included
-      # or excluded pattern is configured.
-      capture_key_value_pair_attributes/development: false
-
-      # Deprecated setting that enables the capture of all attributes from the Logback logger
-      # context. It is ignored when
-      # otel.instrumentation.logback-appender.experimental.logger-context-attributes.included or
-      # otel.instrumentation.logback-appender.experimental.logger-context-attributes.excluded is
-      # configured, and it may be removed in the next minor release. Use
-      # otel.instrumentation.logback-appender.experimental.logger-context-attributes.included
-      # instead.
-      capture_logger_context_attributes/development: false
-
-      # Deprecated; use otel.instrumentation.common.logging.structured-attributes.included instead.
-      # This setting is ignored under v3-preview and will be removed in 3.0. Outside v3-preview, it
-      # enables capture of attributes added via Markers.append(), Markers.appendEntries(),
-      # Markers.appendArray(), and Markers.appendRaw() unless a source-specific included or excluded
-      # pattern is configured.
-      capture_logstash_marker_attributes/development: false
-
-      # Deprecated; use otel.instrumentation.common.logging.structured-attributes.included instead.
-      # This setting is ignored under v3-preview and will be removed in 3.0. Outside v3-preview, it
-      # enables capture of Logstash structured arguments unless a source-specific included or
-      # excluded pattern is configured.
-      capture_logstash_structured_arguments/development: false
-
       # Enables the capture of the Logback marker attribute.
       capture_marker_attribute/development: false
-
-      # Deprecated comma-separated list of MDC keys to capture as log attributes. Keys are matched
-      # literally, including "*" and "?", except that the single value "*" captures all MDC
-      # attributes. It is ignored when
-      # otel.instrumentation.logback-appender.experimental.mdc-attributes.included or
-      # otel.instrumentation.logback-appender.experimental.mdc-attributes.excluded is configured,
-      # and it may be removed in the next minor release. Use
-      # otel.instrumentation.logback-appender.experimental.mdc-attributes.included instead.
-      capture_mdc_attributes/development: []
 
       # Enables the capture of the log message template before parameter substitution.
       capture_template/development: false
 
       # Enables the capture of experimental log attributes, including thread name and thread ID.
       experimental_log_attributes/development: false
-      key_value_pair_attributes/development:
-        # Deprecated; use otel.instrumentation.common.logging.structured-attributes.excluded
-        # instead. This setting is ignored under v3-preview and will be removed in 3.0.
-        # Comma-separated list of case-sensitive glob patterns for Logback key value pair keys not
-        # to capture as log attributes. "*" matches any number of characters and "?" matches one
-        # character. Excluded patterns take precedence over included patterns. No key value pair
-        # attributes are captured unless an included pattern, an excluded pattern, or the deprecated
-        # otel.instrumentation.logback-appender.experimental.capture-key-value-pair-attributes
-        # setting is configured; configuring only excluded patterns captures all key value pair
-        # attributes that do not match them. Captured key value pair attributes may contain
-        # sensitive information.
-        excluded: []
-
-        # Deprecated; use otel.instrumentation.common.logging.structured-attributes.included
-        # instead. This setting is ignored under v3-preview and will be removed in 3.0.
-        # Comma-separated list of case-sensitive glob patterns for Logback key value pair keys to
-        # capture as log attributes. "*" matches any number of characters and "?" matches one
-        # character, so "*" captures all key value pair attributes. Excluded patterns take
-        # precedence over included patterns. No key value pair attributes are captured unless an
-        # included pattern, an excluded pattern, or the deprecated
-        # otel.instrumentation.logback-appender.experimental.capture-key-value-pair-attributes
-        # setting is configured; configuring only excluded patterns captures all key value pair
-        # attributes that do not match them. Captured key value pair attributes may contain
-        # sensitive information.
-        included: []
       logger_context_attributes/development:
         # Comma-separated list of case-sensitive glob patterns for Logback logger context property
         # keys not to capture as log attributes. "*" matches any number of characters and "?"
@@ -822,57 +529,6 @@ instrumentation/development:
         # setting is configured; configuring only excluded patterns captures all logger context
         # attributes that do not match them. Captured logger context attributes may contain
         # sensitive information.
-        included: []
-      logstash_marker_attributes/development:
-        # Deprecated; use otel.instrumentation.common.logging.structured-attributes.excluded
-        # instead. This setting is ignored under v3-preview and will be removed in 3.0.
-        # Comma-separated list of case-sensitive glob patterns for Logstash marker keys not to
-        # capture as log attributes. "*" matches any number of characters and "?" matches one
-        # character. Excluded patterns take precedence over included patterns. No Logstash marker
-        # attributes are captured unless an included pattern, an excluded pattern, or the deprecated
-        # otel.instrumentation.logback-appender.experimental.capture-logstash-marker-attributes
-        # setting is configured; configuring only excluded patterns captures all Logstash marker
-        # attributes that do not match them. Captured Logstash marker attributes may contain
-        # sensitive information.
-        excluded: []
-
-        # Deprecated; use otel.instrumentation.common.logging.structured-attributes.included
-        # instead. This setting is ignored under v3-preview and will be removed in 3.0.
-        # Comma-separated list of case-sensitive glob patterns for Logstash marker keys to capture
-        # as log attributes. "*" matches any number of characters and "?" matches one character, so
-        # "*" captures all Logstash marker attributes. Excluded patterns take precedence over
-        # included patterns. No Logstash marker attributes are captured unless an included pattern,
-        # an excluded pattern, or the deprecated
-        # otel.instrumentation.logback-appender.experimental.capture-logstash-marker-attributes
-        # setting is configured; configuring only excluded patterns captures all Logstash marker
-        # attributes that do not match them. Captured Logstash marker attributes may contain
-        # sensitive information.
-        included: []
-      logstash_structured_argument_attributes/development:
-        # Deprecated; use otel.instrumentation.common.logging.structured-attributes.excluded
-        # instead. This setting is ignored under v3-preview and will be removed in 3.0.
-        # Comma-separated list of case-sensitive glob patterns for Logstash structured argument keys
-        # not to capture as log attributes. "*" matches any number of characters and "?" matches one
-        # character. Excluded patterns take precedence over included patterns. No Logstash
-        # structured argument attributes are captured unless an included pattern, an excluded
-        # pattern, or the deprecated
-        # otel.instrumentation.logback-appender.experimental.capture-logstash-structured-arguments
-        # setting is configured; configuring only excluded patterns captures all Logstash structured
-        # argument attributes that do not match them. Captured Logstash structured argument
-        # attributes may contain sensitive information.
-        excluded: []
-
-        # Deprecated; use otel.instrumentation.common.logging.structured-attributes.included
-        # instead. This setting is ignored under v3-preview and will be removed in 3.0.
-        # Comma-separated list of case-sensitive glob patterns for Logstash structured argument keys
-        # to capture as log attributes. "*" matches any number of characters and "?" matches one
-        # character, so "*" captures all Logstash structured argument attributes. Excluded patterns
-        # take precedence over included patterns. No Logstash structured argument attributes are
-        # captured unless an included pattern, an excluded pattern, or the deprecated
-        # otel.instrumentation.logback-appender.experimental.capture-logstash-structured-arguments
-        # setting is configured; configuring only excluded patterns captures all Logstash structured
-        # argument attributes that do not match them. Captured Logstash structured argument
-        # attributes may contain sensitive information.
         included: []
       mdc_attributes/development:
         # Comma-separated list of case-sensitive glob patterns for MDC keys not to capture as log
@@ -902,11 +558,6 @@ instrumentation/development:
       # Sets the base time unit for the OpenTelemetry MeterRegistry. Supported values: ns, us, ms,
       # s, min, h, d.
       base_time_unit: s
-      histogram_gauges:
-        # Deprecated alias for
-        # `otel.instrumentation.micrometer.experimental.histogram-gauges.enabled`. It will be
-        # removed in 3.0.
-        enabled: false
       histogram_gauges/development:
         # Enables gauge-based Micrometer histograms for DistributionSummary and Timer instruments.
         enabled: false
@@ -915,15 +566,6 @@ instrumentation/development:
         # renamed to match Micrometer instrument naming, and the base time unit will be set to
         # seconds.
         enabled: false
-    mongo:
-      query_sanitization:
-        # Enables query sanitization for MongoDB queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.mongo.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     netty:
       connection_telemetry:
         # Enable the creation of Connect and DNS spans.
@@ -931,20 +573,6 @@ instrumentation/development:
       ssl_telemetry:
         # Enable SSL telemetry.
         enabled: false
-    opensearch:
-      # Deprecated and will be removed in 3.0, when search query bodies are always captured. There
-      # is no replacement. Until then, set this to false to disable capture. Search queries may
-      # contain personal or sensitive information.
-      capture_search_query: true
-      query_sanitization:
-        # Enables sanitization of captured search query bodies. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled. When disabled, bodies are
-        # captured verbatim and may contain personal or sensitive information.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.opensearch.query-sanitization.enabled` instead. It
-        # is ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     opentelemetry_extension_annotations:
       # All methods to be excluded from auto-instrumentation by annotation-based advices.
       exclude_methods: ''
@@ -967,21 +595,6 @@ instrumentation/development:
     quartz:
       # Enables the experimental `job.system` span attribute.
       experimental_span_attributes/development: false
-    r2dbc:
-      query_sanitization:
-        # Enables query sanitization for database queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      sqlcommenter/development:
-        # Enables augmenting queries with a comment containing the tracing information. See
-        # [sqlcommenter](https://google.github.io/sqlcommenter/) for more info. WARNING: augmenting
-        # queries with tracing context will make query texts unique, which may have adverse impact
-        # on database performance.
-        enabled: false
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.r2dbc.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     rabbitmq:
       # Enables experimental span attributes `rabbitmq.command`, `rabbitmq.delivery_mode`,
       # `rabbitmq.queue`, and `rabbitmq.record.queue_time_ms`.
@@ -994,35 +607,17 @@ instrumentation/development:
       connection_telemetry:
         # Enables the creation of Connect and DNS spans.
         enabled: false
-    redisson:
-      query_sanitization:
-        # Enables query sanitization for Redisson queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.redisson.query-sanitization.enabled` instead. It is
-        # ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     rocketmq_client:
       # Enables capturing experimental span attributes `messaging.rocketmq.message.tag`,
       # `messaging.rocketmq.broker_address`, `messaging.rocketmq.send_result`,
       # `messaging.rocketmq.queue_id`, and `messaging.rocketmq.queue_offset`.
       experimental_span_attributes/development: false
     runtime_telemetry:
-      # Deprecated: will be removed in 3.0, when the GC cause is always captured. There is no
-      # replacement. Enables capturing the `jvm.gc.cause` attribute; under v3 preview the GC cause
-      # is always captured.
-      capture_gc_cause: false
-
       # Enables the capture of experimental JFR-based JVM runtime metrics on Java 17+.
       emit_experimental_jfr_metrics/development: false
 
       # Enables the capture of experimental JMX-based JVM runtime metrics.
       emit_experimental_metrics/development: false
-
-      # Deprecated: use `otel.instrumentation.runtime-telemetry.emit-experimental-metrics` instead.
-      # It will be removed in 3.0.
-      emit_experimental_telemetry/development: false
       jfr_metrics/development:
         # Excludes JVM runtime metrics from JFR on Java 17+ using exact names or glob patterns with
         # * and ?. Excluded patterns take precedence over included patterns, including over
@@ -1034,45 +629,16 @@ instrumentation/development:
         # patterns with * and ?. Configuring either JFR metric selector property activates JFR. Use
         # * to select all metrics.
         included: []
-      package_emitter:
-        # Deprecated: use
-        # `otel.instrumentation.runtime-telemetry.experimental.package-emitter.enabled` instead. It
-        # will be removed in 3.0.
-        enabled: false
-
-        # Deprecated: use
-        # `otel.instrumentation.runtime-telemetry.experimental.package-emitter.jars-per-second`
-        # instead. It will be removed in 3.0.
-        jars_per_second: 10
       package_emitter/development:
         # Enables creating events for JAR libraries used by the application.
         enabled: false
 
         # The number of JAR files processed per second by the package emitter.
         jars_per_second: 10
-
-      # Deprecated: use `otel.instrumentation.runtime-telemetry.experimental.jfr-metrics.included`
-      # instead. Prefer JFR over JMX for metrics available from both sources, on Java 17+.
-      prefer_jfr/development: false
-    runtime_telemetry_java17:
-      # Deprecated: use `otel.instrumentation.runtime-telemetry.experimental.jfr-metrics.included=*`
-      # instead. It will be removed in 3.0.
-      enable_all: false
-
-      # Deprecated: use `otel.instrumentation.runtime-telemetry.emit-experimental-jfr-metrics`
-      # instead. It will be removed in 3.0.
-      enabled: false
     rxjava:
       # Enables the experimental span attribute `rxjava.canceled`.
       experimental_span_attributes/development: false
     servlet:
-      # Deprecated include-only alias for
-      # `otel.instrumentation.servlet.experimental.request-parameters.included`. It does not support
-      # glob patterns: an entry containing `*` or `?` is ignored with a warning, and every other
-      # entry is matched as a literal request parameter name. It may be removed in the next minor
-      # release.
-      capture_request_parameters/development: []
-
       # Enables capturing the experimental `servlet.timeout` span attribute.
       experimental_span_attributes/development: false
 
@@ -1158,24 +724,6 @@ instrumentation/development:
       # Enables experimental span attributes `twilio.type`, `twilio.account`, `twilio.sid`,
       # `twilio.parentSid`, and `twilio.status`.
       experimental_span_attributes/development: false
-    vertx_redis_client:
-      query_sanitization:
-        # Enables query sanitization for Vert.x Redis client queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.vertx-redis-client.query-sanitization.enabled`
-        # instead. It is ignored under v3 preview and will be removed in 3.0.
-        enabled: true
-    vertx_sql_client:
-      query_sanitization:
-        # Enables query sanitization for Vert.x SQL client queries. Takes precedence over
-        # otel.instrumentation.common.db.query-sanitization.enabled.
-        enabled: true
-      statement_sanitizer:
-        # Deprecated: use `otel.instrumentation.vertx-sql-client.query-sanitization.enabled`
-        # instead. It is ignored under v3 preview and will be removed in 3.0.
-        enabled: true
     xxl_job:
       # Enables experimental span attributes `job.system`, `scheduling.xxl-job.glue.type`, and
       # `scheduling.xxl-job.job.id`.

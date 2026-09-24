@@ -250,6 +250,75 @@ class DeclarativeConfigYamlGeneratorTest {
         .isEqualTo(false);
   }
 
+  @Test
+  void omitsDeprecatedConfigurations() throws Exception {
+    ConfigurationOption current =
+        new ConfigurationOption(
+            "otel.instrumentation.test.new-name",
+            "java.test.new_name",
+            "Current setting.",
+            "true",
+            ConfigurationType.BOOLEAN,
+            null,
+            null,
+            null,
+            null,
+            null);
+    ConfigurationOption deprecated =
+        new ConfigurationOption(
+            "otel.instrumentation.test.old-name",
+            "java.test.old_name",
+            "Deprecated: use `otel.instrumentation.test.new-name` instead.",
+            "true",
+            ConfigurationType.BOOLEAN,
+            null,
+            null,
+            null,
+            null,
+            true,
+            "otel.instrumentation.test.new-name",
+            null);
+
+    String output = generate(List.of(module("test", current, deprecated)), List.of(deprecated));
+
+    assertThat(navigate(parse(output), "instrumentation/development", "java", "test"))
+        .isEqualTo(Map.of("new_name", true));
+  }
+
+  @Test
+  void omitsConfigurationsWithoutDefault() throws Exception {
+    // leaving an option without a default unset falls back to another setting, so writing any
+    // value into the example would override that fallback
+    ConfigurationOption override =
+        new ConfigurationOption(
+            "otel.instrumentation.test.query-sanitization.enabled",
+            "java.test.query_sanitization.enabled",
+            "Overrides the common setting for this instrumentation.",
+            null,
+            ConfigurationType.BOOLEAN,
+            null,
+            null,
+            null,
+            null,
+            null);
+    ConfigurationOption global =
+        new ConfigurationOption(
+            null,
+            "general.db.semconv.version",
+            "When unset, the opt-in list selects the conventions.",
+            null,
+            ConfigurationType.INT,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    String output = generate(List.of(module("test", override)), List.of(global));
+
+    assertThat(output).isEmpty();
+  }
+
   private static InstrumentationModule module(String name, ConfigurationOption... options) {
     InstrumentationMetadata metadata =
         new InstrumentationMetadata.Builder().configurations(List.of(options)).build();
