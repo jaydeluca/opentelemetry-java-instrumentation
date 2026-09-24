@@ -12,4 +12,9 @@ configurations:
       otel.instrumentation.common.db.query-sanitization.enabled.
     type: boolean
     default: true
+  - name: otel.instrumentation.influxdb.statement-sanitizer.enabled
+    declarative_name: java.influxdb.statement_sanitizer.enabled
+    description: "Deprecated: use `otel.instrumentation.influxdb.query-sanitization.enabled` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: boolean
+    default: true
   - ref: common.db.query-sanitization.enabled

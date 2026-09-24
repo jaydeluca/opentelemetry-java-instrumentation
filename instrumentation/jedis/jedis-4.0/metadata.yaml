@@ -6,3 +6,15 @@ semantic_conventions:
 library_link: https://github.com/redis/jedis
 configurations:
   - ref: common.db.query-sanitization.enabled
+  - name: otel.instrumentation.jedis.query-sanitization.enabled
+    declarative_name: java.jedis.query_sanitization.enabled
+    description: >
+      Enables query sanitization for Jedis queries. Takes precedence over
+      otel.instrumentation.common.db.query-sanitization.enabled.
+    type: boolean
+    default: true
+  - name: otel.instrumentation.jedis.statement-sanitizer.enabled
+    declarative_name: java.jedis.statement_sanitizer.enabled
+    description: "Deprecated: use `otel.instrumentation.jedis.query-sanitization.enabled` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: boolean
+    default: true

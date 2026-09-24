@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.yaml.snakeyaml.Yaml;
 
 class YamlHelperTest {
   @Test
@@ -1025,11 +1026,44 @@ class YamlHelperTest {
     assertThat(refCount).isEqualTo(2);
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void listsGlobalConfigurationsInCatalogAndGlobalRefs() throws Exception {
+    ConfigurationOption global =
+        new ConfigurationOption(
+                "otel.instrumentation.common.v3-preview",
+                "java.common.v3_preview",
+                "Enables v3 preview.",
+                "false",
+                ConfigurationType.BOOLEAN,
+                null,
+                null,
+                null,
+                null,
+                null)
+            .withId("common.v3-preview");
+
+    StringWriter stringWriter = new StringWriter();
+    try (BufferedWriter writer = new BufferedWriter(stringWriter)) {
+      YamlHelper.generateInstrumentationYaml(emptyList(), List.of(global), writer);
+    }
+    Map<String, Object> parsed = new Yaml().load(stringWriter.toString());
+
+    Map<String, Object> configurations =
+        (Map<String, Object>)
+            ((Map<String, Object>) parsed.get("definitions")).get("configurations");
+    assertThat((Map<String, Object>) configurations.get("common.v3-preview"))
+        .containsEntry("name", "otel.instrumentation.common.v3-preview")
+        .containsEntry("declarative_name", "java.common.v3_preview");
+    assertThat(parsed.get("global_configuration_refs")).isEqualTo(List.of("common.v3-preview"));
+  }
+
   private static String generateInstrumentationYaml(List<InstrumentationModule> modules)
       throws IOException {
     StringWriter stringWriter = new StringWriter();
     try (BufferedWriter writer = new BufferedWriter(stringWriter)) {
-      YamlHelper.generateInstrumentationYaml(modules, writer);
+      // no global configurations, so the output reflects only the given modules
+      YamlHelper.generateInstrumentationYaml(modules, List.of(), writer);
     }
     return stringWriter.toString();
   }

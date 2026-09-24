@@ -23,3 +23,15 @@ configurations:
     type: boolean
     default: false
   - ref: common.db.query-sanitization.enabled
+  - name: otel.instrumentation.couchbase.query-sanitization.enabled
+    declarative_name: java.couchbase.query_sanitization.enabled
+    description: >
+      Enables query sanitization for Couchbase queries. Takes precedence over
+      otel.instrumentation.common.db.query-sanitization.enabled.
+    type: boolean
+    default: true
+  - name: otel.instrumentation.couchbase.statement-sanitizer.enabled
+    declarative_name: java.couchbase.statement_sanitizer.enabled
+    description: "Deprecated: use `otel.instrumentation.couchbase.query-sanitization.enabled` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: boolean
+    default: true

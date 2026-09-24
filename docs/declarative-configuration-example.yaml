@@ -7,6 +7,26 @@ file_format: '1.0'
 
 instrumentation/development:
   general:
+    code:
+      semconv:
+        # With `version: 1`, emits both the old and the stable code semantic conventions. Not
+        # supported under v3 preview.
+        dual_emit: false
+
+        # Code semantic convention version to emit: `0` for the old conventions or `1` for the
+        # stable conventions. Takes precedence over `stability_opt_in_list`. Under v3 preview only
+        # `1` is supported and it is the default.
+        version: 0
+    db:
+      semconv:
+        # With `version: 1`, emits both the old and the stable database semantic conventions. Not
+        # supported under v3 preview.
+        dual_emit: false
+
+        # Database semantic convention version to emit: `0` for the old conventions or `1` for the
+        # stable conventions. Takes precedence over `stability_opt_in_list`. Under v3 preview only
+        # `1` is supported and it is the default.
+        version: 0
     http:
       client:
         # List of HTTP request headers to capture in HTTP client telemetry.
@@ -20,6 +40,35 @@ instrumentation/development:
 
         # List of HTTP response headers to capture in HTTP server telemetry.
         response_captured_headers: []
+    messaging:
+      semconv:
+        # With `version: 1` and `experimental: true`, emits both the current and the preview
+        # messaging semantic conventions. Not supported under v3 preview.
+        dual_emit: false
+
+        # With `version: 1`, selects the preview messaging semantic conventions. Required, because
+        # version 1 of the messaging semantic conventions is not yet stable.
+        experimental: false
+
+        # Messaging semantic convention version to emit: `0` for the current conventions or `1`
+        # together with `experimental: true` for the preview conventions. Takes precedence over the
+        # semantic convention opt-in settings. Under v3 preview only the preview conventions are
+        # supported and they are the default.
+        version: 0
+    rpc:
+      semconv:
+        # With `version: 1` and `experimental: true`, emits both the current and the preview RPC
+        # semantic conventions.
+        dual_emit: false
+
+        # With `version: 1`, selects the preview RPC semantic conventions. Required, because version
+        # 1 of the RPC semantic conventions is not yet stable.
+        experimental: false
+
+        # RPC semantic convention version to emit: `0` for the current conventions or `1` together
+        # with `experimental: true` for the preview conventions. Takes precedence over the semantic
+        # convention opt-in settings.
+        version: 0
     sanitization:
       url:
         # List of URL query parameter names whose values are redacted in URL attributes. See
@@ -32,6 +81,16 @@ instrumentation/development:
           - X-Amz-Security-Token
           - sig
           - X-Goog-Signature
+    semconv_exception:
+      signal:
+        # Preview of emitting exceptions as log records instead of span events. `logs` emits log
+        # records only and `logs/dup` emits both log records and span events. When unset, exceptions
+        # are recorded as span events.
+        preview: ''
+    semconv_stability:
+      # Deprecated: use `general.stability_opt_in_list` instead. It is ignored when
+      # `general.stability_opt_in_list` is configured.
+      opt_in: []
 
     # Opt-in to emit stable semantic conventions instead of the old experimental semantic
     # conventions. Accepts a comma-separated list of semantic convention groups (e.g., `database`,
@@ -55,16 +114,14 @@ instrumentation/development:
       # Flush timeout in milliseconds.
       flush_timeout: 10000
     aws_sdk:
-      batch_send:
-        message_creation_spans:
-          # Determines whether to create a producer span for each eligible message in an SQS batch
-          # send when stable messaging semantic conventions are enabled. Overrides
-          # `otel.instrumentation.messaging.batch-send.message-creation-spans.enabled`.
-          enabled: true
-
       # Enables the experimental span attributes `aws.agent`, `aws.queue.name`,
       # `aws.lambda.function.arn` and `aws.lambda.function.name` for AWS SDK instrumentation.
       experimental_span_attributes/development: false
+      message_create_spans:
+        # Determines whether to create a producer span for each eligible message in an SQS batch
+        # send when stable messaging semantic conventions are enabled. Overrides
+        # `otel.instrumentation.common.messaging.message-create-spans.enabled`.
+        enabled: true
 
       # Determines whether errors returned by each individual HTTP request should be recorded as
       # events for the SDK span.
@@ -77,19 +134,56 @@ instrumentation/development:
       # Enable the capture of experimental `camel.uri`, `camel.kafka.partitionKey`,
       # `camel.kafka.key` and `camel.kafka.offset` span attributes.
       experimental_span_attributes/development: false
+      query_sanitization:
+        # Enables query sanitization for database queries traced through Camel. Takes precedence
+        # over otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.camel.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     cassandra:
       query_sanitization:
         # Enables query sanitization for Cassandra queries. Takes precedence over
         # otel.instrumentation.common.db.query-sanitization.enabled.
         enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.cassandra.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
+    clickhouse:
+      query_sanitization:
+        # Enables query sanitization for ClickHouse queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.clickhouse.query-sanitization.enabled` instead. It
+        # is ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     common:
       controller_telemetry/development:
         # Enables the creation of experimental controller spans.
         enabled: false
+      database:
+        sqlcommenter/development:
+          # Deprecated: use `java.common.db.sqlcommenter/development.enabled` instead. It is ignored
+          # under v3 preview.
+          enabled: false
+        statement_sanitizer:
+          # Deprecated: use `java.common.db.query_sanitization.enabled` instead. It is ignored under
+          # v3 preview.
+          enabled: true
       db:
         query_sanitization:
           # Enables query sanitization for database queries.
           enabled: true
+        sqlcommenter/development:
+          # Provides the default for whether to augment database queries with a comment containing
+          # the tracing information. See [sqlcommenter](https://google.github.io/sqlcommenter/) for
+          # more info. An instrumentation-specific setting takes precedence. WARNING: augmenting
+          # queries with tracing context will make query texts unique, which may have adverse impact
+          # on database performance.
+          enabled: false
       enduser:
         id:
           # Enables capturing the enduser.id attribute. This property and the associated attribute
@@ -146,6 +240,10 @@ instrumentation/development:
           # `http.server.request.body.size` and `http.server.response.body.size` metrics.
           emit_experimental_telemetry/development: false
       logging:
+        # Deprecated: use `otel.instrumentation.common.logging.span-id-key` instead. It is ignored
+        # under v3 preview and will be removed in 3.0.
+        span_id: span_id
+
         # Specifies the key name used to store the span ID in the logging context.
         span_id_key: span_id
         structured_attributes:
@@ -166,8 +264,16 @@ instrumentation/development:
           # attributes remain separate and opt-in.
           included: []
 
+        # Deprecated: use `otel.instrumentation.common.logging.trace-flags-key` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        trace_flags: trace_flags
+
         # Specifies the key name used to store the trace flags in the logging context.
         trace_flags_key: trace_flags
+
+        # Deprecated: use `otel.instrumentation.common.logging.trace-id-key` instead. It is ignored
+        # under v3 preview and will be removed in 3.0.
+        trace_id: trace_id
 
         # Specifies the key name used to store the trace ID in the logging context.
         trace_id_key: trace_id
@@ -176,17 +282,10 @@ instrumentation/development:
         # list of attribute keys.
         resource_attributes: []
       messaging:
-        batch_send:
-          message_creation_spans:
-            # Provides the default for whether to create a producer span for each eligible message
-            # in a batch send when stable messaging semantic conventions are enabled. An
-            # instrumentation-specific setting takes precedence.
-            enabled: true
-
-        # Deprecated: use `otel.instrumentation.messaging.experimental.headers.included` instead. A
-        # comma-separated list of header names to capture as span attributes. It does not support
-        # glob patterns: an entry containing `*` or `?` is ignored with a warning, and every other
-        # entry is matched as a literal header name.
+        # Deprecated: use `otel.instrumentation.common.messaging.experimental.headers.included`
+        # instead. A comma-separated list of header names to capture as span attributes. It does not
+        # support glob patterns: an entry containing `*` or `?` is ignored with a warning, and every
+        # other entry is matched as a literal header name.
         capture_headers/development: []
         headers/development:
           # A comma-separated list of message header name patterns to exclude from span attributes.
@@ -200,10 +299,21 @@ instrumentation/development:
           # Matching is case-sensitive. `?` matches one character and `*` matches zero or more
           # characters.
           included: []
+        message_create_spans:
+          # Provides the default for whether to create a producer span for each eligible message in
+          # a batch send when stable messaging semantic conventions are enabled. An
+          # instrumentation-specific setting takes precedence.
+          enabled: true
         receive_telemetry/development:
           # Enables experimental receive telemetry, which will cause consumers to start a new trace,
           # with only a span link connecting it to the producer trace.
           enabled: false
+      semconv_stability:
+        # Opt-in to emit preview (not yet stable) semantic conventions for the `rpc`, `messaging`,
+        # and `service.peer` groups. Use `<group>/dup` to emit both the old and the preview
+        # conventions simultaneously. Outside v3 preview these groups are also accepted by
+        # `otel.semconv-stability.opt-in`; under v3 preview only this setting selects them.
+        preview: []
 
       # Used to specify a mapping from server addresses or configured targets to peer services.
       # Configured targets containing commas or equals signs can only be mapped with declarative
@@ -216,6 +326,13 @@ instrumentation/development:
       #     - peer: host
       #       service_name: serviceName
       service_peer_mapping: []
+
+      # Strategy for suppressing nested instrumentation spans: `semconv` suppresses a span nested in
+      # a span of the same semantic convention type, `span-kind` suppresses a span nested in a span
+      # of the same span kind, and `none` disables suppression. The flat
+      # `otel.instrumentation.experimental.span-suppression-strategy` property is deprecated and
+      # ignored under v3 preview; use the declarative setting instead.
+      span_suppression_strategy/development: semconv
       user:
         name:
           # Enables capturing the user.name attribute when v3 preview is enabled. This property and
@@ -225,6 +342,11 @@ instrumentation/development:
           # Enables capturing the user.roles attribute when v3 preview is enabled. This property and
           # the associated attribute are not supported when v3 preview is disabled.
           enabled: false
+
+      # Enables a preview of the behavior planned for version 3.0 of the agent, such as emitting
+      # stable semantic conventions by default and ignoring deprecated settings. The set of changes
+      # it enables can grow in any release.
+      v3_preview: false
       view_telemetry/development:
         # Enables the creation of experimental view spans.
         enabled: false
@@ -236,6 +358,14 @@ instrumentation/development:
       # Deprecated and will be removed in the next minor release. Use
       # otel.instrumentation.couchbase.emit-experimental-telemetry instead.
       experimental_span_attributes/development: false
+      query_sanitization:
+        # Enables query sanitization for Couchbase queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.couchbase.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     elasticsearch:
       # Deprecated for removal in 3.0 with no replacement. Outside v3-preview, explicitly set this
       # to capture or omit search query bodies. Under v3-preview and in 3.0, the setting is ignored
@@ -254,6 +384,10 @@ instrumentation/development:
         # Enables sanitization of the captured search query bodies. Takes precedence over
         # otel.instrumentation.common.db.query-sanitization.enabled.
         enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.elasticsearch.query-sanitization.enabled` instead.
+        # It is ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     executors:
       # List of Executor subclasses to be instrumented.
       include: []
@@ -266,7 +400,21 @@ instrumentation/development:
 
       # Semicolon-separated list of annotation class names to instrument.
       include: []
+    geode:
+      query_sanitization:
+        # Enables query sanitization for Geode queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.geode.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     graphql:
+      add_operation_name_to_span_name:
+        # Deprecated: use `otel.instrumentation.graphql.operation-name-in-span-name.enabled`
+        # instead. It is ignored under v3 preview and will be removed in 3.0.
+        enabled: false
+
       # Whether to capture the query in `graphql.document` span attribute.
       capture_query: true
       data_fetcher:
@@ -280,6 +428,10 @@ instrumentation/development:
       query_sanitization:
         # Enables sanitization of sensitive information from queries so they aren't added as span
         # attributes.
+        enabled: true
+      query_sanitizer:
+        # Deprecated: use `otel.instrumentation.graphql.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
         enabled: true
       trivial_data_fetcher:
         # Whether to create spans for trivial data fetchers. A trivial data fetcher is one that
@@ -338,6 +490,14 @@ instrumentation/development:
     hibernate:
       # Enables the experimental `hibernate.session_id` span attribute.
       experimental_span_attributes/development: false
+      query_sanitization:
+        # Enables query sanitization for Hibernate queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.hibernate.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     hystrix:
       # Enables capturing the experimental `hystrix.command`, `hystrix.circuit_open` and
       # `hystrix.group` span attributes.
@@ -346,6 +506,10 @@ instrumentation/development:
       query_sanitization:
         # Enables query sanitization for InfluxDB queries. Takes precedence over
         # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.influxdb.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
         enabled: true
     java_util_logging:
       # Enables the capture of the log message arguments.
@@ -407,12 +571,25 @@ instrumentation/development:
         # queries with tracing context will make query texts unique, which may have adverse impact
         # on database performance. Consult with database experts before enabling.
         enabled: false
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.jdbc.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
       transaction/development:
         # Enables experimental instrumentation to create spans for COMMIT and ROLLBACK operations.
         enabled: false
     jdbc_datasource:
       # Enables instrumentation of JDBC datasource connections.
       enabled: false
+    jedis:
+      query_sanitization:
+        # Enables query sanitization for Jedis queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.jedis.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     jmx:
       # List of paths to JMX metric definition YAML files.
       config: []
@@ -465,6 +642,14 @@ instrumentation/development:
       # Enables experimental span attributes `lettuce.command.cancelled` and
       # `lettuce.command.results.count`.
       experimental_span_attributes/development: false
+      query_sanitization:
+        # Enables query sanitization for Lettuce queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.lettuce.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     log4j_appender:
       # Enables the capture of the log message arguments.
       capture_arguments/development: false
@@ -735,6 +920,10 @@ instrumentation/development:
         # Enables query sanitization for MongoDB queries. Takes precedence over
         # otel.instrumentation.common.db.query-sanitization.enabled.
         enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.mongo.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     netty:
       connection_telemetry:
         # Enable the creation of Connect and DNS spans.
@@ -751,6 +940,10 @@ instrumentation/development:
         # Enables sanitization of captured search query bodies. Takes precedence over
         # otel.instrumentation.common.db.query-sanitization.enabled. When disabled, bodies are
         # captured verbatim and may contain personal or sensitive information.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.opensearch.query-sanitization.enabled` instead. It
+        # is ignored under v3 preview and will be removed in 3.0.
         enabled: true
     opentelemetry_extension_annotations:
       # All methods to be excluded from auto-instrumentation by annotation-based advices.
@@ -785,6 +978,10 @@ instrumentation/development:
         # queries with tracing context will make query texts unique, which may have adverse impact
         # on database performance.
         enabled: false
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.r2dbc.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     rabbitmq:
       # Enables experimental span attributes `rabbitmq.command`, `rabbitmq.delivery_mode`,
       # `rabbitmq.queue`, and `rabbitmq.record.queue_time_ms`.
@@ -797,17 +994,35 @@ instrumentation/development:
       connection_telemetry:
         # Enables the creation of Connect and DNS spans.
         enabled: false
+    redisson:
+      query_sanitization:
+        # Enables query sanitization for Redisson queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.redisson.query-sanitization.enabled` instead. It is
+        # ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     rocketmq_client:
       # Enables capturing experimental span attributes `messaging.rocketmq.message.tag`,
       # `messaging.rocketmq.broker_address`, `messaging.rocketmq.send_result`,
       # `messaging.rocketmq.queue_id`, and `messaging.rocketmq.queue_offset`.
       experimental_span_attributes/development: false
     runtime_telemetry:
+      # Deprecated: will be removed in 3.0, when the GC cause is always captured. There is no
+      # replacement. Enables capturing the `jvm.gc.cause` attribute; under v3 preview the GC cause
+      # is always captured.
+      capture_gc_cause: false
+
       # Enables the capture of experimental JFR-based JVM runtime metrics on Java 17+.
       emit_experimental_jfr_metrics/development: false
 
       # Enables the capture of experimental JMX-based JVM runtime metrics.
       emit_experimental_metrics/development: false
+
+      # Deprecated: use `otel.instrumentation.runtime-telemetry.emit-experimental-metrics` instead.
+      # It will be removed in 3.0.
+      emit_experimental_telemetry/development: false
       jfr_metrics/development:
         # Excludes JVM runtime metrics from JFR on Java 17+ using exact names or glob patterns with
         # * and ?. Excluded patterns take precedence over included patterns, including over
@@ -819,6 +1034,16 @@ instrumentation/development:
         # patterns with * and ?. Configuring either JFR metric selector property activates JFR. Use
         # * to select all metrics.
         included: []
+      package_emitter:
+        # Deprecated: use
+        # `otel.instrumentation.runtime-telemetry.experimental.package-emitter.enabled` instead. It
+        # will be removed in 3.0.
+        enabled: false
+
+        # Deprecated: use
+        # `otel.instrumentation.runtime-telemetry.experimental.package-emitter.jars-per-second`
+        # instead. It will be removed in 3.0.
+        jars_per_second: 10
       package_emitter/development:
         # Enables creating events for JAR libraries used by the application.
         enabled: false
@@ -829,6 +1054,14 @@ instrumentation/development:
       # Deprecated: use `otel.instrumentation.runtime-telemetry.experimental.jfr-metrics.included`
       # instead. Prefer JFR over JMX for metrics available from both sources, on Java 17+.
       prefer_jfr/development: false
+    runtime_telemetry_java17:
+      # Deprecated: use `otel.instrumentation.runtime-telemetry.experimental.jfr-metrics.included=*`
+      # instead. It will be removed in 3.0.
+      enable_all: false
+
+      # Deprecated: use `otel.instrumentation.runtime-telemetry.emit-experimental-jfr-metrics`
+      # instead. It will be removed in 3.0.
+      enabled: false
     rxjava:
       # Enables the experimental span attribute `rxjava.canceled`.
       experimental_span_attributes/development: false
@@ -925,6 +1158,24 @@ instrumentation/development:
       # Enables experimental span attributes `twilio.type`, `twilio.account`, `twilio.sid`,
       # `twilio.parentSid`, and `twilio.status`.
       experimental_span_attributes/development: false
+    vertx_redis_client:
+      query_sanitization:
+        # Enables query sanitization for Vert.x Redis client queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.vertx-redis-client.query-sanitization.enabled`
+        # instead. It is ignored under v3 preview and will be removed in 3.0.
+        enabled: true
+    vertx_sql_client:
+      query_sanitization:
+        # Enables query sanitization for Vert.x SQL client queries. Takes precedence over
+        # otel.instrumentation.common.db.query-sanitization.enabled.
+        enabled: true
+      statement_sanitizer:
+        # Deprecated: use `otel.instrumentation.vertx-sql-client.query-sanitization.enabled`
+        # instead. It is ignored under v3 preview and will be removed in 3.0.
+        enabled: true
     xxl_job:
       # Enables experimental span attributes `job.system`, `scheduling.xxl-job.glue.type`, and
       # `scheduling.xxl-job.job.id`.

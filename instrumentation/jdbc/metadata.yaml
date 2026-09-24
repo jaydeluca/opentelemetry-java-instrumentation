@@ -16,6 +16,11 @@ configurations:
       otel.instrumentation.common.db.query-sanitization.enabled.
     type: boolean
     default: true
+  - name: otel.instrumentation.jdbc.statement-sanitizer.enabled
+    declarative_name: java.jdbc.statement_sanitizer.enabled
+    description: "Deprecated: use `otel.instrumentation.jdbc.query-sanitization.enabled` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: boolean
+    default: true
   - ref: common.db.query-sanitization.enabled
   - name: otel.instrumentation.jdbc.experimental.transaction.enabled
     declarative_name: java.jdbc.transaction/development.enabled

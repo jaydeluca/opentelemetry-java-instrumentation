@@ -152,3 +152,147 @@ configurations:
     description: "Provides the default for whether to create a producer span for each eligible message in a batch send when stable messaging semantic conventions are enabled. An instrumentation-specific setting takes precedence."
     type: boolean
     default: true
+
+# Global configurations are read by the agent or the instrumentation API itself rather than by a
+# specific instrumentation, so no module's metadata.yaml declares them. The doc generator always
+# includes them in docs/declarative-configuration-example.yaml; modules must not `ref` them.
+global_configurations:
+  common.v3-preview:
+    name: otel.instrumentation.common.v3-preview
+    declarative_name: java.common.v3_preview
+    description: "Enables a preview of the behavior planned for version 3.0 of the agent, such as emitting stable semantic conventions by default and ignoring deprecated settings. The set of changes it enables can grow in any release."
+    type: boolean
+    default: false
+
+  semconv-stability.preview:
+    name: otel.semconv-stability.preview
+    declarative_name: java.common.semconv_stability.preview
+    description: "Opt-in to emit preview (not yet stable) semantic conventions for the `rpc`, `messaging`, and `service.peer` groups. Use `<group>/dup` to emit both the old and the preview conventions simultaneously. Outside v3 preview these groups are also accepted by `otel.semconv-stability.opt-in`; under v3 preview only this setting selects them."
+    type: list
+    default: ""
+
+  semconv-exception.signal.preview:
+    name: otel.semconv.exception.signal.preview
+    declarative_name: general.semconv_exception.signal.preview
+    description: "Preview of emitting exceptions as log records instead of span events. `logs` emits log records only and `logs/dup` emits both log records and span events. When unset, exceptions are recorded as span events."
+    type: string
+    default: ""
+
+  span-suppression-strategy:
+    name: otel.instrumentation.experimental.span-suppression-strategy
+    declarative_name: java.common.span_suppression_strategy/development
+    description: "Strategy for suppressing nested instrumentation spans: `semconv` suppresses a span nested in a span of the same semantic convention type, `span-kind` suppresses a span nested in a span of the same span kind, and `none` disables suppression. The flat `otel.instrumentation.experimental.span-suppression-strategy` property is deprecated and ignored under v3 preview; use the declarative setting instead."
+    type: string
+    default: semconv
+
+  db.semconv.version:
+    declarative_name: general.db.semconv.version
+    description: "Database semantic convention version to emit: `0` for the old conventions or `1` for the stable conventions. Takes precedence over `stability_opt_in_list`. Under v3 preview only `1` is supported and it is the default."
+    type: int
+    default: 0
+
+  db.semconv.dual_emit:
+    declarative_name: general.db.semconv.dual_emit
+    description: "With `version: 1`, emits both the old and the stable database semantic conventions. Not supported under v3 preview."
+    type: boolean
+    default: false
+
+  code.semconv.version:
+    declarative_name: general.code.semconv.version
+    description: "Code semantic convention version to emit: `0` for the old conventions or `1` for the stable conventions. Takes precedence over `stability_opt_in_list`. Under v3 preview only `1` is supported and it is the default."
+    type: int
+    default: 0
+
+  code.semconv.dual_emit:
+    declarative_name: general.code.semconv.dual_emit
+    description: "With `version: 1`, emits both the old and the stable code semantic conventions. Not supported under v3 preview."
+    type: boolean
+    default: false
+
+  rpc.semconv.version:
+    declarative_name: general.rpc.semconv.version
+    description: "RPC semantic convention version to emit: `0` for the current conventions or `1` together with `experimental: true` for the preview conventions. Takes precedence over the semantic convention opt-in settings."
+    type: int
+    default: 0
+
+  rpc.semconv.experimental:
+    declarative_name: general.rpc.semconv.experimental
+    description: "With `version: 1`, selects the preview RPC semantic conventions. Required, because version 1 of the RPC semantic conventions is not yet stable."
+    type: boolean
+    default: false
+
+  rpc.semconv.dual_emit:
+    declarative_name: general.rpc.semconv.dual_emit
+    description: "With `version: 1` and `experimental: true`, emits both the current and the preview RPC semantic conventions."
+    type: boolean
+    default: false
+
+  messaging.semconv.version:
+    declarative_name: general.messaging.semconv.version
+    description: "Messaging semantic convention version to emit: `0` for the current conventions or `1` together with `experimental: true` for the preview conventions. Takes precedence over the semantic convention opt-in settings. Under v3 preview only the preview conventions are supported and they are the default."
+    type: int
+    default: 0
+
+  messaging.semconv.experimental:
+    declarative_name: general.messaging.semconv.experimental
+    description: "With `version: 1`, selects the preview messaging semantic conventions. Required, because version 1 of the messaging semantic conventions is not yet stable."
+    type: boolean
+    default: false
+
+  messaging.semconv.dual_emit:
+    declarative_name: general.messaging.semconv.dual_emit
+    description: "With `version: 1` and `experimental: true`, emits both the current and the preview messaging semantic conventions. Not supported under v3 preview."
+    type: boolean
+    default: false
+
+  common.db.sqlcommenter.enabled:
+    name: otel.instrumentation.common.db.experimental.sqlcommenter.enabled
+    declarative_name: java.common.db.sqlcommenter/development.enabled
+    description: "Provides the default for whether to augment database queries with a comment containing the tracing information. See [sqlcommenter](https://google.github.io/sqlcommenter/) for more info. An instrumentation-specific setting takes precedence. WARNING: augmenting queries with tracing context will make query texts unique, which may have adverse impact on database performance."
+    type: boolean
+    default: false
+
+  common.db-statement-sanitizer.enabled:
+    name: otel.instrumentation.common.db-statement-sanitizer.enabled
+    description: "Deprecated: use `otel.instrumentation.common.db.query-sanitization.enabled` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: boolean
+    default: true
+
+  common.database.statement_sanitizer.enabled:
+    declarative_name: java.common.database.statement_sanitizer.enabled
+    description: "Deprecated: use `java.common.db.query_sanitization.enabled` instead. It is ignored under v3 preview."
+    type: boolean
+    default: true
+
+  common.database.sqlcommenter.enabled:
+    declarative_name: java.common.database.sqlcommenter/development.enabled
+    description: "Deprecated: use `java.common.db.sqlcommenter/development.enabled` instead. It is ignored under v3 preview."
+    type: boolean
+    default: false
+
+  common.logging.trace-id:
+    name: otel.instrumentation.common.logging.trace-id
+    declarative_name: java.common.logging.trace_id
+    description: "Deprecated: use `otel.instrumentation.common.logging.trace-id-key` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: string
+    default: trace_id
+
+  common.logging.span-id:
+    name: otel.instrumentation.common.logging.span-id
+    declarative_name: java.common.logging.span_id
+    description: "Deprecated: use `otel.instrumentation.common.logging.span-id-key` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: string
+    default: span_id
+
+  common.logging.trace-flags:
+    name: otel.instrumentation.common.logging.trace-flags
+    declarative_name: java.common.logging.trace_flags
+    description: "Deprecated: use `otel.instrumentation.common.logging.trace-flags-key` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: string
+    default: trace_flags
+
+  semconv-stability.opt-in.deprecated-declarative-name:
+    declarative_name: general.semconv_stability.opt_in
+    description: "Deprecated: use `general.stability_opt_in_list` instead. It is ignored when `general.stability_opt_in_list` is configured."
+    type: list
+    default: ""

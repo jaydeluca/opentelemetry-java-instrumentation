@@ -5,6 +5,7 @@
 
 package io.opentelemetry.instrumentation.docs;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
 import io.opentelemetry.api.incubator.config.DeclarativeConfigProperties;
@@ -13,18 +14,23 @@ import io.opentelemetry.instrumentation.docs.internal.ConfigurationOption;
 import io.opentelemetry.instrumentation.docs.internal.ConfigurationType;
 import io.opentelemetry.instrumentation.docs.internal.DeclarativeSchema;
 import io.opentelemetry.instrumentation.docs.internal.InstrumentationMetadata;
+import io.opentelemetry.instrumentation.docs.internal.SharedConfigurationRegistry;
 import io.opentelemetry.instrumentation.docs.utils.YamlHelper;
 import io.opentelemetry.sdk.autoconfigure.spi.internal.DefaultConfigProperties;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -43,50 +49,69 @@ class DeclarativeConfigValidationTest {
 
   // Declarative names that were published under an earlier spelling. The bridge keeps them in
   // SPECIAL_MAPPINGS so existing configuration files keep working, but metadata.yaml must declare
-  // the name from the declarative configuration schema.
+  // the name from the declarative configuration schema. They are documented as deprecated global
+  // configurations instead.
   private static final Map<String, String> DEPRECATED_DECLARATIVE_NAMES =
       Map.of("general.semconv_stability.opt_in", "general.stability_opt_in_list");
+
+  // Flat properties that are read directly from system properties and environment variables
+  // rather than through the bridge, so the flat -> declarative round-trip does not apply.
+  private static final Set<String> SYSTEM_PROPERTY_ONLY_NAMES =
+      Set.of("otel.semconv-stability.preview");
+
+  private static final String SHARED_DEFINITIONS = "shared-config-definitions.yaml";
+
+  private static final String GLOBAL_CONFIGURATIONS_SOURCE =
+      SHARED_DEFINITIONS + " (global_configurations)";
 
   @Test
   void validateDeclarativeNames() throws IOException {
     List<ValidationResult> results = new ArrayList<>();
     List<String> errors = new ArrayList<>();
 
-    try (Stream<Path> paths = Files.walk(INSTRUMENTATION_DIR)) {
-      List<Path> metadataFiles =
-          paths.filter(p -> p.getFileName().toString().equals("metadata.yaml")).toList();
+    Map<String, List<ConfigurationOption>> configsBySource = new LinkedHashMap<>();
+    try {
+      configsBySource.putAll(metadataConfigurations());
+    } catch (IllegalStateException e) {
+      errors.add(e.getMessage());
+    }
+    // Shared definitions are validated here as well, since a module only carries a ref to them.
+    // Global configurations aren't declared by any module, so they would otherwise be unchecked.
+    SharedConfigurationRegistry registry = SharedConfigurationRegistry.getInstance();
+    configsBySource.put(
+        SHARED_DEFINITIONS + " (configurations)", List.copyOf(registry.definitions().values()));
+    configsBySource.put(
+        GLOBAL_CONFIGURATIONS_SOURCE, List.copyOf(registry.globalConfigurations().values()));
 
-      for (Path metadataFile : metadataFiles) {
-        String content = Files.readString(metadataFile);
-        try {
-          InstrumentationMetadata metadata = YamlHelper.metaDataParser(content);
+    configsBySource.forEach(
+        (source, configs) -> {
+          for (ConfigurationOption config : configs) {
+            // Structured-list schemas are validated structurally, even for declarative-only
+            // configs (those without a flat property name, such as url_template_rules).
+            validateStructuredListSchema(source, config, errors);
 
-          for (ConfigurationOption config : metadata.getConfigurations()) {
-            // Structured-list schemas are validated structurally, even for declarative-only configs
-            // (those without a flat property name, such as url_template_rules).
-            validateStructuredListSchema(metadataFile, config, errors);
-
-            // Deprecated spellings stay resolvable at runtime, but must not be declared here.
-            validateNotDeprecated(metadataFile, config, errors);
+            // Deprecated spellings stay resolvable at runtime, but must not be declared in a
+            // module's metadata.yaml. Global configurations document them, so users can find them.
+            if (!source.equals(GLOBAL_CONFIGURATIONS_SOURCE)) {
+              validateNotDeprecated(source, config, errors);
+            }
 
             // The flat -> declarative round-trip needs a flat system property to drive the bridge.
-            // Declarative-only configs (no name) are skipped here.
+            // Declarative-only configs (no name) are skipped here, as are flat properties that are
+            // read directly from system properties rather than through the bridge.
             if (config.name() != null
                 && !config.name().isBlank()
+                && !SYSTEM_PROPERTY_ONLY_NAMES.contains(config.name())
                 && config.declarativeName() != null
                 && !config.declarativeName().isBlank()) {
-              ValidationResult result = validateConfig(metadataFile, config);
+              ValidationResult result = validateConfig(source, config);
               results.add(result);
               if (!result.valid) {
                 errors.add(result.toString());
               }
             }
           }
-        } catch (Exception e) {
-          errors.add(String.format("Failed to parse %s: %s", metadataFile, e.getMessage()));
-        }
-      }
-    }
+        });
 
     long validCount = results.stream().filter(r -> r.valid).count();
     logger.info(
@@ -107,8 +132,80 @@ class DeclarativeConfigValidationTest {
     }
   }
 
+  /**
+   * Every declarative name with a special mapping in the bridge is a setting the agent reads, so it
+   * must be documented, either by a module's metadata.yaml or as a shared or global configuration.
+   * Without this, a setting read by the agent or the instrumentation API itself (rather than by a
+   * module) silently goes missing from docs/declarative-configuration-example.yaml.
+   */
+  @Test
+  void specialMappingsAreDocumented() throws Exception {
+    Set<String> documented = new HashSet<>();
+    metadataConfigurations().values().stream()
+        .flatMap(List::stream)
+        .map(ConfigurationOption::declarativeName)
+        .filter(Objects::nonNull)
+        .forEach(documented::add);
+    SharedConfigurationRegistry registry = SharedConfigurationRegistry.getInstance();
+    Stream.concat(
+            registry.definitions().values().stream(),
+            registry.globalConfigurations().values().stream())
+        .map(ConfigurationOption::declarativeName)
+        .filter(Objects::nonNull)
+        .forEach(documented::add);
+
+    List<String> undocumented =
+        specialMappings().keySet().stream()
+            .filter(name -> !documented.contains(name))
+            .sorted()
+            .toList();
+
+    assertThat(undocumented)
+        .describedAs(
+            "Declarative names mapped in ConfigPropertiesBackedDeclarativeConfigProperties but not"
+                + " documented in any metadata.yaml or in "
+                + SHARED_DEFINITIONS
+                + ". Document them in the owning module's metadata.yaml, or in"
+                + " global_configurations if the agent or instrumentation API reads them.")
+        .isEmpty();
+  }
+
+  private static Map<String, List<ConfigurationOption>> metadataConfigurations()
+      throws IOException {
+    Map<String, List<ConfigurationOption>> configsBySource = new LinkedHashMap<>();
+    try (Stream<Path> paths = Files.walk(INSTRUMENTATION_DIR)) {
+      List<Path> metadataFiles =
+          paths.filter(p -> p.getFileName().toString().equals("metadata.yaml")).toList();
+
+      for (Path metadataFile : metadataFiles) {
+        String content = Files.readString(metadataFile);
+        try {
+          InstrumentationMetadata metadata = YamlHelper.metaDataParser(content);
+          configsBySource.put(metadataFile.toString(), metadata.getConfigurations());
+        } catch (Exception e) {
+          throw new IllegalStateException(
+              String.format("Failed to parse %s: %s", metadataFile, e.getMessage()), e);
+        }
+      }
+    }
+    return configsBySource;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, String> specialMappings() throws ReflectiveOperationException {
+    // the mappings are private to the bridge, which has no reason to expose them outside of this
+    // check
+    Field field =
+        Class.forName(
+                "io.opentelemetry.instrumentation.config.bridge"
+                    + ".ConfigPropertiesBackedDeclarativeConfigProperties")
+            .getDeclaredField("SPECIAL_MAPPINGS");
+    field.setAccessible(true);
+    return (Map<String, String>) field.get(null);
+  }
+
   private static void validateNotDeprecated(
-      Path metadataFile, ConfigurationOption config, List<String> errors) {
+      String source, ConfigurationOption config, List<String> errors) {
     if (config.declarativeName() == null) {
       return;
     }
@@ -119,13 +216,13 @@ class DeclarativeConfigValidationTest {
               Locale.ROOT,
               "Deprecated declarative_name in %s: '%s' is kept in the bridge for backwards"
                   + " compatibility only; use '%s' instead.",
-              metadataFile,
+              source,
               config.declarativeName(),
               replacement));
     }
   }
 
-  private static ValidationResult validateConfig(Path metadataFile, ConfigurationOption config) {
+  private static ValidationResult validateConfig(String source, ConfigurationOption config) {
     String flatProperty = config.name();
     String declarativePath = config.declarativeName();
     ConfigurationType type = config.type();
@@ -154,7 +251,7 @@ class DeclarativeConfigValidationTest {
     boolean valid = Objects.equals(testValue.expectedValue, retrievedValue);
 
     return new ValidationResult(
-        metadataFile.toString(),
+        source,
         flatProperty,
         declarativePath,
         type,
@@ -248,11 +345,11 @@ class DeclarativeConfigValidationTest {
    * such as {@code url_template_rules}, which the round-trip check above cannot exercise.
    */
   private static void validateStructuredListSchema(
-      Path metadataFile, ConfigurationOption config, List<String> errors) {
+      String source, ConfigurationOption config, List<String> errors) {
     if (config.declarativeType() != ConfigurationType.STRUCTURED_LIST) {
       return;
     }
-    String label = metadataFile + " (" + config.declarativeName() + ")";
+    String label = source + " (" + config.declarativeName() + ")";
     DeclarativeSchema schema = config.declarativeSchema();
     if (schema == null) {
       errors.add(label + ": structured_list config is missing a declarative_schema");

@@ -21,3 +21,15 @@ configurations:
     default: false
   - ref: common.db.query-sanitization.enabled
   - ref: common.peer-service-mapping
+  - name: otel.instrumentation.lettuce.query-sanitization.enabled
+    declarative_name: java.lettuce.query_sanitization.enabled
+    description: >
+      Enables query sanitization for Lettuce queries. Takes precedence over
+      otel.instrumentation.common.db.query-sanitization.enabled.
+    type: boolean
+    default: true
+  - name: otel.instrumentation.lettuce.statement-sanitizer.enabled
+    declarative_name: java.lettuce.statement_sanitizer.enabled
+    description: "Deprecated: use `otel.instrumentation.lettuce.query-sanitization.enabled` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: boolean
+    default: true

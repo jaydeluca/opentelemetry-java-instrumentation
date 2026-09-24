@@ -46,8 +46,11 @@ public class DocGeneratorApplication {
       writer.write(
           "# each module references them by id via `metric_refs` and `configuration_refs`.\n");
       writer.write(
+          "# `global_configuration_refs` lists the configurations read by the agent itself rather\n");
+      writer.write("# than by a specific instrumentation.\n");
+      writer.write(
           "# For more information see: https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/13468\n\n");
-      writer.write("file_format: 0.7\n\n");
+      writer.write("file_format: 0.8\n\n");
       YamlHelper.generateInstrumentationYaml(modules, writer);
     }
 

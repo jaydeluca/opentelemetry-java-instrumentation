@@ -8,3 +8,15 @@ semantic_conventions:
 library_link: https://github.com/ClickHouse/clickhouse-java
 configurations:
   - ref: common.db.query-sanitization.enabled
+  - name: otel.instrumentation.clickhouse.query-sanitization.enabled
+    declarative_name: java.clickhouse.query_sanitization.enabled
+    description: >
+      Enables query sanitization for ClickHouse queries. Takes precedence over
+      otel.instrumentation.common.db.query-sanitization.enabled.
+    type: boolean
+    default: true
+  - name: otel.instrumentation.clickhouse.statement-sanitizer.enabled
+    declarative_name: java.clickhouse.statement_sanitizer.enabled
+    description: "Deprecated: use `otel.instrumentation.clickhouse.query-sanitization.enabled` instead. It is ignored under v3 preview and will be removed in 3.0."
+    type: boolean
+    default: true
